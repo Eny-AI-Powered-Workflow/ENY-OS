@@ -1,6 +1,4 @@
-# /home/obed/Documents/Eny_consulting/backend/app/db/base.py
-from sqlalchemy.orm import DeclarativeBase
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/db/base.py
+from sqlalchemy.ext.declarative import declarative_base
 
-
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base()

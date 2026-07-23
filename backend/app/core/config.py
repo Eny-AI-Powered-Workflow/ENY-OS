@@ -1,55 +1,43 @@
-# /home/obed/Documents/Eny_consulting/backend/app/core/config.py
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/core/config.py
+from pydantic import BaseSettings, Field
+from typing import List, Union
 import json
-
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Supabase
-    SUPABASE_URL: str 
-    SUPABASE_JWT_SECRET: str
-    SUPABASE_SERVICE_ROLE_KEY: str = ""  # admin-only, used by scripts/seed_dev_data.py -- never expose to frontend
-    DATABASE_URL: str
+    # API Settings
+    API_V1_STR: str = "/api/v1"
+    PROJECT_NAME: str = "ENY Consulting Platform"
 
-    # GoHighLevel
-    GHL_API_KEY: str = ""
-    GHL_LOCATION_ID: str = ""
-    GHL_BASE_URL: str = "https://services.leadconnectorhq.com"
+    # CORS Settings
+    BACKEND_CORS_ORIGINS: List[str] = []
 
-    # n8n
-    N8N_BASE_URL: str = "http://localhost:5678"
-    N8N_API_KEY: str = ""
+    # Security Settings
+    SUPABASE_JWT_SECRET: str = Field(..., env="SUPABASE_JWT_SECRET")
+    SUPABASE_JWT_AUDIENCE: str = Field("authenticated", env="SUPABASE_JWT_AUDIENCE")
 
-    # Claude
-    ANTHROPIC_API_KEY: str = ""
-    CLAUDE_MODEL: str = "claude-sonnet-5"  # verify current model string in docs.claude.com
+    # Database Settings
+    DATABASE_URL: str = Field(..., env="DATABASE_URL")
 
-    # Optional lead-enrichment parity with Pipeline Pro (wire up later, not needed for MVP)
-    APOLLO_API_KEY: str = ""
-    PERPLEXITY_API_KEY: str = ""
+    # External Service Settings
+    GHL_BASE_URL: str = Field("https://services.leadconnectorhq.com", env="GHL_BASE_URL")
+    GHL_PRIVATE_TOKEN: str = Field("", env="GHL_PRIVATE_TOKEN")
+    GHL_LOCATION_ID: str = Field("", env="GHL_LOCATION_ID")
 
-    ALLOWED_ORIGINS: object = [
-        "http://localhost:3000",
-        "https://eny-consulting-ai-powered-workflow.vercel.app",
-    ]
+    N8N_BASE_URL: str = Field("http://localhost:5678", env="N8N_BASE_URL")
+    N8N_API_KEY: str = Field("", env="N8N_API_KEY")
 
-    @field_validator("ALLOWED_ORIGINS", mode="before")
-    def parse_allowed_origins(cls, v):
-        if v == "" or v is None:
-            return [
-                "http://localhost:3000",
-                "https://eny-consulting-ai-powered-workflow.vercel.app",
-            ]
-        if isinstance(v, str):
-            try:
-                parsed = json.loads(v)
-                return parsed
-            except ValueError:
-                return [item.strip() for item in v.split(",") if item.strip()]
-        return v
+    ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")
+    CLAUDE_MODEL: str = Field("claude-3-opus-20240229", env="CLAUDE_MODEL")
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Server Settings
+    HOST: str = Field("0.0.0.0", env="HOST")
+    PORT: int = Field(8000, env="PORT")
+
+    class Config:
+        case_sensitive = True
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
 
 
 settings = Settings()

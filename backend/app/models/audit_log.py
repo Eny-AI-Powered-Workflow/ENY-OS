@@ -1,20 +1,17 @@
-# /home/obed/Documents/Eny_consulting/backend/app/models/audit_log.py
-import uuid
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, String, func
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/models/audit_log.py
+from sqlalchemy import Column, Boolean, Text, DateTime
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
-
+import uuid
+from sqlalchemy.sql import func
 from app.db.base import Base
 
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    permission_scope: Mapped[str] = mapped_column(String, nullable=False)
-    granted: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    path: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)  # References auth.users.id
+    permission_scope = Column(Text, nullable=False)
+    granted = Column(Boolean, nullable=False)
+    path = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

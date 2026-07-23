@@ -1,16 +1,90 @@
-# /home/obed/Documents/Eny_consulting/backend/app/api/v1/endpoints/leads.py
-from fastapi import APIRouter, Depends
-
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/leads.py
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from app.db.session import get_db
 from app.api.deps import require_permission
-from app.schemas.auth import UserContext
-from app.services.ghl_service import ghl_client
+from app.services.ghl_service import ghl_service
 
 router = APIRouter()
 
 
-@router.get("")
-async def list_leads(user: UserContext = Depends(require_permission("leads:read"))):
-    """Pulls contacts from GoHighLevel. This is a read-through proxy, not a
-    local copy of GHL's data -- GHL stays the system of record.
+@router.get("/", dependencies=[Depends(require_permission("leads:read"))])
+async def get_leads(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
     """
-    return await ghl_client.get_contacts()
+    Get a list of leads/contacts from GHL.
+    Requires leads:read permission.
+    """
+    try:
+        leads = await ghl_service.get_contacts(limit=limit, offset=offset)
+        return {
+            "leads": leads,
+            "total": len(leads),  # In a real implementation, this would come from GHL headers
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve leads: {str(e)}"
+        )
+
+
+@router.get("/{lead_id}", dependencies=[Depends(require_permission("leads:read"))])
+async def get_lead(
+    lead_id: str = Path(..., description="The ID of the lead to retrieve"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific lead by ID from GHL.
+    Requires leads:read permission.
+    """
+    try:
+        lead = await ghl_service.get_contact(lead_id)
+        if not lead:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Lead with ID {lead_id} not found"
+            )
+        return lead
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve lead: {str(e)}"
+        )
+
+
+@router.post("/{lead_id}/tags", dependencies=[Depends(require_permission("leads:write"))])
+async def add_tags_to_lead(
+    lead_id: str = Path(..., description="The ID of the lead to tag"),
+    tags: List[str] = ...,
+    db: Session = Depends(get_db)
+):
+    """
+    Add tags to a lead in GHL.
+    Requires leads:write permission.
+    """
+    try:
+        success = await ghl_service.tag_contact(lead_id, tags)
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to add tags to lead {lead_id}"
+            )
+        return {
+            "status": "success",
+            "message": f"Tags {tags} added to lead {lead_id}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to add tags to lead: {str(e)}"
+        )

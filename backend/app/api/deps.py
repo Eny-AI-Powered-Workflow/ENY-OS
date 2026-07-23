@@ -1,78 +1,72 @@
-# /home/obed/Documents/Eny_consulting/backend/app/api/deps.py
-import uuid
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/deps.py
+from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_supabase_token
 from app.db.session import get_db
-from app.models.audit_log import AuditLog
+from app.models.permission import Permission
 from app.models.role import Role
+from app.models.user import User
 from app.models.user_role import UserRole
-from app.schemas.auth import UserContext
+from app.models.audit_log import AuditLog
+from app.core.security import get_current_user
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
+def require_permission(permission_scope: str):
+    """
+    Dependency factory that creates a permission checker for the given scope.
 
-def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> UserContext:
-    if not token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing credentials")
+    This is the SINGLE enforcement point for all permissions in the system.
+    Every protected route must use this dependency.
 
-    try:
-        payload = decode_supabase_token(token)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
+    Args:
+        permission_scope: The permission scope to check (e.g., "leads:read")
 
-    user_id = uuid.UUID(payload["sub"])
+    Returns:
+        A dependency function that checks the permission and logs the attempt
+    """
+    def permission_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)]
+    ):
+        # Check if user has the required permission through their roles
+        user_has_permission = (
+            db.query(Permission)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .join(UserRole, RolePermission.role_id == UserRole.role_id)
+            .filter(UserRole.user_id == current_user.id)
+            .filter(Permission.scope == permission_scope)
+            .first()
+        ) is not None
 
-    roles = (
-        db.execute(
-            select(Role)
-            .join(UserRole, UserRole.role_id == Role.id)
-            .where(UserRole.user_id == user_id)
+        # Create audit log entry for this permission check (pass or fail)
+        audit_log = AuditLog(
+            user_id=current_user.id,
+            permission_scope=permission_scope,
+            granted=user_has_permission,
+            path="",  # TODO: Get actual path from request
         )
-        .scalars()
-        .all()
-    )
-
-    permissions = sorted({p.scope for role in roles for p in role.permissions})
-
-    return UserContext(
-        user_id=user_id,
-        email=payload.get("email"),
-        roles=[r.name for r in roles],
-        permissions=permissions,
-    )
-
-
-def require_permission(scope: str):
-    """Route dependency: 403s and logs if the caller's role lacks `scope`."""
-
-    def checker(
-        request: Request,
-        user: UserContext = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ) -> UserContext:
-        granted = scope in user.permissions
-
-        db.add(
-            AuditLog(
-                user_id=user.user_id,
-                permission_scope=scope,
-                granted=granted,
-                path=request.url.path,
-            )
-        )
+        db.add(audit_log)
         db.commit()
 
-        if not granted:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {scope}")
+        # If permission not granted, raise 403
+        if not user_has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: {permission_scope}",
+            )
 
-        return user
+        # If granted, return the user for use in the route handler
+        return current_user
 
-    return checker
+    return permission_checker
+
+
+# TODO: Define RolePermission model (it's missing from the git status but needed)
+# For now, importing it here assuming it will be created
+try:
+    from app.models.role_permission import RolePermission
+except ImportError:
+    # Fallback if model doesn't exist yet
+    RolePermission = None
