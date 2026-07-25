@@ -1,15 +1,17 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/app/dashboard/Sidebar.tsx
+'use client'
+
 import Link from 'next/link'
 import { usePermissions } from '@/lib/permissions'
 import { MODULES } from '@/lib/permissions'
 import { AccessBadge } from '@/components/AccessBadge'
-import { UsersDashboard, LayoutDashboard, ClipboardList, MessagesSquare,
-          BarChart3, Settings, LogOut, Monitor, Users, GraduationCap, Megaphone,
-          Pencil } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { Monitor, Users, GraduationCap, Megaphone, Settings, Pencil, LayoutDashboard, ClipboardList, MessagesSquare, BarChart3, LogOut } from 'lucide-react'
 import { DashboardContent } from '@/components/DashboardContent'
 
 export function Sidebar() {
   const { canAll } = usePermissions()
+  const pathname = usePathname()
 
   // Icon mapping
   const iconMap: Record<string, any> = {
@@ -19,7 +21,6 @@ export function Sidebar() {
     'Megaphone': Megaphone,
     'Settings': Settings,
     'Pencil': Pencil,
-    'UsersDashboard': UsersDashboard,
     'LayoutDashboard': LayoutDashboard,
     'ClipboardList': ClipboardList,
     'MessagesSquare': MessagesSquare,
@@ -39,19 +40,19 @@ export function Sidebar() {
       </div>
       <nav className="mt-4 space-y-1 px-2">
         {accessibleModules.map((module, index) => {
-          const Icon = iconMap[module.icon] || UsersDashboard
+          const Icon = iconMap[module.icon] || LayoutDashboard
           return (
             <Link
               key={module.name}
               href={module.href}
               className={`flex w-items-center px-3 py-2 text-sm font-medium
-                        ${window.location.pathname === module.href
+                        ${pathname === module.href
                           ? 'bg-primary text-primary-foreground'
                           : 'text-muted-foreground hover:bg-muted'}`}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="ml-3">{module.name}</span>
-            </Link>
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="ml-3">{module.name}</span>
+              </Link>
           )
         })}
       </nav>

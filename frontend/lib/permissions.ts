@@ -1,6 +1,8 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/lib/permissions.ts
-import { useSession } from '@supabase/auth-helpers-react'
-import { useMemo } from 'react'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabaseClient'
 
 // Define the modules and their required permissions
 export interface Module {
@@ -52,38 +54,62 @@ export const MODULES: Module[] = [
 
 // Helper function to check if a user has a specific permission
 export function usePermissions() {
-  const { data: session } = useSession()
+  const [session, setSession] = useState<any>(null)
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [permissions, setPermissions] = useState<string[]>([])
 
-  // Get user roles from session metadata
-  const userRoles = useMemo(() => {
-    return session?.user?.user_metadata?.roles as string[] || []
-  }, [session])
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (session?.user?.user_metadata?.roles) {
+        setUserRoles(session.user.user_metadata.roles as string[])
+      } else {
+        setUserRoles([])
+      }
+    })
 
-  // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
-  const rolePermissions = useMemo(() => {
-    return {
-      'ceo': ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write'],
-      'programs_manager': ['students:read', 'students:write', 'pipeline:read'],
-      'customer_success': ['students:read', 'students:write'],
-      'business_support': [], // Will be populated when content scopes exist
-      'executive_assistant': ['pipeline:read', 'agents:trigger'],
-      'enrollment': ['leads:read', 'leads:write', 'pipeline:read'],
-      'developer': ['agents:trigger', 'agents:configure']
-    }
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      if (session?.user?.user_metadata?.roles) {
+        setUserRoles(session.user.user_metadata.roles as string[])
+      } else {
+        setUserRoles([])
+      }
+    })
+
+    // Cleanup
+    return () => subscription.unsubscribe()
   }, [])
 
+  // Calculate permissions from userRoles
+  // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
+  const rolePermissions = {
+    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write'],
+    programs_manager: ['students:read', 'students:write', 'pipeline:read'],
+    customer_success: ['students:read', 'students:write'],
+    business_support: [], // Will be populated when content scopes exist
+    executive_assistant: ['pipeline:read', 'agents:trigger'],
+    enrollment: ['leads:read', 'leads:write', 'pipeline:read'],
+    developer: ['agents:trigger', 'agents:configure']
+  }
+
   // Calculate all permissions for the user based on their roles
-  const permissions = useMemo(() => {
+  useEffect(() => {
     const perms: string[] = []
     userRoles.forEach(role => {
-      const rolePerms = rolePermissions[role]
+      const rolePerms = rolePermissions[role as keyof typeof rolePermissions]
       if (rolePerms) {
         perms.push(...rolePerms)
       }
     })
     // Remove duplicates while preserving order
-    return [...new Set(perms)]
-  }, [userRoles, rolePermissions])
+    const uniquePerms = Array.from(new Set(perms))
+    setPermissions(uniquePerms)
+  }, [userRoles])
 
   // Function to check if user has a specific permission
   const can = (permission: string) => {

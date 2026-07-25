@@ -1,4 +1,6 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/components/AccessBadge.tsx
+'use client'
+
 import { usePermissions } from '@/lib/permissions'
 
 export function AccessBadge() {
@@ -17,10 +19,6 @@ export function AccessBadge() {
             {userRoles[0]?.toUpperCase()?.charAt(0) || 'U'}
           </div>
           <div>
-            {/*
-              In a real app, we would get the user's name or email from the session.
-              For now, we'll just show the first role.
-            */}
             <div className="font-medium">{userRoles[0]}</div>
             <div className="flex flex-wrap gap-1">
               {userRoles.map((role: string) => (

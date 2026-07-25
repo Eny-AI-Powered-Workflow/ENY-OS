@@ -1,4 +1,6 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/components/Widget.tsx
+'use client'
+
 import {
   Users,
   Mail,
@@ -6,14 +8,14 @@ import {
   CheckCircle,
   TrendingUp,
   TrendingDown
-} from 'lucide-react';
+} from 'lucide-react'
 
 interface WidgetProps {
-  title: string;
-  value: string;
-  change: string;
-  icon: keyof typeof IconMap;
-  trend?: 'up' | 'down' | 'neutral';
+  title: string
+  value: string
+  change: string
+  icon: keyof typeof IconMap
+  trend?: 'up' | 'down' | 'neutral'
 }
 
 const IconMap = {
@@ -21,7 +23,7 @@ const IconMap = {
   Mail: Mail,
   DollarSign: DollarSign,
   CheckCircle: CheckCircle
-} as const;
+} as const
 
 export function Widget({
   title,
@@ -30,23 +32,23 @@ export function Widget({
   icon,
   trend = 'neutral'
 }: WidgetProps) {
-  const Icon = IconMap[icon];
+  const Icon = IconMap[icon]
 
   const getTrendClass = () => {
     switch (trend) {
-      case 'up': return 'text-green-500';
-      case 'down': return 'text-red-500';
-      default: return 'text-muted-foreground';
+      case 'up': return 'text-green-500'
+      case 'down': return 'text-red-500'
+      default: return 'text-muted-foreground'
     }
-  };
+  }
 
   const getTrendIcon = () => {
     switch (trend) {
-      case 'up': return <TrendingUp className="h-4 w-4" />;
-      case 'down': return <TrendingDown className="h-4 w-4" />;
-      default: return null;
+      case 'up': return <TrendingUp className="h-4 w-4" />
+      case 'down': return <TrendingDown className="h-4 w-4" />
+      default: return null
     }
-  };
+  }
 
   return (
     <div className="bg-card rounded-lg border border-muted/20 p-6">
@@ -64,5 +66,5 @@ export function Widget({
         <p className="text-2xl font-semibold text-foreground">{value}</p>
       </div>
     </div>
-  );
+  )
 }

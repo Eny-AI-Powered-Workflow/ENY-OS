@@ -3,11 +3,7 @@ import Link from 'next/link'
 import { usePermissions } from '@/lib/permissions'
 import { MODULES } from '@/lib/permissions'
 import { AccessBadge } from '@/components/AccessBadge'
-import {
-  Monitor, Users, GraduationCap, Megaphone, Settings, Pencil,
-  UsersDashboard, LayoutDashboard, ClipboardList, MessagesSquare,
-  BarChart3, LogOut
-} from 'lucide-react'
+import { Monitor, Users, GraduationCap, Megaphone, Settings, Pencil, LayoutDashboard, ClipboardList, MessagesSquare, BarChart3, LogOut } from 'lucide-react'
 
 export function Sidebar() {
   const { canAll } = usePermissions()
@@ -20,7 +16,6 @@ export function Sidebar() {
     'Megaphone': Megaphone,
     'Settings': Settings,
     'Pencil': Pencil,
-    'UsersDashboard': UsersDashboard,
     'LayoutDashboard': LayoutDashboard,
     'ClipboardList': ClipboardList,
     'MessagesSquare': MessagesSquare,
@@ -40,7 +35,7 @@ export function Sidebar() {
       </div>
       <nav className="mt-4 space-y-1 px-2">
         {accessibleModules.map((module) => {
-          const Icon = iconMap[module.icon] || UsersDashboard
+          const Icon = iconMap[module.icon] || LayoutDashboard
           return (
             <Link
               key={module.name}
