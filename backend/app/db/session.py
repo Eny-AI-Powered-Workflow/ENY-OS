@@ -1,13 +1,11 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/db/session.py
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-import os
+from app.core.config import settings
 from app.db.base import Base
 
-# Get database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set")
+# Get database URL from settings
+DATABASE_URL = settings.DATABASE_URL
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

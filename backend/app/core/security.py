@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-import os
+from app.core.config import settings
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.models.user_role import UserRole
@@ -14,11 +14,8 @@ from app.models.permission import Permission
 security = HTTPBearer()
 
 # Supabase JWT settings
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
-SUPABASE_JWT_AUDIENCE = os.getenv("SUPABASE_JWT_AUDIENCE", "authenticated")
-
-if not SUPABASE_JWT_SECRET:
-    raise ValueError("SUPABASE_JWT_SECRET environment variable is not set")
+SUPABASE_JWT_SECRET = settings.SUPABASE_JWT_SECRET
+SUPABASE_JWT_AUDIENCE = settings.SUPABASE_JWT_AUDIENCE
 
 
 def get_current_user(

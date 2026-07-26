@@ -1,7 +1,8 @@
-# /home/obediting/Eny_consulting/Eny_consulting/Eny_consulting/backend/app/models/role.py
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/models/role.py
 from sqlalchemy import Column, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+import uuid
 from app.db.base import Base
 
 

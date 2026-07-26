@@ -1,16 +1,15 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/deps.py
-from typing import Annotated
+from typing import Any, Annotated
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.audit_log import AuditLog
 from app.models.permission import Permission
 from app.models.role import Role
-from app.models.user import User
+from app.models.role_permission import RolePermission
 from app.models.user_role import UserRole
-from app.models.audit_log import AuditLog
-from app.core.security import get_current_user
 
 
 def require_permission(permission_scope: str):
@@ -27,7 +26,7 @@ def require_permission(permission_scope: str):
         A dependency function that checks the permission and logs the attempt
     """
     def permission_checker(
-        current_user: Annotated[User, Depends(get_current_user)],
+        current_user: Annotated[Any, Depends(get_current_user)],
         db: Annotated[Session, Depends(get_db)]
     ):
         # Check if user has the required permission through their roles
@@ -61,12 +60,3 @@ def require_permission(permission_scope: str):
         return current_user
 
     return permission_checker
-
-
-# TODO: Define RolePermission model (it's missing from the git status but needed)
-# For now, importing it here assuming it will be created
-try:
-    from app.models.role_permission import RolePermission
-except ImportError:
-    # Fallback if model doesn't exist yet
-    RolePermission = None
