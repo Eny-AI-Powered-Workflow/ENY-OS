@@ -235,3 +235,7 @@ class GHLService:
                 "sources_breakdown": {},
                 "recent_activities": []
             }
+
+
+# Create a singleton instance for use in the application
+ghl_service = GHLService()

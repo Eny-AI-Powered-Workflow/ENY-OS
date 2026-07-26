@@ -8,7 +8,8 @@ n8n owns the automation logic; this service just triggers workflows.
 import os
 import httpx
 import logging
-from typing import Dict, Any, Optional
+import asyncio
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -29,51 +30,50 @@ class N8NService:
 
     async def trigger_workflow(
         self,
-        workflow_name: str,
+        workshop_name: str,
         data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Trigger an n8n workflow by name via webhook.
+        Trigger an n8n workshop by name via webhook.
 
         Args:
-            workflow_name: The name of the workflow to trigger (e.g., "lead-scorer")
-            data: The data to send to the workflow webhook
+            workshop_name: The name of the workshop to trigger (e.g., "lead-scorer")
+            data: The data to send to the workshop webhook
 
         Returns:
-            The response from the n8n workflow execution
+            The response from the n8n workshop execution
         """
-        # In a real implementation, we would have a mapping from workflow names to webhook URLs
-        # For now, we'll construct a webhook URL based on the workflow name
-        webhook_url = f"{self.base_url}/webhook/{workflow_name}"
+        # In a real implementation, we would have a mapping from workshop names to webhook URLs
+        # For now, we'll construct a webhook URL based on the workshop name
+        webhook_url = f"{self.base_url}/webhook/{workshop_name}"
 
         # Mock fallback for development
         if not self.api_key:
-            logger.info(f"Mock: Triggering n8n workflow '{workflow_name}' with data: {data}")
+            logger.info(f"Mock: Triggering n8n workshop '{workshop_name}' with data: {data}")
             # Simulate some processing time
-            import asyncio
             await asyncio.sleep(0.1)
 
-            # Return mock response based on workflow type
-            if "lead-scorer" in workflow_name:
+            # Return mock response based on workshop type
+            if "lead-scorer" in workshop_name:
                 return {
                     "status": "success",
-                    "workflow": workflow_name,
+                    "workshop": workshop_name,
                     "score": 85,
                     "tags": ["hot", "follow-up"],
-                    "message": "Lead scored successfully"
+                    "message": "Workshop scored successfully"
                 }
-            elif "followup" in workflow_name:
+            elif "followup" in workshop_name:
                 return {
                     "status": "success",
-                    "workflow": workflow_name,
+                    "workshop": workshop_name,
                     "actions_taken": ["email_sent", "sms_scheduled"],
                     "message": "Follow-up sequence initiated"
                 }
             else:
                 return {
                     "status": "success",
-                    "workflow": workflow_name,
-                    "message": f"Workflow {workflow_name} executed successfully"
+                    "workshop": workshop_name,
+                    "message": f"Workshop {workshop_name} executed successfully"
                 }
 
         # Real n8n API call
@@ -88,17 +88,17 @@ class N8NService:
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error triggering workflow {workflow_name}: {e}")
+            logger.error(f"HTTP error triggering workshop {workshop_name}: {e}")
             return {
                 "status": "error",
-                "workflow": workflow_name,
+                "workshop": workshop_name,
                 "error": f"HTTP {e.response.status_code}: {e.response.text}"
             }
         except Exception as e:
-            logger.error(f"Error triggering workflow {workflow_name}: {e}")
+            logger.error(f"Error triggering workshop {workshop_name}: {e}")
             return {
                 "status": "error",
-                "workflow": workflow_name,
+                "workshop": workshop_name,
                 "error": str(e)
             }
 
@@ -111,11 +111,11 @@ class N8NService:
         Get workflow executions from n8n.
         """
         if not self.api_key:
-            logger.info("Mock: Fetching workflow executions")
+            logger.info("Mock: Fetching workshop executions")
             return [
                 {
                     "id": f"exec-{i}",
-                    "workflowId": workflow_id or "workflow-1",
+                    "workshopId": workshop_id or "workshop-1",
                     "status": "success" if i % 2 == 0 else "error",
                     "startedAt": f"2024-01-20T10:{i:02d}:00Z",
                     "finishedAt": f"2024-01-20T10:{i:02d}:05Z",
@@ -126,8 +126,8 @@ class N8NService:
         try:
             async with httpx.AsyncClient() as client:
                 params = {"limit": limit}
-                if workflow_id:
-                    params["workflowId"] = workflow_id
+                if workshop_id:
+                    params["workshopId"] = workshop_id
 
                 response = await client.get(
                     f"{self.base_url}/executions",
@@ -139,18 +139,18 @@ class N8NService:
                 data = response.json()
                 return data.get("data", [])
         except Exception as e:
-            logger.error(f"Error fetching workflow executions: {e}")
+            logger.error(f"Error fetching workshop executions: {e}")
             return []
 
-    async def get_workflow(self, workflow_name: str) -> Optional[Dict[str, Any]]:
+    async def get_workflow(self, workshop_name: str) -> Optional[Dict[str, Any]]:
         """
-        Get workflow details by name.
+        Get workshop details by name.
         """
         if not self.api_key:
-            logger.info(f"Mock: Fetching workflow {workflow_name}")
+            logger.info(f"Mock: Fetching workshop {workshop_name}")
             return {
-                "id": f"workflow-{hash(workflow_name) % 1000}",
-                "name": workflow_name,
+                "id": f"workshop-{hash(workshop_name) % 1000}",
+                "name": workshop_name,
                 "active": True,
                 "nodes": [],
                 "connections": {},
@@ -160,22 +160,22 @@ class N8NService:
 
         try:
             async with httpx.AsyncClient() as client:
-                # First get all workflows to find the one by name
+                # First get all workshops to find the one by name
                 response = await client.get(
-                    f"{self.base_url}/workflows",
+                    f"{self.base_url}/workshops",
                     headers=self.headers,
                     timeout=30.0
                 )
                 response.raise_for_status()
                 data = response.json()
 
-                # Find workflow by name
-                workflows = data.get("data", [])
-                for workflow in workflows:
-                    if workflow.get("name") == workflow_name:
-                        return workflow
+                # Find workshop by name
+                workshops = data.get("data", [])
+                for workshop in workshops:
+                    if workshop.get("name") == workshop_name:
+                        return workshop
 
                 return None
         except Exception as e:
-            logger.error(f"Error fetching workflow {workflow_name}: {e}")
+            logger.error(f"Error fetching workshop {workshop_name}: {e}")
             return None
