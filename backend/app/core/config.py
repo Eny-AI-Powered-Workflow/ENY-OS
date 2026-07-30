@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "ENY Consulting Platform"
 
     # CORS Settings
-    BACKEND_CORS_ORIGINS: List[str] = []
+    BACKEND_CORS_ORIGINS: str = "https://eny-os.vercel.app,https://eny-os.onrender.com"
 
     # Security Settings
     SUPABASE_URL: str = Field(..., env="SUPABASE_URL")
