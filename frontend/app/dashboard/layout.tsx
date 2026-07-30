@@ -1,5 +1,5 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/app/dashboard/layout.tsx
-import Sidebar from '@/components/Sidebar'
+import { Sidebar } from '@/components/Sidebar'
 import type { ReactNode } from 'react'
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
