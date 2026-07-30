@@ -5,49 +5,99 @@
 /* Custom styles with @layer */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    /* Rich Purple Primary */
+    --primary: 262 80% 40%; /* Rich Purple */
+    --primary-foreground: 0 0% 98%; /* White text on primary */
+
+    /* Background and Foreground */
+    --background: 0 0% 100%; /* White */
+    --foreground: 220 15% 15%; /* Dark grayish blue for text */
+
+    /* Card and Popover */
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 220 15% 15%; /* Dark grayish blue */
+    --popover: 0 0% 100%; /* White */
+    --popover-foreground: 220 15% 15%; /* Dark grayish blue */
+
+    /* Secondary - Light Gray */
+    --secondary: 220 10% 95%; /* Very light gray */
+    --secondary-foreground: 220 15% 15%; /* Dark grayish blue */
+
+    /* Muted - Soft Gray */
+    --muted: 220 10% 90%; /* Soft gray */
+    --muted-foreground: 220 10% 40%; /* Medium gray */
+
+    /* Accent - Gold */
+    --accent: 45 80% 50%; /* Gold */
+    --accent-foreground: 0 0% 98%; /* White text on gold */
+
+    /* Destructive - Red */
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+
+    /* Borders and Inputs */
+    --border: 220 10% 85%; /* Light gray border */
+    --input: 220 10% 85%; /* Light gray input */
+    --ring: 262 80% 40%; /* Rich Purple for focus ring */
     --radius: 0.5rem;
+
+    /* Gold Accent Variations */
+    --gold-50: 45 80% 98%;
+    --gold-100: 45 80% 95%;
+    --gold-200: 45 80% 88%;
+    --gold-300: 45 80% 75%;
+    --gold-400: 45 80% 60%;
+    --gold-500: 45 80% 50%; /* Main gold */
+    --gold-600: 45 75% 45%;
+    --gold-700: 45 70% 40%;
+    --gold-800: 45 65% 35%;
+    --gold-900: 45 60% 30%;
+
+    /* Black and White */
+    --black: 0 0% 0%;
+    --white: 0 0% 100%;
+
+    --ring-offset-background: var(--background);
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
+    /* Dark mode - inversion of light mode */
+    --background: 220 15% 10%; /* Very dark blue */
+    --foreground: 0 0% 98%; /* White */
+
+    --primary: 262 80% 70%; /* Lighter purple for dark mode */
+    --primary-foreground: 220 15% 15%; /* Dark text on light purple */
+
+    --card: 220 15% 15%; /* Dark blue card */
+    --card-foreground: 0 0% 98%; /* White text on card */
+    --popover: 220 15% 15%; /* Dark blue popover */
+    --popover-foreground: 0 0% 98%; /* White text */
+
+    --secondary: 220 15% 20%; /* Darker blue for secondary */
+    --secondary-foreground: 0 0% 98%; /* White text */
+
+    --muted: 220 15% 25%; /* Even darker blue */
+    --muted-foreground: 220 10% 60%; /* Soft white */
+
+    --accent: 45 80% 50%; /* Keep gold same in dark mode */
+    --accent-foreground: 220 15% 15%; /* Dark text on gold */
+
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+
+    --border: 220 15% 25%; /* Darker border */
+    --input: 220 15% 25%; /* Darker input */
+    --ring: 262 80% 70%; /* Lighter purple for ring */
   }
+}
+
+/* Set base fonts */
+html {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+code, kbd, samp, pre {
+  font-family: 'IBM Plex Mono', monospace;
 }
 
 @layer components {
@@ -57,8 +107,26 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+  }
+
   .fade-in {
     animation: fade-in 0.3s ease-out forwards;
+  }
+
+  .slide-up {
+    animation: slide-up 0.4s ease-out forwards;
+  }
+
+  .pulse-subtle {
+    animation: pulse-subtle 3s ease-in-out infinite;
   }
 
   /* Custom utility classes */
@@ -71,7 +139,7 @@
   }
 
   .header-gradient {
-    @apply bg-gradient-to-r from-indigo-600 to-purple-600;
+    @apply bg-gradient-to-r from-primary to-accent;
   }
 
   .btn-primary {
@@ -82,8 +150,16 @@
     @apply border border-primary/50 text-primary hover:bg-primary/10;
   }
 
+  .btn-gold {
+    @apply bg-gold-500 text-gold-900 hover:bg-gold-600 focus:ring-2 focus:ring-gold-400/50;
+  }
+
+  .btn-gold-outline {
+    @apply border border-gold-500 text-gold-900 hover:bg-gold-500/10;
+  }
+
   .input-field {
-    @apply w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20 text-white placeholder-white/50;
+    @apply w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50;
   }
 
   .text-balance {
@@ -96,8 +172,8 @@
   }
 
   .sidebar-nav-link {
-    @apply flex w-items-center px-3 py-2 text-sm font-medium transition-colors
-           hover:bg-hover hover:text-foreground;
+    @apply flex w-items-center px-3 py-2 text-sm font-medium text-muted-foreground transition-colors
+           hover:bg-[var(--muted)/20] hover:text-[var(--foreground)];
   }
 
   .sidebar-nav-link-active {
@@ -147,3 +223,81 @@
     }
   }
 }
+
+/* Utility classes for purple colors */
+.text-purple-50 { @apply text-purple-50; }
+.text-purple-100 { @apply text-purple-100; }
+.text-purple-200 { @apply text-purple-200; }
+.text-purple-300 { @apply text-purple-300; }
+.text-purple-400 { @apply text-purple-400; }
+.text-purple-500 { @apply text-purple-500; }
+.text-purple-600 { @apply text-purple-600; }
+.text-purple-700 { @apply text-purple-700; }
+.text-purple-800 { @apply text-purple-800; }
+.text-purple-900 { @apply text-purple-900; }
+
+.bg-purple-50 { @apply bg-purple-50; }
+.bg-purple-100 { @apply bg-purple-100; }
+.bg-purple-200 { @apply bg-purple-200; }
+.bg-purple-300 { @apply bg-purple-300; }
+.bg-purple-400 { @apply bg-purple-400; }
+.bg-purple-500 { @apply bg-purple-500; }
+.bg-purple-600 { @apply bg-purple-600; }
+.bg-purple-700 { @apply bg-purple-700; }
+.bg-purple-800 { @apply bg-purple-800; }
+.bg-purple-900 { @apply bg-purple-900; }
+
+.border-purple-50 { @apply border-purple-50; }
+.border-purple-100 { @apply border-purple-100; }
+.border-purple-200 { @apply border-purple-200; }
+.border-purple-300 { @apply border-purple-300; }
+.border-purple-400 { @apply border-purple-400; }
+.border-purple-500 { @apply border-purple-500; }
+.border-purple-600 { @apply border-purple-600; }
+.border-purple-700 { @apply border-purple-700; }
+.border-purple-800 { @apply border-purple-800; }
+.border-purple-900 { @apply border-purple-900; }
+
+.hover\:bg-purple-600:hover { @apply bg-purple-600; }
+.hover\:bg-purple-700:hover { @apply bg-purple-700; }
+.focus\:ring-purple-400:focus { @apply ring-purple-400; }
+.focus\:ring-purple-300:focus { @apply ring-purple-300; }
+
+/* Utility classes for gold colors */
+.text-gold-50 { @apply text-gold-50; }
+.text-gold-100 { @apply text-gold-100; }
+.text-gold-200 { @apply text-gold-200; }
+.text-gold-300 { @apply text-gold-300; }
+.text-gold-400 { @apply text-gold-400; }
+.text-gold-500 { @apply text-gold-500; }
+.text-gold-600 { @apply text-gold-600; }
+.text-gold-700 { @apply text-gold-700; }
+.text-gold-800 { @apply text-gold-800; }
+.text-gold-900 { @apply text-gold-900; }
+
+.bg-gold-50 { @apply bg-gold-50; }
+.bg-gold-100 { @apply bg-gold-100; }
+.bg-gold-200 { @apply bg-gold-200; }
+.bg-gold-300 { @apply bg-gold-300; }
+.bg-gold-400 { @apply bg-gold-400; }
+.bg-gold-500 { @apply bg-gold-500; }
+.bg-gold-600 { @apply bg-gold-600; }
+.bg-gold-700 { @apply bg-gold-700; }
+.bg-gold-800 { @apply bg-gold-800; }
+.bg-gold-900 { @apply bg-gold-900; }
+
+.border-gold-50 { @apply border-gold-50; }
+.border-gold-100 { @apply border-gold-100; }
+.border-gold-200 { @apply border-gold-200; }
+.border-gold-300 { @apply border-gold-300; }
+.border-gold-400 { @apply border-gold-400; }
+.border-gold-500 { @apply border-gold-500; }
+.border-gold-600 { @apply border-gold-600; }
+.border-gold-700 { @apply border-gold-700; }
+.border-gold-800 { @apply border-gold-800; }
+.border-gold-900 { @apply border-gold-900; }
+
+.hover\:bg-gold-600:hover { @apply bg-gold-600; }
+.hover\:bg-gold-700:hover { @apply bg-gold-700; }
+.focus\:ring-gold-400:focus { @apply ring-gold-400; }
+.focus\:ring-gold-300:focus { @apply ring-gold-300; }

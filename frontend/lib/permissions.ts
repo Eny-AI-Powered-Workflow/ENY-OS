@@ -59,30 +59,35 @@ export function usePermissions() {
   const [permissions, setPermissions] = useState<string[]>([])
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (session?.user?.user_metadata?.roles) {
-        setUserRoles(session.user.user_metadata.roles as string[])
-      } else {
+    // Only run in browser environment
+    if (typeof window !== 'undefined') {
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setSession(session)
+        if (session?.user?.user_metadata?.roles) {
+          setUserRoles(session.user.user_metadata.roles as string[])
+        } else {
+          setUserRoles([])
+        }
+      }).catch(() => {
         setUserRoles([])
-      }
-    })
+      })
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session?.user?.user_metadata?.roles) {
-        setUserRoles(session.user.user_metadata.roles as string[])
-      } else {
-        setUserRoles([])
-      }
-    })
+      // Listen for auth changes
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSession(session)
+        if (session?.user?.user_metadata?.roles) {
+          setUserRoles(session.user.user_metadata.roles as string[])
+        } else {
+          setUserRoles([])
+        }
+      })
 
-    // Cleanup
-    return () => subscription.unsubscribe()
+      // Cleanup
+      return () => subscription.unsubscribe()
+    }
   }, [])
 
   // Calculate permissions from userRoles
@@ -117,13 +122,13 @@ export function usePermissions() {
   }
 
   // Function to check if user has all required permissions
-  const canAll = (permissions: string[]) => {
-    return permissions.every(p => can(p))
+  const canAll = (permissionsToCheck: string[]) => {
+    return permissionsToCheck.every(p => can(p))
   }
 
   // Function to check if user has any of the permissions
-  const canAny = (permissions: string[]) => {
-    return permissions.some(p => can(p))
+  const canAny = (permissionsToCheck: string[]) => {
+    return permissionsToCheck.some(p => can(p))
   }
 
   return {

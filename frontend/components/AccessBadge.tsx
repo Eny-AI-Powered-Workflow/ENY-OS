@@ -36,7 +36,7 @@ export function AccessBadge() {
         <div className="space-y-1">
           {permissions.map((perm: string) => (
             <div key={perm} className="flex items-center gap-2">
-              <div className="h-3 w-3 bg-green-500 rounded"></div>
+              <div className="h-3 w-3 bg-brass-500 rounded"></div>
               <span className="text-xs">{perm}</span>
             </div>
           ))}

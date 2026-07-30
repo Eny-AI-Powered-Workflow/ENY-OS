@@ -1,4 +1,197 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/app/dashboard/page.tsx
 export default function DashboardPage() {
-  return <div>Dashboard</div>
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center py-8">
+        <h1 className="text-3xl font-bold text-foreground mb-2">
+          Welcome to ENY Consulting Platform
+        </h1>
+        <p className="text-xl text-muted-foreground max-w-xl">
+          Your unified AI-powered platform for enterprise transformation
+        </p>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Active Users</p>
+              <p className="text-2xl font-bold text-foreground">1,247</p>
+            </div>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">👥</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">AI Agents</p>
+              <p className="text-2xl font-bold text-foreground">24</p>
+            </div>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">🤖</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Tasks Completed</p>
+              <p className="text-2xl font-bold text-foreground">3,482</p>
+            </div>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">✅</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">System Uptime</p>
+              <p className="text-2xl font-bold text-foreground">99.9%</p>
+            </div>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">⏱️</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Access Modules */}
+      <div className="space-y-6">
+        <h2 className="text-2xl font-semibold text-foreground">Quick Access</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <a href="/dashboard/ceo" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">C</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                CEO Cockpit
+              </h3>
+              <p className="text-muted-foreground text-center text-sm">
+                Access ceo cockpit tools and agents
+              </p>
+            </div>
+          </a>
+
+          <a href="/dashboard/enrollment" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">S</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                Sales & Enrollment
+              </h3>
+              <p className="text-muted-foreground text-center text-sm">
+                Access sales & enrollment tools and agents
+              </p>
+            </div>
+          </a>
+
+          <a href="/dashboard/student-success" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">S</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                Student Success
+              </h3>
+              <p className="text-muted-foreground text-center text-sm">
+                Access student success tools and agents
+              </p>
+            </div>
+          </a>
+
+          <a href="/dashboard/marketing" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">M</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                Marketing
+              </h3>
+              <p className="text-muted-foreground text-center text-sm">
+                Access marketing tools and agents
+              </p>
+            </div>
+          </a>
+
+          <a href="/dashboard/operations" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">O</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                Operations
+              </h3>
+              <p className="text-muted-foreground text-center text-sm">
+                Access operations tools and agents
+              </p>
+            </div>
+          </a>
+
+          <a href="/dashboard/writer" className="group">
+            <div className="bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border/50 hover:border-border/70 transition-all hover:shadow-lg hover:-translate-y-1">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-10 h-10 bg-brass-500/10 rounded-xl flex items-center justify-center">
+                  <span className="text-brass-500 font-medium">W</span>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-foreground text-center mb-2">
+                Writer & SOPs
+              </h3>
+              <p className="text-muted-foreground text-center text-sm text-muted-foreground">
+                Access writer & sops tools and agents
+              </p>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="space-y-4">
+        <h2 className="text-2xl font-semibold text-foreground">Recent Activity</h2>
+        <div className="space-y-4">
+          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50 flex items-center space-x-4">
+            <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">📊</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-foreground">Monthly Report Generated</h3>
+              <p className="text-muted-foreground text-sm">Sales team completed Q3 forecast analysis</p>
+              <p className="text-xs text-muted-foreground mt-1">2 hours ago • <span className="text-brass-500">View Report</span></p>
+            </div>
+          </div>
+
+          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50 flex items-center space-x-4">
+            <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
+              <span className="text-brass-500 text-xl">🤖</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-foreground">Agent Task Completed</h3>
+              <p className="text-muted-foreground text-sm">Enrollment agent processed 150 new applications</p>
+              <p className="text-xs text-muted-foreground mt-1">4 hours ago • <span className="text-brass-500">View Details</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }

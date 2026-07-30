@@ -13,8 +13,8 @@ export default function AuthRedirect() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Don't redirect on login or dashboard pages to avoid infinite loops
-      if (pathname === '/login' || pathname === '/dashboard') {
+      // Don't redirect on login, dashboard, or home pages to avoid infinite loops
+      if (pathname === '/login' || pathname === '/dashboard' || pathname === '/') {
         return
       }
 

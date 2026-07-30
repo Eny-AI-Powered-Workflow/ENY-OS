@@ -45,10 +45,7 @@ export function Sidebar() {
             <Link
               key={module.name}
               href={module.href}
-              className={`flex w-items-center px-3 py-2 text-sm font-medium
-                        ${isActive
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+              className={`sidebar-nav-link ${isActive ? 'sidebar-nav-link-active' : ''}`}
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="ml-3">{module.name}</span>
@@ -57,7 +54,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-auto pb-4">
-        <Link href="/login" className="block w-full text-left px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+        <Link href="/login" className="block w-full text-left px-3 py-2 text-sm text-muted-foreground hover:bg-[var(--muted)/20] hover:text-[var(--foreground)]">
           <LogOut className="h-4 w-4 mr-3" />
           Sign out
         </Link>

@@ -38,12 +38,12 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary to-primary/90">
       <div className="w-full max-w-xs space-y-6">
         <div className="flex items-center justify-center">
-          <h1 className="text-2xl font-bold text-white">ENY Platform</h1>
+          <h1 className="text-2xl font-bold text-accent">ENY Platform</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="w-full space-y-4 bg-white/10 backdrop-blur-sm rounded-xl p-8 shadow-xl">
           <div className="space-y-2">
-            <label htmlFor="email" className="block text-sm font-medium text-white mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-accent mb-1">
               Email address
             </label>
             <input
@@ -52,13 +52,13 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 bg-white/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20 text-white placeholder-white/50"
+              className="w-full px-4 py-2 bg-white/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50"
               placeholder="you@enyconsulting.com"
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="password" className="block text-sm font-medium text-white mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-accent mb-1">
               Password
             </label>
             <input
@@ -67,7 +67,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 bg-white/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20 text-white placeholder-white/50"
+              className="w-full px-4 py-2 bg-white/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50"
               placeholder="••••••••"
             />
           </div>
@@ -81,7 +81,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-flex w-items-center justify-center w-full px-4 py-2 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            className="w-full px-4 py-2 btn-accent hover:bg-accent/90 transition-all font-medium"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
@@ -90,7 +90,9 @@ export default function LoginPage() {
         <div className="text-sm text-white/80">
           <p>Don't have an account? Contact your administrator to get access.</p>
           <p className="mt-2">
-            <a href="/" className="underline">Back to home</a>
+            <a href="/" className="underline text-accent hover:text-accent/80">
+              Back to home
+            </a>
           </p>
         </div>
       </div>
