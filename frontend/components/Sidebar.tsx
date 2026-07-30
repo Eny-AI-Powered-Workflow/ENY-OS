@@ -1,12 +1,16 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/components/Sidebar.tsx
+'use client'
+
 import Link from 'next/link'
 import { usePermissions } from '@/lib/permissions'
 import { MODULES } from '@/lib/permissions'
 import { AccessBadge } from '@/components/AccessBadge'
 import { Monitor, Users, GraduationCap, Megaphone, Settings, Pencil, LayoutDashboard, ClipboardList, MessagesSquare, BarChart3, LogOut } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 
 export function Sidebar() {
   const { canAll } = usePermissions()
+  const pathname = usePathname()
 
   // Icon mapping
   const iconMap: Record<string, any> = {
@@ -36,12 +40,13 @@ export function Sidebar() {
       <nav className="mt-4 space-y-1 px-2">
         {accessibleModules.map((module) => {
           const Icon = iconMap[module.icon] || LayoutDashboard
+          const isActive = pathname === module.href
           return (
             <Link
               key={module.name}
               href={module.href}
               className={`flex w-items-center px-3 py-2 text-sm font-medium
-                        ${window.location.pathname === module.href
+                        ${isActive
                           ? 'bg-primary text-primary-foreground'
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
             >
