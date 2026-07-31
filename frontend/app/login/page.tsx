@@ -52,7 +52,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 bg-white/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50"
+              className="w-full px-4 py-2 bg-black/20 border border-black/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-black/20 text-black placeholder-black/40"
               placeholder="you@enyconsulting.com"
             />
           </div>
@@ -67,7 +67,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 bg-black/20 border border-white/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50"
+              className="w-full px-4 py-2 bg-black/20 border border-grey/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-black placeholder-white/50"
               placeholder="••••••••"
             />
           </div>
@@ -87,7 +87,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="text-sm text-white/80">
+        <div className="text-sm text-black/100">
           <p>Don't have an account? Contact your administrator to get access.</p>
           <p className="mt-2">
             <a href="/" className="underline text-accent hover:text-accent/80">
