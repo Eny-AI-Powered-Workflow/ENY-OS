@@ -43,7 +43,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="w-full space-y-4 bg-white/10 backdrop-blur-sm rounded-xl p-8 shadow-xl">
           <div className="space-y-2">
-            <label htmlFor="email" className="block text-sm font-medium text-accent mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-accent mb-1 flex tems-center justify-center">
               Email address
             </label>
             <input
@@ -53,12 +53,13 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2 bg-black/20 border border-black/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-black/20 text-black placeholder-black/40"
-              placeholder="you@enyconsulting.com"
+              // I gave a space to center the placeholder text, but you can adjust it as needed
+              placeholder="    you@enyconsulting.com"
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="password" className="block text-sm font-medium text-accent mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-accent mb-1 flex tems-center justify-center">
               Password
             </label>
             <input
@@ -67,8 +68,9 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 bg-black/20 border border-grey/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-black placeholder-white/50"
-              placeholder="••••••••"
+              className="w-full px-4 py-2 bg-black/20 border border-black/30 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-black placeholder-white/50"
+              // I gave a space to center the placeholder text, but you can adjust it as needed
+              placeholder="                      ••••••••"
             />
           </div>
 
