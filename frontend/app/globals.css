@@ -6,92 +6,90 @@
 @layer base {
   :root {
     /* Rich Purple Primary */
-    --primary: 262 80% 40%; /* Rich Purple */
-    --primary-foreground: 0 0% 98%; /* White text on primary */
+    --primary: hsl(262 80% 40%); /* Rich Purple */
+    --primary-foreground: hsl(0 0% 98%); /* White text on primary */
 
     /* Background and Foreground */
-    --background: 0 0% 100%; /* White */
-    --foreground: 220 15% 15%; /* Dark grayish blue for text */
+    --background: hsl(0 0% 100%); /* White */
+    --foreground: hsl(220 15% 15%); /* Dark grayish blue for text */
 
     /* Card and Popover */
-    --card: 0 0% 100%; /* White */
-    --card-foreground: 220 15% 15%; /* Dark grayish blue */
-    --popover: 0 0% 100%; /* White */
-    --popover-foreground: 220 15% 15%; /* Dark grayish blue */
+    --card: hsl(0 0% 100%); /* White */
+    --card-foreground: hsl(220 15% 15%); /* Dark grayish blue */
+    --popover: hsl(0 0% 100%); /* White */
+    --popover-foreground: hsl(220 15% 15%); /* Dark grayish blue */
 
     /* Secondary - Light Gray */
-    --secondary: 220 10% 95%; /* Very light gray */
-    --secondary-foreground: 220 15% 15%; /* Dark grayish blue */
+    --secondary: hsl(220 10% 95%); /* Very light gray */
+    --secondary-foreground: hsl(220 15% 15%); /* Dark grayish blue */
 
     /* Muted - Soft Gray */
-    --muted: 220 10% 90%; /* Soft gray */
-    --muted-foreground: 220 10% 40%; /* Medium gray */
+    --muted: hsl(220 10% 90%); /* Soft gray */
+    --muted-foreground: hsl(220 10% 40%); /* Medium gray */
 
     /* Accent - Gold */
-    --accent: 45 80% 50%; /* Gold */
-    --accent-foreground: 0 0% 98%; /* White text on gold */
+    --accent: hsl(45 80% 50%); /* Gold */
+    --accent-foreground: hsl(0 0% 98%); /* White text on gold */
 
     /* Destructive - Red */
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: hsl(0 84.2% 60.2%);
+    --destructive-foreground: hsl(0 0% 98%);
 
     /* Borders and Inputs */
-    --border: 220 10% 85%; /* Light gray border */
-    --input: 220 10% 85%; /* Light gray input */
-    --ring: 262 80% 40%; /* Rich Purple for focus ring */
+    --border: hsl(220 10% 85%); /* Light gray border */
+    --input: hsl(220 10% 85%); /* Light gray input */
+    --ring: hsl(262 80% 40%); /* Rich Purple for focus ring */
     --radius: 0.5rem;
 
     /* Gold Accent Variations */
-    --gold-50: 45 80% 98%;
-    --gold-100: 45 80% 95%;
-    --gold-200: 45 80% 88%;
-    --gold-300: 45 80% 75%;
-    --gold-400: 45 80% 60%;
-    --gold-500: 45 80% 50%; /* Main gold */
-    --gold-600: 45 75% 45%;
-    --gold-700: 45 70% 40%;
-    --gold-800: 45 65% 35%;
-    --gold-900: 45 60% 30%;
+    --gold-50: hsl(45 80% 98%);
+    --gold-100: hsl(45 80% 95%);
+    --gold-200: hsl(45 80% 88%);
+    --gold-300: hsl(45 80% 75%);
+    --gold-400: hsl(45 80% 60%);
+    --gold-500: hsl(45 80% 50%); /* Main gold */
+    --gold-600: hsl(45 75% 45%);
+    --gold-700: hsl(45 70% 40%);
+    --gold-800: hsl(45 65% 35%);
+    --gold-900: hsl(45 60% 30%);
 
     /* Black and White */
-    --black: 0 0% 0%;
-    --white: 0 0% 100%;
+    --black: hsl(0 0% 0%);
+    --white: hsl(0 0% 100%);
 
     --ring-offset-background: var(--background);
   }
 
   .dark {
     /* Dark mode - inversion of light mode */
-    --background: 220 15% 10%; /* Very dark blue */
-    --foreground: 0 0% 98%; /* White */
+    --background: hsl(220 15% 10%); /* Very dark blue */
+    --foreground: hsl(0 0% 98%); /* White */
 
-    --primary: 262 80% 70%; /* Lighter purple for dark mode */
-    --primary-foreground: 220 15% 15%; /* Dark text on light purple */
+    --primary: hsl(262 80% 70%); /* Lighter purple for dark mode */
+    --primary-foreground: hsl(220 15% 15%); /* Dark text on light purple */
 
-    --card: 220 15% 15%; /* Dark blue card */
-    --card-foreground: 0 0% 98%; /* White text on card */
-    --popover: 220 15% 15%; /* Dark blue popover */
-    --popover-foreground: 0 0% 98%; /* White text */
+    --card: hsl(220 15% 15%); /* Dark blue card */
+    --card-foreground: hsl(0 0% 98%); /* White text on card */
+    --popover: hsl(220 15% 15%); /* Dark blue popover */
+    --popover-foreground: hsl(0 0% 98%); /* White text */
 
-    --secondary: 220 15% 20%; /* Darker blue for secondary */
-    --secondary-foreground: 0 0% 98%; /* White text */
+    --secondary: hsl(220 15% 20%); /* Darker blue for secondary */
+    --secondary-foreground: hsl(0 0% 98%); /* White text */
 
-    --muted: 220 15% 25%; /* Even darker blue */
-    --muted-foreground: 220 10% 60%; /* Soft white */
+    --muted: hsl(220 15% 25%); /* Even darker blue */
+    --muted-foreground: hsl(220 10% 60%); /* Soft white */
 
-    --accent: 45 80% 50%; /* Keep gold same in dark mode */
-    --accent-foreground: 220 15% 15%; /* Dark text on gold */
+    --accent: hsl(45 80% 50%); /* Keep gold same in dark mode */
+    --accent-foreground: hsl(220 15% 15%); /* Dark text on gold */
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: hsl(0 62.8% 30.6%);
+    --destructive-foreground: hsl(0 0% 98%);
 
-    --border: 220 15% 25%; /* Darker border */
-    --input: 220 15% 25%; /* Darker input */
-    --ring: 262 80% 70%; /* Lighter purple for ring */
+    --border: hsl(220 15% 25%); /* Darker border */
+    --input: hsl(220 15% 25%); /* Darker input */
+    --ring: hsl(262 80% 70%); /* Lighter purple for ring */
   }
 }
-
-
 
 /* Set base fonts */
 html {
@@ -123,8 +121,6 @@ code, kbd, samp, pre {
     animation: fade-in 0.3s ease-out forwards;
   }
 
-
-
   .slide-up {
     animation: slide-up 0.4s ease-out forwards;
   }
@@ -147,23 +143,60 @@ code, kbd, samp, pre {
   }
 
   .btn-primary {
-    @apply bg-[var(--primary)] bg-opacity-100 text-[var(--primary-foreground)] hover:bg-[var(--primary)] hover:bg-opacity-90 focus:ring-2 focus:ring-[var(--primary)] focus:ring-opacity-20;
+    @apply text-[var(--primary-foreground)] outline-none;
+    background-color: var(--primary);
+  }
+  .btn-primary:hover {
+    background-color: color-mix(in srgb, var(--primary) 90%, transparent);
+  }
+  .btn-primary:focus {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
   }
 
   .btn-outline {
-    @apply border-[var(--primary)] border-opacity-50 text-[var(--primary-foreground)] hover:bg-[var(--primary)] hover:bg-opacity-10;
+    @apply border;
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  .btn-outline:hover {
+    background-color: color-mix(in srgb, var(--primary) 10%, transparent);
   }
 
   .btn-gold {
-    @apply bg-gold-500 text-gold-900 hover:bg-gold-600 focus:ring-2 focus:ring-gold-400/50;
+    @apply text-[var(--accent-foreground)] outline-none;
+    background-color: var(--accent);
+  }
+  .btn-gold:hover {
+    background-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  }
+  .btn-gold:focus {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
   }
 
   .btn-gold-outline {
-    @apply border border-gold-500 text-gold-900 hover:bg-gold-500/10;
+    @apply border;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-gold-outline:hover {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
   .input-field {
-    @apply w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus-ring-white/20 text-white placeholder-white/50;
+    @apply w-full
+           px-4
+           py-2
+           rounded-lg
+           border
+           border-white/20
+           bg-white/10
+           text-[var(--foreground)]
+           placeholder:text-gray-400
+           focus:outline-none
+           focus:ring-2;
+  }
+  .input-field:focus {
+    box-shadow: 0 0 0 2px var(--primary);
   }
 
   .text-balance {
@@ -176,12 +209,16 @@ code, kbd, samp, pre {
   }
 
   .sidebar-nav-link {
-    @apply flex items-center px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] transition-colors
-           hover:bg-[var(--muted)] hover:bg-opacity-20 hover:text-[var(--foreground)];
+    @apply flex items-center px-3 py-2 text-sm font-medium transition-colors;
+    color: var(--muted-foreground);
+  }
+  .sidebar-nav-link:hover {
+    background-color: color-mix(in srgb, var(--muted) 20%, transparent);
   }
 
   .sidebar-nav-link-active {
-    @apply bg-[var(--primary)] text-[var(--primary-foreground)];
+    @apply text-[var(--primary-foreground)];
+    background-color: var(--primary);
   }
 
   /* Button variants */
@@ -195,11 +232,15 @@ code, kbd, samp, pre {
 
   /* Card styles */
   .card {
-    @apply bg-[var(--card)] rounded-lg border border-[var(--muted)]/20;
+    @apply rounded-lg border;
+    background-color: var(--card);
+    border-color: color-mix(in srgb, var(--muted) 20%, transparent);
   }
 
   .card-dark {
-    @apply bg-[var(--card)]/90 backdrop-blur-sm border border-[var(--muted)]/20;
+    @apply backdrop-blur-sm border;
+    background-color: color-mix(in srgb, var(--card) 90%, transparent);
+    border-color: color-mix(in srgb, var(--muted) 20%, transparent);
   }
 
   /* Form styles */
@@ -225,8 +266,5 @@ code, kbd, samp, pre {
     .sidebar-nav-link:only-child {
       @apply justify-center;
     }
-    
   }
- 
-
 }
