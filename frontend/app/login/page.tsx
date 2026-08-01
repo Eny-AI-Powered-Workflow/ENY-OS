@@ -34,6 +34,7 @@ export default function LoginPage() {
     }
   }
 
+  
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary to-primary/90">
       <div className="w-full max-w-xs space-y-6">
