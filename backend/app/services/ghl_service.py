@@ -48,6 +48,7 @@ class GHLService:
                     "source": "Website",
                     "tags": ["lead", "new"],
                     "dateAdded": "2024-01-15T10:30:00Z",
+                    "locationId": self.location_id or "mock-location"
                 },
                 {
                     "id": "mock-contact-2",
@@ -58,15 +59,21 @@ class GHLService:
                     "source": "Referral",
                     "tags": ["qualified", "hot"],
                     "dateAdded": "2024-01-14T15:45:00Z",
+                    "locationId": self.location_id or "mock-location"
                 }
             ][:limit]
 
         # Real GHL API call
         try:
             async with httpx.AsyncClient() as client:
+                params = {"limit": limit}
+                # Note: GHL API seems to not accept offset parameter directly
+                # Using limit only for now; offset-based pagination may need cursor approach
+                if self.location_id:
+                    params["locationId"] = self.location_id
                 response = await client.get(
                     f"{self.base_url}/contacts/",
-                    params={"limit": limit, "offset": offset},
+                    params=params,
                     headers=self.headers,
                     timeout=30.0
                 )
@@ -95,8 +102,12 @@ class GHLService:
 
         try:
             async with httpx.AsyncClient() as client:
+                params = {}
+                if self.location_id:
+                    params["locationId"] = self.location_id
                 response = await client.get(
                     f"{self.base_url}/contacts/{contact_id}",
+                    params=params,
                     headers=self.headers,
                     timeout=30.0
                 )
@@ -127,8 +138,12 @@ class GHLService:
                 # Merge tags, avoiding duplicates
                 new_tags = list(set(current_tags + tags))
 
+                params = {}
+                if self.location_id:
+                    params["locationId"] = self.location_id
                 response = await client.put(
                     f"{self.base_url}/contacts/{contact_id}",
+                    params=params,
                     json={"tags": new_tags},
                     headers=self.headers,
                     timeout=30.0
@@ -147,8 +162,12 @@ class GHLService:
 
         try:
             async with httpx.AsyncClient() as client:
+                params = {}
+                if self.location_id:
+                    params["locationId"] = self.location_id
                 response = await client.put(
                     f"{self.base_url}/contacts/{contact_id}",
+                    params=params,
                     json=data,
                     headers=self.headers,
                     timeout=30.0
@@ -197,13 +216,17 @@ class GHLService:
                 ]
             }
 
-        # Real GHL API call for pipelines/opportunities
+        # Real GHL API call for opportunities
         try:
             async with httpx.AsyncClient() as client:
+                params = {}
+                if self.location_id:
+                    params["locationId"] = self.location_id
                 # Note: GHL API endpoints for pipelines may vary
                 # This is a placeholder implementation
                 response = await client.get(
                     f"{self.base_url}/opportunities/",
+                    params=params,
                     headers=self.headers,
                     timeout=30.0
                 )
