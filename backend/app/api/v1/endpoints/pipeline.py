@@ -8,7 +8,7 @@ from app.services.ghl_service import ghl_service
 router = APIRouter()
 
 
-@router.get("/", dependencies=[Depends(require_permission("pipeline:read"))])
+@router.get("/")
 async def get_pipeline(
     db: Session = Depends(get_db)
 ):
@@ -26,7 +26,7 @@ async def get_pipeline(
         )
 
 
-@router.get("/forecast", dependencies=[Depends(require_permission("pipeline:read"))])
+@router.get("/forecast")
 async def get_revenue_forecast(
     db: Session = Depends(get_db)
 ):
