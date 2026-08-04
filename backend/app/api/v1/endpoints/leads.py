@@ -9,7 +9,7 @@ from app.services.ghl_service import ghl_service
 router = APIRouter()
 
 
-@router.get("/", dependencies=[Depends(require_permission("leads:read"))])
+@router.get("", dependencies=[Depends(require_permission("leads:read"))])
 async def get_leads(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
