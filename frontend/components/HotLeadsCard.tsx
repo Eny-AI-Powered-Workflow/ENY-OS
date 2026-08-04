@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { AlertTriangle, Clock, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -152,3 +151,6 @@ export default function HotLeadsCard() {
           </div>
         ))}
       </CardContent>
+    </Card>
+  );
+}
