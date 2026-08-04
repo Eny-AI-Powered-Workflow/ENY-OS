@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { AlertTriangle, Clock, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Lead {
   id: string;
@@ -13,7 +14,6 @@ interface Lead {
   email: string;
   phone: string | null;
   tags: string[];
-  // Assuming a custom field for score might exist; we can try to parse from a custom field or use a placeholder
   score?: number; // optional, if available from backend
 }
 
@@ -30,24 +30,34 @@ export default function HotLeadsCard() {
   const fetchLeads = async () => {
     try {
       setLoading(true);
+      setError(null);
+
+      // Get session to attach auth header if needed
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+
       const res = await fetch('/api/v1/leads?limit=20', {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // include cookies for auth
+        headers,
+        credentials: 'include', // also send cookies (for supabase cookie auth)
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to fetch leads: ${res.status}`);
+        // If we get a 401 or 403, maybe session expired
+        if (res.status === 401 || res.status === 403) {
+          setError('Your session has expired. Please log in again.');
+        } else {
+          throw new Error(`Failed to fetch leads: ${res.status}`);
+        }
+        return;
       }
 
       const data = await res.json();
       // The API returns { leads: Lead[], total, limit, offset }
       const fetchedLeads: Lead[] = data.leads || [];
-      // Optionally, you could compute a score based on tags or a custom field
-      // For now, we'll just pass through
       setLeads(fetchedLeads);
-      setError(null);
     } catch (err: any) {
       console.error('Error fetching hot leads:', err);
       setError(err.message || 'An unknown error occurred');

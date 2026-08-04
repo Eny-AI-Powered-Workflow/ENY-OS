@@ -1,8 +1,8 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.router import api_router
-from app.core.config import settings
+from .api.v1.router import api_router
+from .core.config import settings
 
 app = FastAPI(
     title="ENY Consulting Platform API",
