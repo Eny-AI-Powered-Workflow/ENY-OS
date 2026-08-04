@@ -152,18 +152,3 @@ export default function HotLeadsCard() {
           </div>
         ))}
       </CardContent>
-      <CardHeader className="pt-4 border-t">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            fetchLeads();
-          }}
-          className="w-full"
-        >
-          Refresh
-        </Button>
-      </CardHeader>
-    </Card>
-  );
-}
