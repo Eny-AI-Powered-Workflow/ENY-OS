@@ -21,7 +21,8 @@ SUPABASE_JWT_AUDIENCE = settings.SUPABASE_JWT_AUDIENCE
 SUPABASE_URL = settings.SUPABASE_URL.rstrip('/')  # Remove trailing slash if any
 # Derive issuer and JWKS URL from Supabase URL
 SUPABASE_ISSUER = f"{SUPABASE_URL}/auth/v1"
-SUPABASE_JWKS_URL = f"{SUPABASE_URL}/auth/v1/keys"
+SUPABASE_JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+SUPABASE_ANON_KEY = settings.SUPABASE_ANON_KEY  # For accessing JWKS endpoint
 
 # Cache for JWKS to avoid fetching on every request
 _jwks_cache = None
@@ -31,13 +32,17 @@ CACHE_TIMEOUT_SECONDS = 300  # 5 minutes
 logger = logging.getLogger(__name__)
 
 def get_jwks():
-    """Fetch and cache the JWKS from Supabase."""
+    """Fetch and cache the JWKS from Supabase using the anon key."""
     global _jwks_cache, _jwks_cache_time
     now = time.time()
     if _jwks_cache is not None and (now - _jwks_cache_time) < CACHE_TIMEOUT_SECONDS:
         return _jwks_cache
     try:
-        response = requests.get(SUPABASE_JWKS_URL, timeout=10)
+        headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Content-Type": "application/json"
+        }
+        response = requests.get(SUPABASE_JWKS_URL, headers=headers, timeout=10)
         response.raise_for_status()
         jwks = response.json()
         _jwks_cache = jwks
