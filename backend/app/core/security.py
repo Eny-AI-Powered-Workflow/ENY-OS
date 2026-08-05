@@ -20,7 +20,7 @@ security = HTTPBearer()
 SUPABASE_JWT_AUDIENCE = settings.SUPABASE_JWT_AUDIENCE
 SUPABASE_URL = settings.SUPABASE_URL.rstrip('/')  # Remove trailing slash if any
 # Derive issuer and JWKS URL from Supabase URL
-SUPABASE_ISSUER = f"{SUPABASE_URL}/auth/v1"
+SUPABASE_ISSUER_BASE = f"{SUPABASE_URL}/auth/v1"
 SUPABASE_JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
 SUPABASE_ANON_KEY = settings.SUPABASE_ANON_KEY  # For accessing JWKS endpoint
 
@@ -82,6 +82,17 @@ def get_current_user(
             logger.error("JWT header missing 'kid' or 'alg'")
             raise credentials_exception
 
+        # Get unverified payload to check the issuer
+        unverified_payload = jwt.get_unverified_claims(token)
+        issuer = unverified_payload.get('iss')
+        if issuer is None:
+            logger.error("JWT payload missing 'iss' claim")
+            raise credentials_exception
+        # Check that the issuer starts with the expected base issuer
+        if not issuer.startswith(SUPABASE_ISSUER_BASE):
+            logger.error(f"JWT issuer '{issuer}' does not start with expected base issuer '{SUPABASE_ISSUER_BASE}'")
+            raise credentials_exception
+
         # Fetch JWKS and find the matching key
         logger.info(f"Fetching JWKS from: {SUPABASE_JWKS_URL}")
         jwks = get_jwks()
@@ -100,13 +111,13 @@ def get_current_user(
         key = jwk.construct(key_dict, algorithm=algorithm)
         logger.info(f"Constructed key: {key}")
 
-        # Verify the token
+        # Verify the token with the issuer from the token (which we know starts with the base)
         payload = jwt.decode(
             token,
             key,
             algorithms=[algorithm],
             audience=SUPABASE_JWT_AUDIENCE,
-            issuer=SUPABASE_ISSUER,
+            issuer=issuer,  # Use the issuer from the token (after prefix check)
         )
         logger.info(f"Token payload: {payload}")
 
