@@ -39,12 +39,10 @@ export default function HotLeadsCard() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch('/api/v1/leads?limit=20', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/leads?limit=20`, {
         headers,
         credentials: 'include', // also send cookies (for supabase cookie auth)
       });
-
-      // fetch(`${API_URL}/api/v1/leads?limit=20`)
 
       if (!res.ok) {
         // If we get a 401 or 403, maybe session expired
