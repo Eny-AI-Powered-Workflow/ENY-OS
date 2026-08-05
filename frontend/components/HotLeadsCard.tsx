@@ -44,6 +44,8 @@ export default function HotLeadsCard() {
         credentials: 'include', // also send cookies (for supabase cookie auth)
       });
 
+      // fetch(`${API_URL}/api/v1/leads?limit=20`)
+
       if (!res.ok) {
         // If we get a 401 or 403, maybe session expired
         if (res.status === 401 || res.status === 403) {
