@@ -3,7 +3,9 @@ import logging
 from typing import Any, Annotated
 
 from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.permission import Permission
