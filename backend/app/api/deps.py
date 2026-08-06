@@ -11,9 +11,6 @@ from app.models.role import Role
 from app.models.role_permission import RolePermission
 from app.models.user_role import UserRole
 
-# Security scheme
-security = HTTPBearer()
-
 logger = logging.getLogger(__name__)
 
 
