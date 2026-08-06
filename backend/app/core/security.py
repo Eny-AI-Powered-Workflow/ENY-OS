@@ -93,7 +93,7 @@ def get_current_user(
             logger.error(f"JWT issuer '{issuer}' does not start with expected base issuer '{SUPABASE_ISSUER_BASE}'")
             raise credentials_exception
 
-        # Fetch JWKS and find the matching key
+        # Fetch JWKS and find the matching key 
         logger.info(f"Fetching JWKS from: {SUPABASE_JWKS_URL}")
         jwks = get_jwks()
         logger.info(f"JWKS received: {jwks}")
