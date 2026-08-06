@@ -1,15 +1,20 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/deps.py
+import logging
 from typing import Any, Annotated
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.permission import Permission
 from app.models.role import Role
 from app.models.role_permission import RolePermission
 from app.models.user_role import UserRole
+
+# Security scheme
+security = HTTPBearer()
+
+logger = logging.getLogger(__name__)
 
 
 def require_permission(permission_scope: str):
@@ -48,6 +53,9 @@ def require_permission(permission_scope: str):
         )
         db.add(audit_log)
         db.commit()
+
+        # Log the permission check for debugging
+        logger.info(f"Permission check: user_id={current_user.id}, scope='{permission_scope}', granted={user_has_permission}")
 
         # If permission not granted, raise 403
         if not user_has_permission:

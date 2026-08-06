@@ -9,6 +9,7 @@ import requests
 from app.core.config import settings
 from app.db.session import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.models.user_role import UserRole
 from app.models.role import Role
 from app.models.permission import Permission
@@ -56,6 +57,64 @@ def get_jwks():
             return _jwks_cache
         raise
 
+def sync_user_roles_from_token(db: Session, user_id: str, token_payload: dict):
+    """
+    Sync the user's roles from the token payload to the user_roles table.
+    This ensures that the user has the correct roles in our database based on their Supabase token.
+    """
+    try:
+        # Extract roles from the token payload
+        user_metadata = token_payload.get('user_metadata', {})
+        token_roles = user_metadata.get('roles', [])
+        if not token_roles:
+            # If no roles in token, we can't sync
+            logger.warning(f"No roles found in token for user {user_id}")
+            return
+
+        # Get the role IDs for the roles in the token
+        role_names = [role.strip().lower() for role in token_roles if role.strip()]
+        if not role_names:
+            return
+
+        # Query existing roles from the database
+        stmt = text("SELECT id, name FROM roles WHERE LOWER(name) IN :role_names")
+        result = db.execute(stmt, {"role_names": tuple(role_names)})
+        db_roles = {row[1].lower(): row[0] for row in result.fetchall()}
+
+        # For each role in the token, ensure the user has it in user_roles
+        for role_name in role_names:
+            role_id = db_roles.get(role_name.lower())
+            if not role_id:
+                logger.warning(f"Role '{role_name}' not found in database for user {user_id}")
+                continue
+
+            # Check if the user already has this role
+            stmt = text("""
+                SELECT 1 FROM user_roles
+                WHERE user_id = :user_id AND role_id = :role_id
+            """)
+            result = db.execute(stmt, {"user_id": user_id, "role_id": role_id})
+            if result.fetchone():
+                # User already has this role, nothing to do
+                continue
+
+            # Insert the user role
+            stmt = text("""
+                INSERT INTO user_roles (user_id, role_id, created_at, updated_at)
+                VALUES (:user_id, :role_id, NOW(), NOW())
+            """)
+            db.execute(stmt, {"user_id": user_id, "role_id": role_id})
+            logger.info(f"Assigned role '{role_name}' to user {user_id}")
+
+        # Commit the changes
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error syncing user roles for {user_id}: {e}")
+        db.rollback()
+        # Don't raise the exception because we don't want to fail the authentication
+        # if role syncing fails. The user might still have the required permissions
+        # from previous logins.
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -93,7 +152,7 @@ def get_current_user(
             logger.error(f"JWT issuer '{issuer}' does not start with expected base issuer '{SUPABASE_ISSUER_BASE}'")
             raise credentials_exception
 
-        # Fetch JWKS and find the matching key 
+        # Fetch JWKS and find the matching key
         logger.info(f"Fetching JWKS from: {SUPABASE_JWKS_URL}")
         jwks = get_jwks()
         logger.info(f"JWKS received: {jwks}")
@@ -127,6 +186,9 @@ def get_current_user(
             raise credentials_exception
 
         logger.info(f"Successfully authenticated user_id: {user_id}")
+
+        # Sync the user's roles from the token to our database
+        sync_user_roles_from_token(db, user_id, payload)
 
     except JWTError as e:
         logger.error(f"JWT validation failed: {e}")
