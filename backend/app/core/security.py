@@ -100,8 +100,8 @@ def sync_user_roles_from_token(db: Session, user_id: str, token_payload: dict):
 
             # Insert the user role
             stmt = text("""
-                INSERT INTO user_roles (user_id, role_id, created_at, updated_at)
-                VALUES (:user_id, :role_id, NOW(), NOW())
+                INSERT INTO user_roles (user_id, role_id)
+                VALUES (:user_id, :role_id)
             """)
             db.execute(stmt, {"user_id": user_id, "role_id": role_id})
             logger.info(f"Assigned role '{role_name}' to user {user_id}")
