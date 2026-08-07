@@ -1,0 +1,98 @@
+{
+  "name": "ENY-SALES-SCORE",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "eny-sales-score",
+        "responseMode": "onReceived",
+        "responseData": {
+          "options": {
+            "respondWithJson": true,
+            "responseCode": 200
+          }
+        }
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Score lead based on engagement and fit\nconst lead = items[0].json;\n\n// Extract data\nconst engagementScore = lead.engagementScore || 0;\nconst demographicFit = lead.demographicFit || 0;\nconst behavioralScore = lead.behavioralScore || 0;\n\n// Calculate weighted score\nconst weightedScore = (engagementScore * 0.4) + (demographicFit * 0.3) + (behavioralScore * 0.3);\n\n// Determine score category\nlet scoreCategory = 'cold';\nif (weightedScore >= 85) scoreCategory = 'hot';\nelse if (weightedScore >= 70) scoreCategory = 'warm';\nelse if (weightedScore >= 50) scoreCategory = 'follow-up';\n\n// Prepare output\nreturn [{\n  json: {\n    leadId: lead.leadId,\n    score: Math.round(weightedScore),\n    scoreCategory: scoreCategory,\n    tags: [...(lead.tags || []), scoreCategory],\n    scoredAt: new Date().toISOString(),\n    scoringBreakdown: {\n      engagement: engagementScore,\n      demographic: demographicFit,\n      behavioral: behavioralScore\n    }\n  }\n}];"
+      },
+      "name": "Score Lead",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "resource": "contact",
+        "updateFields": {
+          "customFields": {
+            "value": "={{JSON.stringify($json)}}"
+          }
+        },
+        "additionalFields": {
+          "customFieldsUi": {
+            "value": [
+              {
+                "name": "Sales Score",
+                "value": "={{ $json[\"score\"] }}"
+              },
+              {
+                "name": "Score Category",
+                "value": "={{ $json[\"scoreCategory\"] }}"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Update Lead in GHL",
+      "type": "n8n-nodes-base.ghl",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Update Lead in GHL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "1"
+}
