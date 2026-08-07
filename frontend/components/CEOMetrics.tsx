@@ -1,14 +1,16 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Users, Activity, Tritron, Zap } from 'lucide-react';
+import { Users, Activity, PiggyBank, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function CEOMetrics() {
+export default function EnrollmentMetrics() {
   const [metrics, setMetrics] = useState({
-    activeUsers: 0,
-    aiAgents: 0,
-    tasksCompleted: 0,
-    systemUptime: 0
+    totalLeaves: 0,
+    newLeavesToday: 0,
+    conversionRate: 0,
+    revenuePipeline: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export default function CEOMetrics() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceo/metrics`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/metrics`, {
         headers,
         credentials: 'include',
       });
@@ -43,13 +45,13 @@ export default function CEOMetrics() {
 
       const data = await res.json();
       setMetrics(data.metrics || {
-        activeUsers: 0,
-        aiAgents: 0,
-        tasksCompleted: 0,
-        systemUptime: 0
+        totalLeaves: 0,
+        newLeavesToday: 0,
+        conversionRate: 0,
+        revenuePipeline: 0
       });
     } catch (err: any) {
-      console.error('Error fetching CEO metrics:', err);
+      console.error('Error fetching enrollment metrics:', err);
       setError(err.message || 'An unknown error occurred');
     } finally {
       setLoading(false);
@@ -67,45 +69,45 @@ export default function CEOMetrics() {
         <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
           <div className="flex items-center justify-between">
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Active Users</p>
+              <p className="text-sm text-muted-foreground">Total Leaves</p>
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���👥</span>
+              <span className="text-brass-500 text-xl">��������������������������������������������������������������������������������������������������������������������������������������������������������������������█�����������������������������👥</span>
             </div>
           </div>
         </div>
         <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
           <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">AI Agents</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���🤖</span>
-            </div>
+            \div className="space-y-2">
+              \p className="text-sm text-muted-foreground">New Today</p>
+              \p className="text-2xl font-bold text-muted-foreground">Loading...</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������📅</span>
+            \div
           </div>
         </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Tasks Completed</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��✅</span>
-            </div>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          \div className="flex items-center justify-between">
+            \div className="space-y-2">
+              \p className="text-sm text-muted-foreground">Conversion Rate</p>
+              \p className="text-2xl font-bold text-muted-foreground">Loading...</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������📈</span>
+            \div
           </div>
         </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">System Uptime</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+          \div className="flex items-center justify-between">
+            \div className="space-y-2">
+              \p className="text-sm text-muted-foreground">Revenue Pipeline</p>
+              \p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��⏱��️</span>
-            </div>
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������💰</span>
+            \div
           </div>
         </div>
       </div>
@@ -114,101 +116,101 @@ export default function CEOMetrics() {
 
   if (error) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Active Users</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���👥</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">AI Agents</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���🤖</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Tasks Completed</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��✅</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">System Uptime</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��⏱��️</span>
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">Total Leaves</p>
+              \p className="text-2xl font-bold text-destructive">Error loading</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������👥</span>
+            \div
+          \div>
+        \div
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">New Today</p>
+              \p className="text-2xl font-bold text-destructive">Error loading</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������📅</span>
+            \div
+          \div>
+        \div
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">Conversion Rate</p>
+              \p className="text-2xl font-bold text-destructive">Error loading</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-xl">����������������������������������������������������������������█�����������������������������📈</span>
+            \div
+          \div>
+        \div
+        \div className="bg-card/50 backdrop-blur-sm rounded-yl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">Revenue Pipeline</p>
+              \p className="text-2xl font-bold text-destructive">Error loading</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+              \span className="text-brass-500 text-xl">������������������������������������������������█�������������������������������������������������������������💰</span>
+            \div
+          \div>
+        \div
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Active Users</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.activeUsers}</p>
-          </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���👥</span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">AI Agents</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.aiAgents}</p>
-          </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���🤖</span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Tasks Completed</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.tasksCompleted}</p>
-          </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">��✅</span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">System Uptime</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.systemUptime}%</p>
-          </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">��⏱��️</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+      \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground">Total Leaves</p>
+            \p className="text-2xl font-bold text-foreground>{metrics.totalLeaves}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl">����������������������������������������������������������������������������█�����������������������������👥</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-yl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground">New Today</p>
+            \p className="text-2xl font-bold text-foreground>{metrics.newLeavesToday}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl">������������������������������������█���������������������������������������������������������������������������������📅</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-yl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground">Conversion Rate</p>
+            \p className="text-2xl font-bold text-foreground>{metrics.conversionRate}%</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl">������������������������������������█������������������������������������█�������������������������📈</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-yl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground">Revenue Pipeline</p>
+            \p className="text-2xl font-bold text-foreground>{metrics.revenuePipeline}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl">������������������������������������█����������������█�����������������������������💰</span>
+          \div
+        \div
+      \div
+    );
+  }
 }

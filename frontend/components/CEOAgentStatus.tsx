@@ -92,15 +92,13 @@ export default function CEOAgentStatus() {
         <div className="flex items-center">
           <Zap className="h-4 w-4 mr-2" />
           <h2 className="text-xl font-semibold">Agent Status</h2>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Monitor AI agent performance and activity
-        </p>
+        </div
+
       </CardHeader>
       <CardContent className="space-y-4">
         {agentStatus.map((agent) => (
           <div key={agent.id || agent.name + Math.random()} className="bg-card/50 p-4 rounded-lg border border-border/50 flex items-center space-x-4">
-            <div className="w=10 h=10 bg-brass-500/10 rounded-flex items-center justify-center">
+            <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
               {agent.type === 'workflow' && <Activity className="h-5 w-5 text-brass-500" />}
               {agent.type === 'agent' && <Bot className="h-5 w-5 text-brass-500" />}
               {agent.type === 'analysis' && <Tritron className="h-5 w-5 text-brass-500" />}
@@ -112,6 +110,10 @@ export default function CEOAgentStatus() {
             </div>
             <div className="flex-1">
               <div className="flex justify-between">
+                {
+                  "": "",
+                  "": ""
+                }
                 <h3 className="font-semibold text-foreground">{agent.name}</h3>
                 <span className={`px-2 py-0.5 text-xs rounded-full ${
                   agent.status === 'success' ? 'bg-green-100 text-green-800' :
@@ -123,17 +125,13 @@ export default function CEOAgentStatus() {
                 </span>
               </div>
               <p className="text-sm text-muted-foreground">{agent.description}</p>
-              {
-                "": "",
-                "": ""
-              }
               <p className="text-xs text-muted-foreground mt-1">
                 Last run: {agent.lastRun} •
                 <span className="text-brass-500">{agent.runsToday} runs today</span>
-              }
+              </p>
             </div>
-          })
-        )}
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

@@ -104,14 +104,14 @@ export default function StudentList() {
   return (
     <Card className="w-full">
       <CardHeader className="pb-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <GraduationCap className="h-4 w-4 mr-2" />
-            <h2 className="text-xl font-semibold">Students</h2>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-3">
-              <input
+        \div className="flex justify-between items-center">
+          \div className="flex items-center">
+            \GraduationCap className="h-4 w-4 mr-2" />
+            \h2 className="text-xl font-semibold">Students</h2>
+          \div
+          \div className="flex items-center space-x-2">
+            \div className="flex items-center space-x-3">
+              \input
                 type="text"
                 placeholder="Search students..."
                 value={searchTerm}
@@ -119,88 +119,89 @@ export default function StudentList() {
                 className="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
                 maxWidth="150px"
               />
-              <select
+              \select
                 value={filterRisk}
                 onChange={handleFilterChange}
                 className="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500 ml-2"
               >
-                <option value="all">All Students</option>
-                <option value="at-risk">At Risk Only</option>
-                <option value="on-track">On Track Only</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
+                \option value="all">All Students</option>
+                \option value="at-risk">At Risk Only</option>
+                \option value="on-track">On Track Only</option>
+              \select
+            \div
+          \div
+        \div
+        \p className="text-xs text-muted-foreground">
           Track and manage student progress and interventions
         </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      \CardHeader>
+      \CardContent className="space-y-4">
         {students.map((student) => (
-          <div key={student.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <div className="flex items-center mb-2">
-                  <div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
-                    <GraduationCap className="h-4 w-4 text-brass-500" />
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="font-semibold text-foreground truncate max-w-xs">
+          \div key={student.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+            \div className="flex justify-between items-start">
+              \div className="flex-1">
+                \div className="flex items-center mb-2">
+                  \div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
+                    \GraduationCap className="h-4 w-4 text-brass-500" />
+                  \div
+                  \div className="ml-3">
+                    \h3 className="font-semibold text-foreground truncate max-w-xs">
                       {student.firstName} {student.lastName}
-                    </h3>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {student.email}
-                    </p>
-                    {student.studentId && (
-                      <p className="text-xs text-muted-foreground">
-                        ID: {student.studentId}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-end space-x-3>
-                <div className="text-xs text-muted-foreground>
-                  Status: {student.status === 'at-risk' ? (
-                    <span className="text-red-600 font-medium>At Risk</span>
-                  ) : student.status === 'on-track' ? (
-                    <span className="text-green-600 font-medium>On Track</span>
-                  ) : (
-                    <span className="text-gray-600>{student.status}</span>
+                    \h3
+                  \div
+                  \p className="text-sm text-muted-foreground truncate">
+                    {student.email}
+                  \p
+                  {student.studentId && (
+                    \p className="text-xs text-muted-foreground">
+                      ID: {student.studentId}
+                    \p
                   )}
-                </div>
+                \div
+              \div
+              \div className="flex items-end space-x-3>
+                \div className="text-xs text-muted-foreground>
+                  Status: {student.status === 'at-risk' ? (
+                    \span className="text-red-600 font-medium>At Risk</span>
+                  ) : student.status === 'on-track' ? (
+                    \span className="text-green-600 font-medium>On Track</span>
+                  ) : (
+                    \span className="text-gray-600>{student.status}</span>
+                  )}
+                \div
                 {student.interventionsToday > 0 && (
-                  <div className="mt-2 flex space-x-2>
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800>
+                  \div className="mt-2 flex space-x-2>
+                    \span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800>
                       {student.interventionsToday} interventions today
-                    </span>
-                    <button
+                    \span
+                    \button
                       onClick={() => console.log('View interventions:', student.id)}
                       className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded"
                     >
                       View
-                    </button>
-                  </div>
-                )}
-                <div className="mt-2 flex space-x-2>
-                  <button
+                    \button
+                  \div
+                )\}
+                \div
+                \div className="mt-2 flex space-x-2>
+                  \button
                     onClick={() => console.log('View student:', student.id)}
                     className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded"
                   >
                     View Details
-                  </button>
-                  <button
+                  \button
+                  \button
                     onClick={() => console.log('Flag for intervention:', student.id)}
                     className="px-3 py-1 text-xs text-warning bg-transparent hover:bg-warning/10 rounded"
                   >
                     Flag Intervention
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                  \button
+                \div
+              \div
+            \div
+          \div
+        ))}
+      \CardContent>
+    \Card>
   );
 }

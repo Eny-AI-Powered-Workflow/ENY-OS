@@ -79,7 +79,7 @@ export default function StudentProgress() {
   if (error) {
     return (
       <Card className="w-full">
-        <CardHeader className="flex-func col items-center py-6">
+        <CardHeader className="flex flex-col items-center py-6>
           <GraduationCap className="h-5 w-5 text-destructive mr-2" />
           <CardTitle className="text-sm text-destructive">Error loading progress data</CardTitle>
         </CardHeader>
@@ -94,42 +94,70 @@ export default function StudentProgress() {
           <GraduationCap className="h-5 w-5 text-muted-foreground mr-2" />
           <CardTitle className="text-sm">No progress data available</CardTitle>
         </CardHeader>
-      </Card>
+      </Card
     );
   }
 
   return (
     <Card className="w-full">
-      <CardHeader className="pb-4">
-        <div className="flex items-center">
-          <GraduationCap className="h-4 w-4 mr-2" />
-          <h2 className="text-xl font-semibold">Student Progress & Outcomes</h2>
-        </div>
-        <p className="text-xs text-muted-foreground">
+      \CardHeader className="pb-4">
+        \div className="flex items-center">
+          \GraduationCap className="h-4 w-4 mr-2" />
+          \h2 className="text-xl font-semibold">Student Progress & Outcomes</h2>
+        \div
+        \p className="text-xs text-muted-foreground">
           Track key metrics and recent interventions
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        \p
+      \CardHeader>
+      \CardContent className="space-y-6">
         {/* Summary metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Graduation Rate</p>
-                <p className="text-lg font-bold text-foreground>{progressData.graduationRate}%</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������������������������������������������������������������������������������🎓</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              {""}
-            }
-          </div>
-        </div>
-      </CardContent>
+        \div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          \div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
+            \div className="flex items-center justify-between">
+              \div className="space-y-2">
+                \p className="text-sm text-muted-foreground">Graduation Rate</p>
+                \p className="text-lg font-bold text-foreground>{progressData.graduationRate}%</p>
+              \div
+              \div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center>
+                \span className="text-brass-500 text-lg">�������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������🎓</span>
+              \div
+            \div
+          \div>
+          \div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
+            \div className="flex items-center justify-between>
+              \div className="space-y-2>
+                \p className="text-sm text-muted-foreground">Average GPA</p>
+                \p className="text-lg font-bold text-foreground>{progressData.averageGpa.toFixed(2)}</p>
+              \div
+              \div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center>
+                \span className="text-brass-500 text-lg">�������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������📊</span>
+              \div
+            \div
+          \div>
+        \div>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">Retention Rate</p>
+              \p className="text-lg font-bold text-foreground>{progressData.retentionRate}%</p>
+            \div
+            \div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-lg">��������������������������������������������������������������������������������������������������������������������������������������������������������█�������������🔄</span>
+            \div
+          \div>
+        \div>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground">College Acceptance Rate</p>
+              \p className="text-lg font-bold text-foreground>{progressData.collegeAcceptanceRate}%</p>
+            \div
+            \div className="w-8 h-8 bg-brass-500/10 rounded-fld items-center justify-center>
+              \span className="text-brass-500 text-lg">��������������������������������������������������������������������█�������������🎉</span>
+            \div
+          \div>
+        \div>
+      \div>
     </Card>
   );
 }

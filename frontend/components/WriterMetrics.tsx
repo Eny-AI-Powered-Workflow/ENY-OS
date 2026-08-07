@@ -65,102 +65,86 @@ export default function WriterMetrics() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Total Documents</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">������������������✏������️</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Documents This Month</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������������������📅</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Templates Available</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������������������📄</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Agent Executions</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">������������������⚡</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      \div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground\">Total Documents</p>
+              \p className=\"text-2xl font-bold text-muted-foreground\">Loading...</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-xl\">��������������������������������������✏��������������️</span>
+            \div
+          \div>
+        \div
+      \div
     );
   }
 
   if (error) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Total Documents</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">������������������✏������️</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            {
-              "": "",
-              "": ""
-            }
-          }
-        </div>
-      </div>
+      \div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+        \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          \div className="flex items-center justify-between>
+            \div className="space-y-2>
+              \p className="text-sm text-muted-foreground\">Total Documents</p>
+              \p className=\"text-2xl font-bold text-destructive\">Error loading</p>
+            \div
+            \div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              \span className="text-brass-500 text-xl\">��������������������������������������✏��������������️</span>
+            \div
+          \div>
+        \div
+      \div
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Total Documents</p>
-            <p className="text-2xl font-bold text-foreground>{metrics.totalDocuments}</p>
-          </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">������������������✏������️</span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          {
-            "": "",
-            "": ""
-          }
-        </div>
-      </div>
-    </div>
-  );
+    \div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+      \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground\">Total Documents</p>
+            \p className="text-2xl font-bold text-foreground\>{metrics.totalDocuments}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl\">��������������������������������������✏��������������️</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground\">Documents This Month</p>
+            \p className="text-2xl font-bold text-foreground\>{metrics.documentsThisMonth}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl\">���������������������������������������������📅</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground\">Templates Available</p>
+            \p className="text-2xl font-bold text-foreground\>{metrics.templatesAvailable}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl\">���������������������������������������������📄</span>
+          \div
+        \div
+      \div
+      \div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        \div className="flex items-center justify-between>
+          \div className="space-y-2>
+            \p className="text-sm text-muted-foreground\">Agent Executions</p>
+            \p className="text-2xl font-bold text-foreground\>{metrics.agentExecutions}</p>
+          \div
+          \div className="w-12 h-12 bg-brass-500/10 rounded-fld items-center justify-center>
+            \span className="text-brass-500 text-xl\">��������������������������������������⚡</span>
+          \div
+        \div
+      \div
+    );
+  }
 }
