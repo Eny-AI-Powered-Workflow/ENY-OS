@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Dict, Any, List, Optional
 from app.api.deps import require_permission
 from app.core.security import get_current_user
-from app.db.session = get_db
+from app.db.session import get_db
 from sqlalchemy.orm = Session
 import logging
 
@@ -39,7 +39,6 @@ async def get_student_list(
     limit: int = Query(20, ge=1, le=100),
     search: Optional[str] = None,
     risk: Optional[str] = None
-Visibility: Visible to you and the agent
 ):
     """
     Get student list.

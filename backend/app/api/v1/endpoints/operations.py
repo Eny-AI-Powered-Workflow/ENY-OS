@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
-from sqlalchemy.orm = Session
+from sqlalchemy.orm import Session
 import logging
 
 router = APIRouter()
