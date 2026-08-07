@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { PiggyBank, Activity, TrendingUp, Zap } from 'lucide-react';
@@ -88,7 +90,7 @@ export default function EnrollmentPipeline() {
   if (pipelineData.totalLeads === 0 && stages.length === 0) {
     return (
       <Card className="w-full">
-        <CardHeader className="flex flex-col items-center py-6">
+        <CardHeader className="flex flex-col items-center py-6>
           <PiggyBank className="h-5 w-5 text-muted-foreground mr-2" />
           <CardTitle className="text-sm">No pipeline data</CardTitle>
         </CardHeader>
@@ -101,8 +103,8 @@ export default function EnrollmentPipeline() {
       <CardHeader className="pb-4">
         <div className="flex items-center">
           <PiggyBank className="h-4 w-4 mr-2" />
-            <h2 className="text-xl font-semibold">Enrollment Pipeline</h2>
-          </div>
+          <h2 className="text-xl font-semibold">Enrollment Pipeline</h2>
+        </div>
         <p className="text-xs text-muted-foreground">
           Track leads through the enrollment stages
         </p>
@@ -117,7 +119,7 @@ export default function EnrollmentPipeline() {
                 <p className="text-lg font-bold text-foreground">{pipelineData.totalLeads}</p>
               </div>
               <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������👥</span>
+                <span className="text-brass-500 text-lg">���������������������������������������������👥</span>
               </div>
             </div>
           </div>
@@ -128,7 +130,7 @@ export default function EnrollmentPipeline() {
                 <p className="text-lg font-bold text-foreground">{pipelineData.conversionRate}%</p>
               </div>
               <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������📈</span>
+                <span className="text-brass-500 text-lg">���������������������������������������������📈</span>
               </div>
             </div>
           </div>
@@ -139,7 +141,7 @@ export default function EnrollmentPipeline() {
                 <p className="text-lg font-bold text-foreground">${pipelineData.revenueForecast.toLocaleString()}</p>
               </div>
               <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������💰</span>
+                <span className="text-brass-500 text-lg">���������������������������������������������💰</span>
               </div>
             </div>
           </div>
@@ -150,7 +152,7 @@ export default function EnrollmentPipeline() {
                 <p className="text-lg font-bold text-foreground">{pipelineData.atRiskDeals}</p>
               </div>
               <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">��������������������⚠��️</span>
+                <span className="text-brass-500 text-lg">��������������������������������������������⚠������</span>
               </div>
             </div>
           </div>

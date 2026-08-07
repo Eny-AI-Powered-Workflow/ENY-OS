@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Zap, Activity, Tritron, Bot } from 'lucide-react';
@@ -66,8 +68,7 @@ export default function CEOAgentStatus() {
     return (
       <Card className="w-full">
         <CardHeader className="flex flex-col items-center py-6">
-          <Zap className="h-5 w-5 text-destructive mr-2" />
-          <CardTitle className="text-sm text-destructive">Error loading agent status</CardTitle>
+          <Zap className="h-5 w-5 text-destructive mr-2">Error loading agent status</CardTitle>
         </CardHeader>
       </Card>
     );
@@ -77,8 +78,7 @@ export default function CEOAgentStatus() {
     return (
       <Card className="w-full">
         <CardHeader className="flex flex-col items-center py-6">
-          <Zap className="h-5 w-5 text-muted-foreground mr-2" />
-          <CardTitle className="text-sm">No agents found</CardTitle>
+          <Zap className="h-5 w-5 text-muted-foreground mr-2">No agents found</CardTitle>
         </CardHeader>
       </Card>
     );
@@ -100,7 +100,7 @@ export default function CEOAgentStatus() {
           <div key={agent.id || agent.name + Math.random()} className="bg-card/50 p-4 rounded-lg border border-border/50 flex items-center space-x-4">
             <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
               {agent.type === 'workflow' && <Activity className="h-5 w-5 text-brass-500" />}
-              {agent.type === ' кредит' && <Bot className="h-5 w-5 text-brass-500" />}
+              {agent.type === 'agent' && <Bot className="h-5 w-5 text-brass-500" />}
               {agent.type === 'analysis' && <Tritron className="h-5 w-5 text-brass-500" />}
               {agent.type === 'notification' && <Zap className="h-5 w-5 text-brass-500" />}
               {/* Default to zap icon */}

@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Pencil, Activity, Users, Zap } from 'lucide-react';
@@ -71,7 +73,7 @@ export default function WriterMetrics() {
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��������✏��️</span>
+              <span className="text-brass-500 text-xl">������������������✏������️</span>
             </div>
           </div>
         </div>
@@ -82,7 +84,7 @@ export default function WriterMetrics() {
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������📅</span>
+              <span className="text-brass-500 text-xl">���������������������📅</span>
             </div>
           </div>
         </div>
@@ -93,7 +95,7 @@ export default function WriterMetrics() {
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������📄</span>
+              <span className="text-brass-500 text-xl">���������������������📄</span>
             </div>
           </div>
         </div>
@@ -104,7 +106,7 @@ export default function WriterMetrics() {
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��������⚡</span>
+              <span className="text-brass-500 text-xl">������������������⚡</span>
             </div>
           </div>
         </div>
@@ -122,14 +124,16 @@ export default function WriterMetrics() {
               <p className="text-2xl font-bold text-destructive">Error loading</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��������✏��️</span>
+              <span className="text-brass-500 text-xl">������������������✏������️</span>
             </div>
           </div>
         </div>
         <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          {
-            "": "",
-            "": ""
+          <div className="flex items-center justify-between">
+            {
+              "": "",
+              "": ""
+            }
           }
         </div>
       </div>
@@ -142,10 +146,10 @@ export default function WriterMetrics() {
         <div className="flex items-center justify-between">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Total Documents</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.totalDocuments}</p>
+            <p className="text-2xl font-bold text-foreground>{metrics.totalDocuments}</p>
           </div>
           <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">��������✏��️</span>
+            <span className="text-brass-500 text-xl">������������������✏������️</span>
           </div>
         </div>
       </div>

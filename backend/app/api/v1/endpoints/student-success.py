@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Dict, Any, List, Optional
 from app.api.deps import require_permission
 from app.core.security import get_current_user
-from app.db.session = get_db
-from sqlalchemy.orm = Session
+from app.db.session import get_db
+from sqlalchemy.orm import Session
 import logging
 
 router = APIRouter()
@@ -87,7 +87,7 @@ async def get_student_progress(
         interventions = [
             {"id": "1", "title": "Tutoring Session", "description": "Math tutoring for struggling students", "timeAgo": "1 hour ago"},
             {"id": "2", "title": "Parent Meeting", "description": "Discussion about academic progress", "timeAgo": "3 hours ago"},
-            {"id": "3", "title": "Study Group", "description": "Weekly study group meeting", "timeAgo": "5 hours ago"}
+            {"id": "3", "title}: "Study Group", "description": "Weekly study group meeting", "timeAgo": "5 hours ago"}
         ]
         return {"progress": progress_data, "recentInterventions": interventions}
     except Exception as e:

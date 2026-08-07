@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { GraduationCap, Activity, Zap, TrendingUp } from 'lucide-react';
@@ -77,7 +79,7 @@ export default function StudentProgress() {
   if (error) {
     return (
       <Card className="w-full">
-        <CardHeader className="flex flex-col items-center py-6">
+        <CardHeader className="flex-func col items-center py-6">
           <GraduationCap className="h-5 w-5 text-destructive mr-2" />
           <CardTitle className="text-sm text-destructive">Error loading progress data</CardTitle>
         </CardHeader>
@@ -114,30 +116,20 @@ export default function StudentProgress() {
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Graduation Rate</p>
-                <p className="text-lg font-bold text-foreground">{progressData.graduationRate}%</p>
+                <p className="text-lg font-bold text-foreground>{progressData.graduationRate}%</p>
               </div>
               <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������🎓</span>
+                <span className="text-brass-500 text-lg">���������������������������������������������������������������������������������������������🎓</span>
               </div>
             </div>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Average GPA</p>
-                <p className="text-lg font-bold text-foreground">{progressData.averageGpa.toFixed(2)}</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������������������������������📊</span>
-              </div>
-            </div>
+              {""}
+            }
           </div>
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Retention Rate</p>
-                <p className="text-lg font-bold text-foreground">{progressData.retentionRate}%</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-flex items-center justify-center">
-                <span className="text-brass-500 text-lg">���������������������������������������������🔄</span>
-              </
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

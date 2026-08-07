@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Activity, Clock, Users, Zap } from 'lucide-react';
@@ -66,8 +68,7 @@ export default function CEOHeatmap() {
     return (
       <Card className="w-full">
         <CardHeader className="flex flex-col items-center py-6">
-          <Activity className="h-5 w-5 text-destructive mr-2" />
-          <CardTitle className="text-sm text-destructive">Error loading activity</CardTitle>
+          <Activity className="h-5 w-5 text-destructive mr-2">Error loading activity</CardTitle>
         </CardHeader>
       </Card>
     );
@@ -77,8 +78,7 @@ export default function CEOHeatmap() {
     return (
       <Card className="w-full">
         <CardHeader className="flex flex-col items-center py-6">
-          <Activity className="h-5 w-5 text-muted-foreground mr-2" />
-          <CardTitle className="text-sm">No recent activity</CardTitle>
+          <Activity className="h-5 w-5 text-muted-foreground mr-2">No recent activity</CardTitle>
         </CardHeader>
       </Card>
     );

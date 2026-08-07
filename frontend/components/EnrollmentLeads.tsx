@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Users, Activity, Search, Trash2 } from 'lucide-react';
@@ -154,10 +156,7 @@ export default function EnrollmentLeads() {
                         : tag.toLowerCase().includes('follow')
                         ? 'bg-blue-100 text-blue-800'
                         : 'bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    #{tag}
-                  </span>
+                    }}/>
                 ))}
                 <div className="mt-2 flex space-x-2">
                   <button

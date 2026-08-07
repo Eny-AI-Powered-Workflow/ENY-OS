@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { GraduationCap, Users, Search, Trash2, AlertTriangle } from 'lucide-react';
@@ -91,7 +93,7 @@ export default function StudentList() {
           <CardTitle className="text-sm">No students found</CardTitle>
         </CardHeader>
         {searchTerm && (
-          <p className="text-center text-sm text-muted-foreground py-4">
+          <p className="text-center text-sm text-muted-foreground py-4>
             No students match "{searchTerm}"
           </p>
         )}
@@ -157,19 +159,19 @@ export default function StudentList() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-end space-x-3">
-                <div className="text-xs text-muted-foreground">
+              <div className="flex items-end space-x-3>
+                <div className="text-xs text-muted-foreground>
                   Status: {student.status === 'at-risk' ? (
-                    <span className="text-red-600 font-medium">At Risk</span>
+                    <span className="text-red-600 font-medium>At Risk</span>
                   ) : student.status === 'on-track' ? (
-                    <span className="text-green-600 font-medium">On Track</span>
+                    <span className="text-green-600 font-medium>On Track</span>
                   ) : (
-                    <span className="text-gray-600">{student.status}</span>
+                    <span className="text-gray-600>{student.status}</span>
                   )}
                 </div>
                 {student.interventionsToday > 0 && (
-                  <div className="mt-2 flex space-x-2">
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800">
+                  <div className="mt-2 flex space-x-2>
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800>
                       {student.interventionsToday} interventions today
                     </span>
                     <button
@@ -180,7 +182,7 @@ export default function StudentList() {
                     </button>
                   </div>
                 )}
-                <div className="mt-2 flex space-x-2">
+                <div className="mt-2 flex space-x-2>
                   <button
                     onClick={() => console.log('View student:', student.id)}
                     className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded"
@@ -197,7 +199,7 @@ export default function StudentList() {
               </div>
             </div>
           </div>
-        ))}
+        )}
       </CardContent>
     </Card>
   );

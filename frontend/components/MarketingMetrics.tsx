@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Megaphone, Activity, Users, Zap, TrendingUp, PiggyBank } from 'lucide-react';
@@ -71,33 +73,7 @@ export default function MarketingMetrics() {
               <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
             </div>
             <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������������������������������📢</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            {
-              "": "",
-              "": ""
-            }
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Total Leads</p>
-              <p className="text-2xl font-bold text-destructive">Error loading</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">���������������������������������📢</span>
+              <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������📢</span>
             </div>
           </div>
         </div>
@@ -111,52 +87,82 @@ export default function MarketingMetrics() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+          <div className="flex items-center justify-between>
+            <div className="space-y-2>
+              <p className="text-sm text-muted-foreground">Total Leads</p>
+              <p className="text-2xl font-bold text-destructive">Error loading</p>
+            </div>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+              <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������📢</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        <div className="flex items-center justify-between>
+          <div className="space-y-2>
             <p className="text-sm text-muted-foreground">Total Leads</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.totalLeads}</p>
+            <p className="text-2xl font-bold text-foreground>{metrics.totalLeads}</p>
           </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���������������������������������📢</span>
+          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+            <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������📢</span>
           </div>
         </div>
       </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
+      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        <div className="flex items-center justify-between>
+          <div className="space-y-2>
+            {""}
+          }
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6>
+      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        <div className="flex items-center justify-between>
+          <div className="space-y-2>
             <p className="text-sm text-muted-foreground">Leads This Month</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.leadsThisMonth}</p>
+            <p className="text-2xl font-bold text-foreground>{metrics.leadsThisMonth}</p>
           </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���������������������������������📅</span>
+          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+            <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������📅</span>
           </div>
         </div>
       </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
+      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        <div className="flex items-center justify-between>
+          <div className="space-y-2>
             <p className="text-sm text-muted-foreground">Conversion Rate</p>
-            <p className="text-2xl font-bold text-foreground">{metrics.conversionRate}%</p>
+            <p className="text-2xl font-bold text-foreground>{metrics.conversionRate}%</p>
           </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���������������������������������📈</span>
+          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+            <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������📈</span>
           </div>
         </div>
       </div>
-      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-        <div className="flex items-center justify-between">
-          <div className="space-y-2">
+      <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50>
+        <div className="flex items-center justify-between>
+          <div className="space-y-2>
             <p className="text-sm text-muted-foreground">ROI</p>
-            <p className="text-2xl font-bold text-foreground">${metrics.roi}</p>
+            <p className="text-2xl font-bold text-foreground>${metrics.roi}</p>
           </div>
-          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-            <span className="text-brass-500 text-xl">���������������������������������💰</span>
+          <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center>
+            <span className="text-brass-500 text-xl">�������������������������������������������������������������������������������������������������💰</span>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 }
