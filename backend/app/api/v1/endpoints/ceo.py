@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any
 from app.api.deps import require_permission
 from app.core.security import get_current_user
-from app.db.session import get_db
-from sqlalchemy.orm import Session
+from app.db.session = get_db
+from sqlalchemy.orm = Session
 import logging
 
 router = APIRouter()
