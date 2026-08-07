@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Activity, Clock, Users, Zap } from 'lucide-react';
-import { supabase } from '@/lib/supabaseClient>;
+import { supabase } from '@/lib/supabaseClient';
 
 export default function CEOHeatmap() {
   const [recentActivity, setRecentActivity] = useState<Array<any>>([]);

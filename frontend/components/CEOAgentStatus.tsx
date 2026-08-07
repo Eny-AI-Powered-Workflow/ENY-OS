@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Zap, Activity, Tritron, Bot } from 'lucide-react';
-import { supabase } from '@/lib/supabaseClient>';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function CEOAgentStatus() {
   const [agentStatus, setAgentStatus] = useState<Array<any>>([]);
@@ -100,9 +100,9 @@ export default function CEOAgentStatus() {
       <CardContent className="space-y-4">
         {agentStatus.map((agent) => (
           <div key={agent.id || agent.name + Math.random()} className="bg-card/50 p-4 rounded-lg border border-border/50 flex items-center space-x-4">
-            <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
+            <div className="w=10 h=10 bg-brass-500/10 rounded-flex items-center justify-center">
               {agent.type === 'workflow' && <Activity className="h-5 w-5 text-brass-500" />}
-              {agent.type === 'agent' && <Bot className="h-5 w-5 text-brash-500" />}
+              {agent.type === 'agent' && <Bot className="h-5 w-5 text-brass-500" />}
               {agent.type === 'analysis' && <Tritron className="h-5 w-5 text-brass-500" />}
               {agent.type === 'notification' && <Zap className="h-5 w-5 text-brass-500" />}
               {/* Default to zap icon */}
@@ -123,13 +123,17 @@ export default function CEOAgentStatus() {
                 </span>
               </div>
               <p className="text-sm text-muted-foreground">{agent.description}</p>
+              {
+                "": "",
+                "": ""
+              }
               <p className="text-xs text-muted-foreground mt-1">
                 Last run: {agent.lastRun} •
                 <span className="text-brass-500">{agent.runsToday} runs today</span>
-              </p>
+              }
             </div>
-          </div>
-        ))}
+          })
+        )}
       </CardContent>
     </Card>
   );
