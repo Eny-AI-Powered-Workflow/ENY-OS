@@ -116,8 +116,7 @@ export default function DocumentList() {
                 placeholder="Search documents..."
                 value={searchTerm}
                 onChange={handleSearchChange}
-                className="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
-                maxWidth="150px"
+                className="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500 w-[150px]"
               />
               <select
                 value={filterType}

@@ -1,6 +1,6 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/router.py
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, leads, pipeline, agents, ceo, enrollment, student_success, marketing
+from app.api.v1.endpoints import auth, leads, pipeline, agents, ceo, enrollment, student_success, marketing, operations
 
 api_router = APIRouter()
 
@@ -13,3 +13,4 @@ api_router.include_router(ceo.router, prefix="/ceo", tags=["ceo"])
 api_router.include_router(enrollment.router, prefix="/enrollment", tags=["enrollment"])
 api_router.include_router(student_success.router, prefix="/student-success", tags=["student-success"])
 api_router.include_router(marketing.router, prefix="/marketing", tags=["marketing"])
+api_router.include_router(operations.router, prefix="/operations", tags=["operations"])

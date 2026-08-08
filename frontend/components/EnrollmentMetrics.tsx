@@ -1,8 +1,6 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Users, Activity, PiggyBank, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function EnrollmentMetrics() {
@@ -10,18 +8,16 @@ export default function EnrollmentMetrics() {
     totalLeads: 0,
     newLeadsToday: 0,
     conversionRate: 0,
-    revenuePipeline: 0
+    revenuePipeline: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch metrics from the backend
   const fetchMetrics = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Get session to attach auth header if needed
       const { data: { session } } = await supabase.auth.getSession();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (session?.access_token) {
@@ -34,7 +30,6 @@ export default function EnrollmentMetrics() {
       });
 
       if (!res.ok) {
-        // If we get a 401 or 403, maybe session expired
         if (res.status === 401 || res.status === 403) {
           setError('Your session has expired. Please log in again.');
         } else {
@@ -48,7 +43,7 @@ export default function EnrollmentMetrics() {
         totalLeads: 0,
         newLeadsToday: 0,
         conversionRate: 0,
-        revenuePipeline: 0
+        revenuePipeline: 0,
       });
     } catch (err: any) {
       console.error('Error fetching enrollment metrics:', err);
@@ -58,50 +53,72 @@ export default function EnrollmentMetrics() {
     }
   };
 
-  // Fetch on mount
   useEffect(() => {
     fetchMetrics();
   }, []);
 
+  const statCards = [
+    { label: 'Total Leads', value: metrics.totalLeads.toLocaleString(), icon: '👥' },
+    { label: 'New Today', value: metrics.newLeadsToday.toLocaleString(), icon: '📅' },
+    { label: 'Conversion Rate', value: `${metrics.conversionRate}%`, icon: '📈' },
+    { label: 'Revenue Pipeline', value: `$${metrics.revenuePipeline.toLocaleString()}`, icon: '💰' },
+  ];
+
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+        {statCards.map((card) => (
+          <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+                <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
+              </div>
+              <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
+                <span className="text-brass-500 text-xl">{card.icon}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {statCards.map((card) => (
+          <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+                <p className="text-2xl font-bold text-destructive">Error loading</p>
+              </div>
+              <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
+                <span className="text-brass-500 text-xl">{card.icon}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {statCards.map((card) => (
+        <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
           <div className="flex items-center justify-between">
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Total Leads</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">{card.label}</p>
+              <p className="text-2xl font-bold text-foreground">{card.value}</p>
             </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������█�����������������������������👥</span>
+            <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
+              <span className="text-brass-500 text-xl">{card.icon}</span>
             </div>
           </div>
         </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">New Today</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">��������������������������������������������������������������������������������������������������������������������█�����������������������������📅</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Conversion Rate</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-flex items-center justify-center">
-              <span className="text-brass-500 text-xl">������������������������������������������������������������������������������������������������������������█�����������������������������📈</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Revenue Pipeline</p>
-              <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-            </div
+      ))}
+    </div>
+  );
+}

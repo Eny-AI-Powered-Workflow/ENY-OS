@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Zap, Activity, Tritron, Bot } from 'lucide-react';
+import { Zap, Activity, Bot } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function CEOAgentStatus() {
@@ -10,13 +10,11 @@ export default function CEOAgentStatus() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch agent status from the backend
   const fetchAgentStatus = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Get session to attach auth header if needed
       const { data: { session } } = await supabase.auth.getSession();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (session?.access_token) {
@@ -29,7 +27,6 @@ export default function CEOAgentStatus() {
       });
 
       if (!res.ok) {
-        // If we get a 401 or 403, maybe session expired
         if (res.status === 401 || res.status === 403) {
           setError('Your session has expired. Please log in again.');
         } else {
@@ -48,7 +45,6 @@ export default function CEOAgentStatus() {
     }
   };
 
-  // Fetch on mount
   useEffect(() => {
     fetchAgentStatus();
   }, []);
@@ -92,28 +88,21 @@ export default function CEOAgentStatus() {
         <div className="flex items-center">
           <Zap className="h-4 w-4 mr-2" />
           <h2 className="text-xl font-semibold">Agent Status</h2>
-        </div
-
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Current workflow and automation health
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {agentStatus.map((agent) => (
-          <div key={agent.id || agent.name + Math.random()} className="bg-card/50 p-4 rounded-lg border border-border/50 flex items-center space-x-4">
-            <div className="w-10 h-10 bg-brass-500/10 rounded-flex items-center justify-center">
+          <div key={agent.id || agent.name} className="bg-card/50 p-4 rounded-lg border border-border/50 flex items-center space-x-4">
+            <div className="w-10 h-10 bg-brass-500/10 rounded-full flex items-center justify-center">
               {agent.type === 'workflow' && <Activity className="h-5 w-5 text-brass-500" />}
               {agent.type === 'agent' && <Bot className="h-5 w-5 text-brass-500" />}
-              {agent.type === 'analysis' && <Tritron className="h-5 w-5 text-brass-500" />}
-              {agent.type === 'notification' && <Zap className="h-5 w-5 text-brass-500" />}
-              {/* Default to zap icon */}
-              {!['workflow', 'agent', 'analysis', 'notification'].includes(agent.type || '') && (
-                <Zap className="h-5 w-5 text-brass-500" />
-              )}
+              {!['workflow', 'agent'].includes(agent.type || '') && <Zap className="h-5 w-5 text-brass-500" />}
             </div>
             <div className="flex-1">
               <div className="flex justify-between">
-                {
-                  "": "",
-                  "": ""
-                }
                 <h3 className="font-semibold text-foreground">{agent.name}</h3>
                 <span className={`px-2 py-0.5 text-xs rounded-full ${
                   agent.status === 'success' ? 'bg-green-100 text-green-800' :
@@ -127,7 +116,7 @@ export default function CEOAgentStatus() {
               <p className="text-sm text-muted-foreground">{agent.description}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Last run: {agent.lastRun} •
-                <span className="text-brass-500">{agent.runsToday} runs today</span>
+                <span className="text-brass-500"> {agent.runsToday} runs today</span>
               </p>
             </div>
           </div>

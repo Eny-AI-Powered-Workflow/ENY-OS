@@ -1,6 +1,8 @@
+"use client";
+
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Zap, Activity, Users, Bot } from 'lucide-react';
+import { Zap, Bot, Activity } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function AgentTemplates() {
@@ -9,13 +11,11 @@ export default function AgentTemplates() {
   const [error, setError] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<'all' | 'sales' | 'marketing' | 'operations'>('all');
 
-  // Fetch agent templates from the backend
   const fetchAgentTemplates = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Get session to attach auth header if needed
       const { data: { session } } = await supabase.auth.getSession();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (session?.access_token) {
@@ -28,7 +28,6 @@ export default function AgentTemplates() {
       });
 
       if (!res.ok) {
-        // If we get a 401 or 403, maybe session expired
         if (res.status === 401 || res.status === 403) {
           setError('Your session has expired. Please log in again.');
         } else {
@@ -47,7 +46,6 @@ export default function AgentTemplates() {
     }
   };
 
-  // Fetch on mount and when filter changes
   useEffect(() => {
     fetchAgentTemplates();
   }, [filterCategory]);
@@ -92,9 +90,21 @@ export default function AgentTemplates() {
   return (
     <Card className="w-full">
       <CardHeader className="pb-4">
-        <div className="flex items-center">
-          <Zap className="h-4 w-4 mr-2" />
-          <h2 className="text-xl font-semibold">Agent Templates</h2>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Zap className="h-4 w-4 mr-2" />
+            <h2 className="text-xl font-semibold">Agent Templates</h2>
+          </div>
+          <select
+            value={filterCategory}
+            onChange={handleFilterChange}
+            className="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
+          >
+            <option value="all">All</option>
+            <option value="sales">Sales</option>
+            <option value="marketing">Marketing</option>
+            <option value="operations">Operations</option>
+          </select>
         </div>
         <p className="text-xs text-muted-foreground">
           Deploy and manage AI agent templates for automation
@@ -102,7 +112,7 @@ export default function AgentTemplates() {
       </CardHeader>
       <CardContent className="space-y-4">
         {templates.map((template) => (
-          <div key={template.id || Math.random()} className="bg-card/50 p-4 rounded-lg border border-border/50">
+          <div key={template.id || template.name} className="bg-card/50 p-4 rounded-lg border border-border/50">
             <div className="mb-3">
               <h3 className="font-semibold text-foreground">{template.name}</h3>
               <p className="text-sm text-muted-foreground">{template.description}</p>
@@ -123,7 +133,7 @@ export default function AgentTemplates() {
             </div>
             <div className="mt-3 p-3 bg-gray-50 rounded">
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Status:</p>
+                <span className="text-sm font-medium">Status:</span>
                 <span className={`px-2 py-0.5 text-xs rounded-full ${
                   template.status === 'active' ? 'bg-green-100 text-green-800' :
                   template.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
