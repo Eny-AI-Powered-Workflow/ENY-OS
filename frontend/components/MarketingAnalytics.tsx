@@ -132,7 +132,7 @@ export default function MarketingAnalytics() {
             </div>
             <div className="mt-3 p-3 bg-gray-50 rounded">
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">ROI:</p>
+                <span className="text-sm font-medium">ROI:</span>
                 <span className="text-lg font-bold">${campaign.roi?.toFixed(2) ?? 'N/A'}</span>
               </div>
               <div className="w-full bg-gray-200 rounded h-2 mt-1">

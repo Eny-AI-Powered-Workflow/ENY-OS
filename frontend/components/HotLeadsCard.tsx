@@ -12,7 +12,7 @@ interface Lead {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string | null;
+  phone: string | null; 
   tags: string[];
   score?: number; // optional, if available from backend
 }
