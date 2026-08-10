@@ -12,7 +12,7 @@ class AgentLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     workflow_name = Column(String, nullable=False)
-    user_id = Column(String, ForeignKey("auth.users.id"), nullable=False)
+    user_id = Column(String, nullable=False)
     input_data = Column(Text, nullable=True)
     output_data = Column(Text, nullable=True)
     status = Column(String, nullable=False)  # success, error, etc.
