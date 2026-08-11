@@ -39,21 +39,7 @@
         "resource": "contact",
         "updateFields": {
           "customFields": {
-            "value": "={{JSON.stringify($json)}}"
-          }
-        },
-        "additionalFields": {
-          "customFieldsUi": {
-            "value": [
-              {
-                "name": "Sales Score",
-                "value": "={{ $json[\"score\"] }}"
-              },
-              {
-                "name": "Score Category",
-                "value": "={{ $json[\"scoreCategory\"] }}"
-              }
-            ]
+            "value": "=[{\"id\": \"YOUR_SALES_SCORE_FIELD_ID\", \"Value\": {{$json[\"score\"]}}], [{\"id\": \"YOUR_SCORE_CATEGORY_FIELD_ID\", \"Value\": {{$json[\"scoreCategory\"]}}}]"
           }
         }
       },
