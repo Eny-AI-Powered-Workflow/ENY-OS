@@ -49,6 +49,12 @@ export const MODULES: Module[] = [
     href: '/dashboard/writer',
     icon: 'Pencil',
     permissions: ['agents:trigger']
+  },
+  {
+    name: 'ENY AI Desk',
+    href: '/dashboard/ai-desk',
+    icon: 'Sparkles',
+    permissions: ['ai:chat']
   }
 ]
 
@@ -93,13 +99,13 @@ export function usePermissions() {
   // Calculate permissions from userRoles
   // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
   const rolePermissions = {
-    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write'],
-    programs_manager: ['students:read', 'students:write', 'pipeline:read'],
-    customer_success: ['students:read', 'students:write'],
-    business_support: [], // Will be populated when content scopes exist
-    executive_assistant: ['pipeline:read', 'agents:trigger'],
-    enrollment: ['leads:read', 'leads:write', 'pipeline:read'],
-    developer: ['agents:trigger', 'agents:configure']
+    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat'],
+    programs_manager: ['students:read', 'students:write', 'pipeline:read', 'ai:chat'],
+    customer_success: ['students:read', 'students:write', 'ai:chat'],
+    business_support: ['ai:chat'],
+    executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat'],
+    enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
+    developer: ['agents:trigger', 'agents:configure', 'ai:chat']
   }
 
   // Calculate all permissions for the user based on their roles

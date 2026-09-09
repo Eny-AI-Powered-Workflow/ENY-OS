@@ -8,7 +8,9 @@ node_modules/
 .venv/
 backend/scripts/seed_dev_data.py
 backend/scripts/
-supabase/
+supabase/*
+!supabase/migrations/
+!supabase/migrations/*.sql
 CLAUDE.md
 ROADMAP.md
 Project_Written.md
@@ -25,3 +27,5 @@ LOCAL_TESTING_GUIDE.md
 LOCAL_TESTING_SUMMARY.md
 cred.md
 PROJECT.md
+
+supabase/

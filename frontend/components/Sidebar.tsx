@@ -21,6 +21,7 @@ import {
   PanelLeftOpen,
   Pencil,
   Settings,
+  Sparkles,
   Users,
 } from 'lucide-react'
 
@@ -42,6 +43,7 @@ export function Sidebar() {
     MessagesSquare,
     BarChart3,
     LogOut,
+    Sparkles,
   }
 
   const accessibleModules = MODULES.filter(
