@@ -64,7 +64,7 @@ export default function AIDeskPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.')
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,12 +73,40 @@ export default function AIDeskPage() {
         body: JSON.stringify({ prompt: trimmedPrompt, conversation_id: conversationId }),
       })
 
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'The AI desk could not respond.')
+      if (!response.ok || !response.body) throw new Error('The AI desk could not start a response.')
 
-      setContextStatus(payload.business_context || null)
-      setConversationId(payload.conversation_id || null)
-      setMessages((current) => [...current, { role: 'assistant', content: payload.answer }])
+      setMessages((current) => [...current, { role: 'assistant', content: '' }])
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finished = false
+
+      while (!finished) {
+        const { value, done } = await reader.read()
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
+
+        for (const event of events) {
+          const line = event.split('\n').find((entry) => entry.startsWith('data: '))
+          if (!line) continue
+          const payload = JSON.parse(line.slice(6))
+          if (payload.type === 'delta') {
+            setMessages((current) => {
+              const next = [...current]
+              const last = next.length - 1
+              next[last] = { role: 'assistant', content: next[last].content + payload.text }
+              return next
+            })
+          } else if (payload.type === 'done') {
+            setContextStatus(payload.business_context || null)
+            setConversationId(payload.conversation_id || null)
+          } else if (payload.type === 'error') {
+            throw new Error(payload.message)
+          }
+        }
+        finished = done
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The AI desk could not respond.')
     } finally {

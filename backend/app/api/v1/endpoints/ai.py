@@ -1,10 +1,12 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/ai.py
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -99,6 +101,62 @@ def get_recent_messages(conversation_id: UUID, db: Session, limit: int = 12) -> 
         AIMessage.conversation_id == conversation_id,
     ).order_by(AIMessage.created_at.desc()).limit(limit).all()
     return list(reversed(messages))
+
+
+async def stream_chat_response(
+    request: ChatRequest,
+    current_user: Any,
+    db: Session,
+):
+    roles = get_user_roles(current_user, db)
+    if not roles:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'No department role is assigned to this user'})}\n\n"
+        return
+
+    role_context = get_role_context(roles)
+    business_context = await ghl_service.get_ai_context(include_pipeline="ceo" in roles or "programs_manager" in roles)
+    conversation = get_or_create_conversation(str(current_user.id), request.conversation_id, db)
+    previous_messages = get_recent_messages(conversation.id, db)
+    history = "\n".join(f"{message.role}: {message.content}" for message in previous_messages)
+    conversation_prompt = f"Recent conversation:\n{history}\n\nCurrent user request:\n{request.prompt}" if history else request.prompt
+
+    db.add(AIMessage(conversation_id=conversation.id, role="user", content=request.prompt))
+    db.flush()
+    answer_parts: list[str] = []
+
+    try:
+        async for text in ClaudeService().stream_invoke(
+            prompt=build_context_prompt(conversation_prompt, business_context),
+            role_context=role_context,
+            max_tokens=1200,
+            temperature=0.4,
+        ):
+            answer_parts.append(text)
+            yield f"data: {json.dumps({'type': 'delta', 'text': text})}\n\n"
+
+        db.add(AIMessage(conversation_id=conversation.id, role="assistant", content="".join(answer_parts)))
+        conversation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        yield f"data: {json.dumps({'type': 'done', 'conversation_id': str(conversation.id), 'business_context': {'source': business_context.get('source'), 'leads_available': business_context.get('leads_available', False), 'scored_leads_count': len(business_context.get('scored_leads', [])), 'pipeline_available': 'pipeline' in business_context}})}\n\n"
+    except Exception as exc:
+        db.rollback()
+        yield f"data: {json.dumps({'type': 'error', 'message': f'AI service is unavailable: {exc}'})}\n\n"
+
+
+@router.post(
+    "/chat/stream",
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def stream_chat_with_department_ai(
+    request: ChatRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return StreamingResponse(
+        stream_chat_response(request, current_user, db),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(

@@ -7,7 +7,7 @@ The role_context ensures agent output is genuinely personalized per role.
 """
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, Any
 import anthropic
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,16 @@ class ClaudeService:
             raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
+        self.async_client = anthropic.AsyncAnthropic(api_key=self.api_key)
         self.model = os.getenv("CLAUDE_MODEL", "claude-3-opus-20240229")
+
+    def _system_prompt(self, role_context: str) -> str:
+        if not role_context:
+            return ""
+        return f"""You are an AI agent specialized in the {role_context} department of ENY Consulting.
+You have deep knowledge of {role_context} processes, terminology, and best practices.
+Always respond in a professional, helpful manner appropriate for a {role_context} professional.
+When providing advice or analysis, frame it within the context of {role_context} responsibilities and goals."""
 
     async def invoke(
         self,
@@ -44,12 +53,7 @@ class ClaudeService:
             Claude's response as a string
         """
         # Build the system prompt with role context if provided
-        system_prompt = ""
-        if role_context:
-            system_prompt = f"""You are an AI agent specialized in the {role_context} department of ENY Consulting.
-You have deep knowledge of {role_context} processes, terminology, and best practices.
-Always respond in a professional, helpful manner appropriate for a {role_context} professional.
-When providing advice or analysis, frame it within the context of {role_context} responsibilities and goals."""
+        system_prompt = self._system_prompt(role_context)
 
         try:
             # Use the Anthropic client to send a message
@@ -77,6 +81,28 @@ When providing advice or analysis, frame it within the context of {role_context}
             logger.error(f"Error invoking Claude: {e}")
             # Return a helpful error message rather than crashing
             return f"I encountered an error while processing your request: {str(e)}"
+
+    async def stream_invoke(
+        self,
+        prompt: str,
+        role_context: str = "",
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Yield Claude text deltas as they arrive from Anthropic."""
+        try:
+            async with self.async_client.messages.stream(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=self._system_prompt(role_context),
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                async for text in stream.text_stream:
+                    yield text
+        except Exception as exc:
+            logger.error(f"Error streaming Claude response: {exc}")
+            raise
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """
