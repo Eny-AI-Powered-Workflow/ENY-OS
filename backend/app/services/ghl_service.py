@@ -168,6 +168,52 @@ class GHLService:
                 "recent_activities": []
             }
 
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/opportunities/",
+                    params={"locationId": self.location_id},
+                    headers=self.headers,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            opportunities = data.get("opportunities", [])
+            total_leads = len(opportunities)
+            won_opportunities = [
+                opportunity for opportunity in opportunities
+                if str(opportunity.get("pipelineStage", "")).lower() == "won"
+            ]
+            conversion_rate = len(won_opportunities) / total_leads if total_leads else 0.0
+
+            return {
+                "total_leads": total_leads,
+                "conversion_rate": conversion_rate,
+                "revenue_forecast": sum(
+                    float(opportunity.get("expectedValue", 0) or 0)
+                    for opportunity in opportunities
+                ),
+                "at_risk_deals": len([
+                    opportunity for opportunity in opportunities
+                    if str(opportunity.get("pipelineStage", "")).lower()
+                    in {"stalled", "negotiation"}
+                ]),
+                "sources_breakdown": {},
+                "recent_activities": [],
+            }
+        except Exception as exc:
+            logger.error(f"Error fetching pipeline data from GHL: {exc}")
+            return {
+                "total_leads": 0,
+                "conversion_rate": 0.0,
+                "revenue_forecast": 0,
+                "at_risk_deals": 0,
+                "sources_breakdown": {},
+                "recent_activities": [],
+                "error": "Pipeline data unavailable",
+            }
+
     async def get_ai_context(self, include_pipeline: bool = True) -> Dict[str, Any]:
         """Build a minimized CRM snapshot for role-aware Claude prompts."""
         contacts = await self.get_contacts(limit=100)
@@ -175,13 +221,25 @@ class GHLService:
 
         for contact in contacts:
             custom_fields = contact.get("customFields", [])
-            fields = {
-                field.get("id"): field.get("value")
-                for field in custom_fields
-                if field.get("id")
-            }
-            score_value = fields.get("caiccVdZ41m5BMyWMH57")
-            category = fields.get("CiowYO5hnAmwWKCp7vAO")
+            if isinstance(custom_fields, dict):
+                custom_fields = [custom_fields]
+
+            fields = {}
+            for field in custom_fields:
+                if not isinstance(field, dict):
+                    continue
+                field_id = field.get("id")
+                field_key = field.get("fieldKey") or field.get("key")
+                value = field.get("value")
+                if field_id:
+                    fields[field_id] = value
+                if field_key:
+                    fields[field_key] = value
+
+            score_value = fields.get(settings.GHL_SALES_SCORE_FIELD_ID)
+            score_value = score_value if score_value is not None else fields.get("contact.sales_score")
+            category = fields.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
+            category = category if category is not None else fields.get("contact.score_category")
             if score_value is None and not category:
                 continue
 
@@ -211,49 +269,6 @@ class GHLService:
         if include_pipeline:
             context["pipeline"] = await self.get_pipeline_data()
         return context
-
-        # Real GHL API call for opportunities
-        try:
-            async with httpx.AsyncClient() as client:
-                params = {}
-                if self.location_id:
-                    params["locationId"] = self.location_id
-                # Note: GHL API endpoints for pipelines may vary
-                # This is a placeholder implementation
-                response = await client.get(
-                    f"{self.base_url}/opportunities/",
-                    params=params,
-                    headers=self.headers,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                # Process and return pipeline data in expected format
-                opportunities = data.get("opportunities", [])
-                total_leads = len(opportunities)
-                won_opportunities = [opp for opp in opportunities if opp.get("pipelineStage") == "won"]
-                conversion_rate = len(won_opportunities) / total_leads if total_leads > 0 else 0.0
-
-                return {
-                    "total_leads": total_leads,
-                    "conversion_rate": conversion_rate,
-                    "revenue_forecast": sum(float(opp.get("expectedValue", 0)) for opp in opportunities),
-                    "at_risk_deals": len([opp for opp in opportunities if opp.get("pipelineStage") in ["stalled", "negotiation"]]),
-                    "sources_breakdown": {},  # Would need additional API calls to implement
-                    "recent_activities": []   # Would need additional API calls to implement
-                }
-        except Exception as e:
-            logger.error(f"Error fetching pipeline data from GHL: {e}")
-            # Return empty structure on error
-            return {
-                "total_leads": 0,
-                "conversion_rate": 0.0,
-                "revenue_forecast": 0,
-                "at_risk_deals": 0,
-                "sources_breakdown": {},
-                "recent_activities": []
-            }
 
 
 # Create a singleton instance for use in the application

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     GHL_API_KEY: str = Field("", env="GHL_API_KEY")
     GHL_LOCATION_ID: str = Field("", env="GHL_LOCATION_ID")
     GHL_PRIVATE_TOKEN: str = Field("", env="GHL_PRIVATE_TOKEN")
+    GHL_SALES_SCORE_FIELD_ID: str = Field("caiccVdZ41m5BMyWMH57", env="GHL_SALES_SCORE_FIELD_ID")
+    GHL_SCORE_CATEGORY_FIELD_ID: str = Field("CiowYO5hnAmwWKCp7vAO", env="GHL_SCORE_CATEGORY_FIELD_ID")
 
     N8N_BASE_URL: str = Field("http://localhost:5678", env="N8N_BASE_URL")
     N8N_API_KEY: str = Field("", env="N8N_API_KEY")
