@@ -168,6 +168,50 @@ class GHLService:
                 "recent_activities": []
             }
 
+    async def get_ai_context(self, include_pipeline: bool = True) -> Dict[str, Any]:
+        """Build a minimized CRM snapshot for role-aware Claude prompts."""
+        contacts = await self.get_contacts(limit=100)
+        scored_leads = []
+
+        for contact in contacts:
+            custom_fields = contact.get("customFields", [])
+            fields = {
+                field.get("id"): field.get("value")
+                for field in custom_fields
+                if field.get("id")
+            }
+            score_value = fields.get("caiccVdZ41m5BMyWMH57")
+            category = fields.get("CiowYO5hnAmwWKCp7vAO")
+            if score_value is None and not category:
+                continue
+
+            try:
+                score = float(score_value) if score_value is not None else None
+            except (TypeError, ValueError):
+                score = None
+
+            scored_leads.append({
+                "id": contact.get("id"),
+                "name": contact.get("name") or " ".join(
+                    part for part in [contact.get("firstName"), contact.get("lastName")] if part
+                ),
+                "score": score,
+                "category": category,
+                "source": contact.get("source"),
+                "tags": contact.get("tags", []),
+                "updated_at": contact.get("dateUpdated"),
+            })
+
+        scored_leads.sort(key=lambda lead: lead.get("score") or 0, reverse=True)
+        context: Dict[str, Any] = {
+            "source": "GoHighLevel",
+            "leads_available": bool(contacts),
+            "scored_leads": scored_leads[:20],
+        }
+        if include_pipeline:
+            context["pipeline"] = await self.get_pipeline_data()
+        return context
+
         # Real GHL API call for opportunities
         try:
             async with httpx.AsyncClient() as client:

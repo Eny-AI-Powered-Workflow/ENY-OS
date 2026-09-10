@@ -10,6 +10,13 @@ type Message = {
   content: string
 }
 
+type ContextStatus = {
+  source: string
+  leads_available: boolean
+  scored_leads_count: number
+  pipeline_available: boolean
+}
+
 const suggestions = [
   'Give me a concise view of our highest-impact priorities this week.',
   'Turn the current lead-scoring result into a CEO action plan.',
@@ -21,6 +28,7 @@ export default function AIDeskPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null)
 
   const submitPrompt = async (event: FormEvent) => {
     event.preventDefault()
@@ -48,6 +56,7 @@ export default function AIDeskPage() {
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'The AI desk could not respond.')
 
+      setContextStatus(payload.business_context || null)
       setMessages((current) => [...current, { role: 'assistant', content: payload.answer }])
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The AI desk could not respond.')
@@ -71,7 +80,7 @@ export default function AIDeskPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-300" /> Claude connected
+            <span className="h-2 w-2 rounded-full bg-emerald-300" /> {contextStatus ? 'Live context loaded' : 'Claude ready'}
           </div>
         </div>
       </section>
@@ -96,6 +105,11 @@ export default function AIDeskPage() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><Bot className="h-4 w-4" /></div>
             <div><p className="font-semibold text-white">Department copilot</p><p className="text-xs text-slate-400">Context follows your ENY role</p></div>
           </div>
+
+          {contextStatus && <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-3 text-xs text-slate-400">
+            {contextStatus.leads_available ? `${contextStatus.scored_leads_count} scored lead${contextStatus.scored_leads_count === 1 ? '' : 's'} available` : 'No live scored leads returned'}
+            {contextStatus.pipeline_available ? ' · Pipeline context available' : ''}
+          </div>}
 
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
             {messages.length === 0 && <div className="flex h-full min-h-[330px] flex-col items-center justify-center text-center"><Sparkles className="h-7 w-7 text-cyan-200" /><p className="mt-4 text-sm text-slate-300">Your first brief is one prompt away.</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">The backend applies your authenticated department context before Claude responds.</p></div>}
