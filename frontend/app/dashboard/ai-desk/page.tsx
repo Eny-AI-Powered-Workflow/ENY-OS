@@ -17,6 +17,7 @@ type ContextStatus = {
   leads_available: boolean
   scored_leads_count: number
   pipeline_available: boolean
+  knowledge_entries_used?: number
 }
 
 const suggestions = [
@@ -158,6 +159,7 @@ export default function AIDeskPage() {
           {contextStatus && <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-3 text-xs text-slate-400">
             {contextStatus.leads_available ? `${contextStatus.scored_leads_count} scored lead${contextStatus.scored_leads_count === 1 ? '' : 's'} available` : 'No live scored leads returned'}
             {contextStatus.pipeline_available ? ' · Pipeline context available' : ''}
+            {contextStatus.knowledge_entries_used ? ` · ${contextStatus.knowledge_entries_used} ENY knowledge entr${contextStatus.knowledge_entries_used === 1 ? 'y' : 'ies'} used` : ''}
           </div>}
 
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
