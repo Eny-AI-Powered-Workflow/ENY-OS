@@ -1,7 +1,7 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/app/dashboard/ai-desk/page.tsx
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { Bot, Send, Sparkles, UserRound } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -9,6 +9,8 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
 }
+
+type ApiMessage = Message & { created_at?: string }
 
 type ContextStatus = {
   source: string
@@ -29,6 +31,24 @@ export default function AIDeskPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const loadConversation = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/conversation`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!response.ok) return
+
+      const history: ApiMessage[] = await response.json()
+      setMessages(history.map(({ role, content }) => ({ role, content })))
+    }
+
+    void loadConversation()
+  }, [])
 
   const submitPrompt = async (event: FormEvent) => {
     event.preventDefault()
@@ -50,13 +70,14 @@ export default function AIDeskPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ prompt: trimmedPrompt }),
+        body: JSON.stringify({ prompt: trimmedPrompt, conversation_id: conversationId }),
       })
 
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'The AI desk could not respond.')
 
       setContextStatus(payload.business_context || null)
+      setConversationId(payload.conversation_id || null)
       setMessages((current) => [...current, { role: 'assistant', content: payload.answer }])
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The AI desk could not respond.')
