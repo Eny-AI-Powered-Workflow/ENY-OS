@@ -47,18 +47,31 @@ async def trigger_agent_workflow(
         )
 
         # Log the agent execution to agent_logs table
+        result_status = result.get("status") if isinstance(result, dict) else None
+        execution_status = "error" if result_status == "error" else "success"
         agent_log = AgentLog(
             workflow_name=workflow_name,
             user_id=str(current_user["id"]) if isinstance(current_user, dict) and "id" in current_user else str(current_user.id),
             input_data=json.dumps(data),
             output_data=json.dumps(result),
-            status="success" if result else "failed"
+            status=execution_status
         )
         db.add(agent_log)
         db.commit()
 
+        if execution_status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "message": "n8n workflow execution failed",
+                    "workflow": workflow_name,
+                    "result": result,
+                },
+            )
+
+        response_status = "error" if execution_status == "error" else "success"
         return {
-            "status": "success",
+            "status": response_status,
             "workflow": workflow_name,
             "result": result
         }

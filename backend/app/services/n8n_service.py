@@ -10,17 +10,19 @@ import httpx
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class N8NService:
     def __init__(self):
-        self.base_url = os.getenv("N8N_BASE_URL", "http://localhost:5678")
-        self.api_key = os.getenv("N8N_API_KEY")
+        self.base_url = settings.N8N_BASE_URL.rstrip("/")
+        self.api_key = settings.N8N_API_KEY
+        self.mock_mode = settings.N8N_MOCK_MODE
 
-        if not self.api_key:
-            logger.warning("N8N_API_KEY not set - using mock mode")
+        if self.mock_mode:
+            logger.warning("N8N_MOCK_MODE enabled - n8n calls are simulated")
 
         self.headers = {
             "Content-Type": "application/json",
@@ -47,14 +49,21 @@ class N8NService:
         # For now, we'll construct a webhook URL based on the workflow name
         webhook_url = f"{self.base_url}/webhook/{workflow_name}"
 
+        if workflow_name not in {"eny-sales-score"}:
+            return {
+                "status": "error",
+                "workflow": workflow_name,
+                "error": "Workflow is not registered",
+            }
+
         # Mock fallback for development
-        if not self.api_key:
+        if self.mock_mode:
             logger.info(f"Mock: Triggering n8n workflow '{workflow_name}' with data: {data}")
             # Simulate some processing time
             await asyncio.sleep(0.1)
 
             # Return mock response based on workflow type
-            if "ENY-SALES-SCORE" in workflow_name or "lead-scorer" in workflow_name:
+            if workflow_name == "eny-sales-score":
                 return {
                     "status": "success",
                     "workflow": workflow_name,
@@ -103,7 +112,7 @@ class N8NService:
         """
         Get workflow executions from n8n.
         """
-        if not self.api_key:
+        if self.mock_mode:
             logger.info("Mock: Fetching workflow executions")
             return [
                 {
@@ -139,7 +148,7 @@ class N8NService:
         """
         Get workflow details by name.
         """
-        if not self.api_key:
+        if self.mock_mode:
             logger.info(f"Mock: Fetching workflow {workflow_name}")
             return {
                 "id": f"workflow-{hash(workflow_name) % 1000}",

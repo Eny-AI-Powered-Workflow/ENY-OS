@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "eny-sales-score",
-        "responseMode": "onReceived",
+        "responseMode": "lastNode",
         "responseData": {
           "options": {
             "respondWithJson": true,
@@ -39,17 +39,17 @@
         "headerAuth": "Bearer",
         "apiKeyPrefixed": "true",
         "options": {},
-        "url": "https://services.leadconnectorhq.com/contact/={{$json[\"leadId\"]}}",
-        "method": "PATCH",
+        "url": "https://services.leadconnectorhq.com/contacts/{{$json[\"leadId\"]}}",
+        "method": "PUT",
         "jsonParameters": true,
         "bodyParametersJson": {
           "customFields": [
             {
-              "id": "YOUR_SALES_SCORE_FIELD_ID",
+              "id": "caiccVdZ41m5BMyWMH57",
               "value": "={{ $json[\"score\"] }}"
             },
             {
-              "id": "YOUR_SCORE_CATEGORY_FIELD_ID",
+              "id": "CiowYO5hnAmwWKCp7vAO",
               "value": "={{ $json[\"scoreCategory\"] }}"
             }
           ]
