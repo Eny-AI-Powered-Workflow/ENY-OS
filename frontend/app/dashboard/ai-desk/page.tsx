@@ -2,7 +2,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { Bot, Send, Sparkles, UserRound } from 'lucide-react'
+import { Bot, MessageSquarePlus, Send, Sparkles, Trash2, UserRound } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 
 type Message = {
@@ -12,14 +12,20 @@ type Message = {
 
 type ApiMessage = Message & { created_at?: string }
 
+type Conversation = {
+  id: string
+  title: string
+  updated_at?: string
+}
+
 type ContextStatus = {
   source: string
   crm_status?: string
   contacts_returned?: number
   leads_available: boolean
   scored_leads_count: number
-    scored_contacts?: number
-    unscored_contacts?: number
+  scored_contacts?: number
+  unscored_contacts?: number
   pipeline_available: boolean
   score_distribution?: Record<string, number>
   knowledge_entries_used?: number
@@ -38,23 +44,71 @@ export default function AIDeskPage() {
   const [error, setError] = useState<string | null>(null)
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [loadingConversations, setLoadingConversations] = useState(true)
+
+  const authFetch = async (path: string, options: RequestInit = {}) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.')
+    return fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+        ...(options.headers || {}),
+      },
+    })
+  }
+
+  const loadConversation = async (id: string) => {
+    const response = await authFetch(`/conversation?conversation_id=${id}`)
+    if (!response.ok) return
+    const history: ApiMessage[] = await response.json()
+    setConversationId(id)
+    setMessages(history.map(({ role, content }) => ({ role, content })))
+  }
+
+  const loadConversations = async () => {
+    setLoadingConversations(true)
+    try {
+      const response = await authFetch('/conversations')
+      if (!response.ok) return
+      const items: Conversation[] = await response.json()
+      setConversations(items)
+      if (items.length > 0) await loadConversation(items[0].id)
+    } finally {
+      setLoadingConversations(false)
+    }
+  }
 
   useEffect(() => {
-    const loadConversation = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/conversation`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (!response.ok) return
-
-      const history: ApiMessage[] = await response.json()
-      setMessages(history.map(({ role, content }) => ({ role, content })))
-    }
-
-    void loadConversation()
+    void loadConversations()
   }, [])
+
+  const createConversation = async () => {
+    const response = await authFetch('/conversations', { method: 'POST' })
+    if (!response.ok) return
+    const conversation: Conversation = await response.json()
+    setConversations((current) => [conversation, ...current])
+    setConversationId(conversation.id)
+    setMessages([])
+    setContextStatus(null)
+  }
+
+  const deleteConversation = async (id: string) => {
+    const response = await authFetch(`/conversations/${id}`, { method: 'DELETE' })
+    if (!response.ok) return
+    const remaining = conversations.filter((conversation) => conversation.id !== id)
+    setConversations(remaining)
+    if (conversationId === id) {
+      if (remaining[0]) await loadConversation(remaining[0].id)
+      else {
+        setConversationId(null)
+        setMessages([])
+        setContextStatus(null)
+      }
+    }
+  }
 
   const submitPrompt = async (event: FormEvent) => {
     event.preventDefault()
@@ -107,6 +161,7 @@ export default function AIDeskPage() {
           } else if (payload.type === 'done') {
             setContextStatus(payload.business_context || null)
             setConversationId(payload.conversation_id || null)
+            setConversations((current) => current.map((conversation) => conversation.id === payload.conversation_id ? { ...conversation, title: trimmedPrompt.slice(0, 42) } : conversation))
           } else if (payload.type === 'error') {
             throw new Error(payload.message)
           }
@@ -121,7 +176,20 @@ export default function AIDeskPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto flex max-w-7xl min-h-[calc(100vh-9rem)] gap-4">
+      <aside className="hidden w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70 lg:flex">
+        <div className="flex items-center justify-between border-b border-white/10 p-4">
+          <div><p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Workspace</p><p className="mt-1 font-semibold text-white">Conversations</p></div>
+          <button type="button" onClick={createConversation} aria-label="New conversation" title="New conversation" className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-300 text-slate-950 hover:bg-cyan-200"><MessageSquarePlus className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 space-y-1 overflow-y-auto p-2">
+          {loadingConversations && <p className="px-3 py-4 text-xs text-slate-500">Loading history...</p>}
+          {!loadingConversations && conversations.length === 0 && <p className="px-3 py-4 text-xs leading-5 text-slate-500">No conversations yet. Start a new brief.</p>}
+          {conversations.map((conversation) => <div key={conversation.id} className={`group flex items-center gap-2 rounded-xl px-3 py-2 text-left transition ${conversation.id === conversationId ? 'bg-cyan-300/10 text-cyan-100' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}><button type="button" onClick={() => void loadConversation(conversation.id)} className="min-w-0 flex-1 truncate text-left text-xs">{conversation.title}</button><button type="button" onClick={() => void deleteConversation(conversation.id)} aria-label={`Delete ${conversation.title}`} title="Delete conversation" className="hidden shrink-0 text-slate-500 hover:text-rose-300 group-hover:block"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
+        </div>
+      </aside>
+
+      <div className="min-w-0 flex-1 space-y-4">
       <section className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_35%),linear-gradient(135deg,_rgba(8,47,73,0.95),_rgba(15,23,42,0.98))] p-6 shadow-[0_24px_70px_rgba(8,47,73,0.35)] sm:p-8">
         <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
@@ -185,5 +253,6 @@ export default function AIDeskPage() {
         </div>
       </section>
     </div>
+      </div>
   )
 }

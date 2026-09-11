@@ -44,6 +44,12 @@ class MessageResponse(BaseModel):
     created_at: datetime | None = None
 
 
+class ConversationResponse(BaseModel):
+    id: UUID
+    title: str
+    updated_at: datetime | None = None
+
+
 def get_user_roles(current_user: Any, db: Session) -> list[str]:
     rows = (
         db.query(Role.name)
@@ -254,13 +260,65 @@ async def chat_with_department_ai(
     dependencies=[Depends(require_permission("ai:chat"))],
 )
 async def get_ai_conversation(
+    conversation_id: UUID | None = None,
     current_user: Any = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return the authenticated user's latest AI Desk conversation."""
-    conversation = get_or_create_conversation(str(current_user.id), None, db)
+    conversation = get_or_create_conversation(str(current_user.id), conversation_id, db)
     db.commit()
     return [
         MessageResponse(role=message.role, content=message.content, created_at=message.created_at)
         for message in get_recent_messages(conversation.id, db, limit=100)
     ]
+
+
+@router.get(
+    "/conversations",
+    response_model=list[ConversationResponse],
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def list_ai_conversations(
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List only the authenticated user's AI Desk conversations."""
+    return db.query(AIConversation).filter(
+        AIConversation.user_id == current_user.id,
+    ).order_by(AIConversation.updated_at.desc()).all()
+
+
+@router.post(
+    "/conversations",
+    response_model=ConversationResponse,
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def create_ai_conversation(
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    conversation = AIConversation(user_id=current_user.id, title="New conversation")
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def delete_ai_conversation(
+    conversation_id: UUID,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    conversation = db.query(AIConversation).filter(
+        AIConversation.id == conversation_id,
+        AIConversation.user_id == current_user.id,
+    ).first()
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    db.delete(conversation)
+    db.commit()
