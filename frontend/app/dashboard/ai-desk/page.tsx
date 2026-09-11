@@ -14,9 +14,12 @@ type ApiMessage = Message & { created_at?: string }
 
 type ContextStatus = {
   source: string
+  crm_status?: string
+  contacts_returned?: number
   leads_available: boolean
   scored_leads_count: number
   pipeline_available: boolean
+  score_distribution?: Record<string, number>
   knowledge_entries_used?: number
 }
 
@@ -157,7 +160,8 @@ export default function AIDeskPage() {
           </div>
 
           {contextStatus && <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-3 text-xs text-slate-400">
-            {contextStatus.leads_available ? `${contextStatus.scored_leads_count} scored lead${contextStatus.scored_leads_count === 1 ? '' : 's'} available` : 'No live scored leads returned'}
+            {contextStatus.crm_status === 'connected' ? `GHL connected · ${contextStatus.contacts_returned || 0} contact${contextStatus.contacts_returned === 1 ? '' : 's'} checked` : 'GHL status unavailable'}
+            {contextStatus.leads_available ? ` · ${contextStatus.scored_leads_count} scored lead${contextStatus.scored_leads_count === 1 ? '' : 's'}` : ' · No scored leads returned'}
             {contextStatus.pipeline_available ? ' · Pipeline context available' : ''}
             {contextStatus.knowledge_entries_used ? ` · ${contextStatus.knowledge_entries_used} ENY knowledge entr${contextStatus.knowledge_entries_used === 1 ? 'y' : 'ies'} used` : ''}
           </div>}

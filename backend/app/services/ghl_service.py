@@ -218,6 +218,8 @@ class GHLService:
         """Build a minimized CRM snapshot for role-aware Claude prompts."""
         contacts = await self.get_contacts(limit=100)
         scored_leads = []
+        score_distribution = {"hot": 0, "warm": 0, "follow-up": 0, "cold": 0, "unclassified": 0}
+        sources_breakdown: Dict[str, int] = {}
 
         for contact in contacts:
             custom_fields = contact.get("customFields", [])
@@ -248,13 +250,20 @@ class GHLService:
             except (TypeError, ValueError):
                 score = None
 
+            normalized_category = str(category or "").strip().lower()
+            if normalized_category not in score_distribution:
+                normalized_category = "unclassified"
+            score_distribution[normalized_category] += 1
+            source = contact.get("source") or "unknown"
+            sources_breakdown[source] = sources_breakdown.get(source, 0) + 1
+
             scored_leads.append({
                 "id": contact.get("id"),
                 "name": contact.get("name") or " ".join(
                     part for part in [contact.get("firstName"), contact.get("lastName")] if part
                 ),
                 "score": score,
-                "category": category,
+                "category": category or normalized_category,
                 "source": contact.get("source"),
                 "tags": contact.get("tags", []),
                 "updated_at": contact.get("dateUpdated"),
@@ -263,8 +272,12 @@ class GHLService:
         scored_leads.sort(key=lambda lead: lead.get("score") or 0, reverse=True)
         context: Dict[str, Any] = {
             "source": "GoHighLevel",
-            "leads_available": bool(contacts),
+            "crm_status": "connected",
+            "contacts_returned": len(contacts),
+            "leads_available": bool(scored_leads),
             "scored_leads": scored_leads[:20],
+            "score_distribution": score_distribution,
+            "scored_leads_source_breakdown": sources_breakdown,
         }
         if include_pipeline:
             context["pipeline"] = await self.get_pipeline_data()
