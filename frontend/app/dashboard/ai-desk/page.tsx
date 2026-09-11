@@ -18,6 +18,8 @@ type ContextStatus = {
   contacts_returned?: number
   leads_available: boolean
   scored_leads_count: number
+    scored_contacts?: number
+    unscored_contacts?: number
   pipeline_available: boolean
   score_distribution?: Record<string, number>
   knowledge_entries_used?: number
@@ -162,6 +164,7 @@ export default function AIDeskPage() {
           {contextStatus && <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-3 text-xs text-slate-400">
             {contextStatus.crm_status === 'connected' ? `GHL connected · ${contextStatus.contacts_returned || 0} contact${contextStatus.contacts_returned === 1 ? '' : 's'} checked` : 'GHL status unavailable'}
             {contextStatus.leads_available ? ` · ${contextStatus.scored_leads_count} scored lead${contextStatus.scored_leads_count === 1 ? '' : 's'}` : ' · No scored leads returned'}
+                        {contextStatus.unscored_contacts ? ` · ${contextStatus.unscored_contacts} not yet scored` : ''}
             {contextStatus.pipeline_available ? ' · Pipeline context available' : ''}
             {contextStatus.knowledge_entries_used ? ` · ${contextStatus.knowledge_entries_used} ENY knowledge entr${contextStatus.knowledge_entries_used === 1 ? 'y' : 'ies'} used` : ''}
           </div>}

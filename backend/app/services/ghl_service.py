@@ -220,6 +220,8 @@ class GHLService:
         scored_leads = []
         score_distribution = {"hot": 0, "warm": 0, "follow-up": 0, "cold": 0, "unclassified": 0}
         sources_breakdown: Dict[str, int] = {}
+        scored_sources_breakdown: Dict[str, int] = {}
+        unscored_contacts = 0
 
         for contact in contacts:
             custom_fields = contact.get("customFields", [])
@@ -242,7 +244,10 @@ class GHLService:
             score_value = score_value if score_value is not None else fields.get("contact.sales_score")
             category = fields.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
             category = category if category is not None else fields.get("contact.score_category")
+            source = contact.get("source") or "unknown"
+            sources_breakdown[source] = sources_breakdown.get(source, 0) + 1
             if score_value is None and not category:
+                unscored_contacts += 1
                 continue
 
             try:
@@ -251,11 +256,19 @@ class GHLService:
                 score = None
 
             normalized_category = str(category or "").strip().lower()
+            if not normalized_category and score is not None:
+                if score >= 85:
+                    normalized_category = "hot"
+                elif score >= 70:
+                    normalized_category = "warm"
+                elif score >= 50:
+                    normalized_category = "follow-up"
+                else:
+                    normalized_category = "cold"
             if normalized_category not in score_distribution:
                 normalized_category = "unclassified"
             score_distribution[normalized_category] += 1
-            source = contact.get("source") or "unknown"
-            sources_breakdown[source] = sources_breakdown.get(source, 0) + 1
+            scored_sources_breakdown[source] = scored_sources_breakdown.get(source, 0) + 1
 
             scored_leads.append({
                 "id": contact.get("id"),
@@ -274,10 +287,13 @@ class GHLService:
             "source": "GoHighLevel",
             "crm_status": "connected",
             "contacts_returned": len(contacts),
+            "scored_contacts": len(scored_leads),
+            "unscored_contacts": unscored_contacts,
             "leads_available": bool(scored_leads),
             "scored_leads": scored_leads[:20],
             "score_distribution": score_distribution,
-            "scored_leads_source_breakdown": sources_breakdown,
+            "contacts_source_breakdown": sources_breakdown,
+            "scored_leads_source_breakdown": scored_sources_breakdown,
         }
         if include_pipeline:
             context["pipeline"] = await self.get_pipeline_data()
