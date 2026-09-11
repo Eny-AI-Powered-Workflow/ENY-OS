@@ -42,27 +42,69 @@ class GHLService:
             logger.warning("GHL credentials not configured - returning empty contacts list")
             return []
 
-        # Real GHL API call
         try:
             async with httpx.AsyncClient() as client:
-                params = {"limit": limit}
-                # Note: GHL API seems to not accept offset parameter directly
-                # Using limit only for now; offset-based pagination may need cursor approach
-                if self.location_id:
-                    params["locationId"] = self.location_id
                 response = await client.get(
                     f"{self.base_url}/contacts/",
-                    params=params,
+                    params={"locationId": self.location_id, "limit": limit},
                     headers=self.headers,
-                    timeout=30.0
+                    timeout=30.0,
                 )
                 response.raise_for_status()
-                data = response.json()
-                return data.get("contacts", [])
-        except Exception as e:
-            logger.error(f"Error fetching contacts from GHL: {e}")
-            # Return empty list on error to avoid breaking the flow
+                return response.json().get("contacts", [])
+        except Exception as exc:
+            logger.error(f"Error fetching contacts from GHL: {exc}")
             return []
+
+    async def get_all_contacts(self) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Fetch the contact inventory using GHL cursor pagination."""
+        if not self.private_token or not self.location_id:
+            return [], {"status": "not_configured"}
+
+        contacts: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        pages = 0
+
+        try:
+            async with httpx.AsyncClient() as client:
+                while pages < settings.GHL_CONTACT_MAX_PAGES:
+                    params: Dict[str, Any] = {
+                        "locationId": self.location_id,
+                        "limit": 100,
+                    }
+                    if cursor:
+                        params["startAfterId"] = cursor
+
+                    response = await client.get(
+                        f"{self.base_url}/contacts/",
+                        params=params,
+                        headers=self.headers,
+                        timeout=30.0,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    page = data.get("contacts", [])
+                    contacts.extend(page)
+                    pages += 1
+
+                    meta = data.get("meta", {}) or {}
+                    next_cursor = meta.get("startAfterId") or data.get("startAfterId")
+                    if not page or not next_cursor or next_cursor == cursor or len(page) < 100:
+                        break
+                    cursor = next_cursor
+
+            return contacts, {
+                "status": "connected",
+                "pages": pages,
+                "max_pages_reached": pages >= settings.GHL_CONTACT_MAX_PAGES,
+            }
+        except Exception as exc:
+            logger.error(f"Error fetching paginated contacts from GHL: {exc}")
+            return contacts, {
+                "status": "error",
+                "pages": pages,
+                "error": "Contact inventory unavailable",
+            }
 
     async def get_contact(self, contact_id: str) -> Optional[Dict[str, Any]]:
         """Get a single contact by ID from GHL."""
@@ -216,7 +258,7 @@ class GHLService:
 
     async def get_ai_context(self, include_pipeline: bool = True) -> Dict[str, Any]:
         """Build a minimized CRM snapshot for role-aware Claude prompts."""
-        contacts = await self.get_contacts(limit=100)
+        contacts, inventory_status = await self.get_all_contacts()
         scored_leads = []
         score_distribution = {"hot": 0, "warm": 0, "follow-up": 0, "cold": 0, "unclassified": 0}
         sources_breakdown: Dict[str, int] = {}
@@ -287,6 +329,7 @@ class GHLService:
             "source": "GoHighLevel",
             "crm_status": "connected",
             "contacts_returned": len(contacts),
+            "contact_inventory": inventory_status,
             "scored_contacts": len(scored_leads),
             "unscored_contacts": unscored_contacts,
             "leads_available": bool(scored_leads),
