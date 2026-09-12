@@ -2,7 +2,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { Bot, MessageSquarePlus, Send, Sparkles, Trash2, UserRound } from 'lucide-react'
+import { Bot, ClipboardCheck, MessageSquarePlus, Send, Sparkles, Trash2, UserRound } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 
 type Message = {
@@ -31,6 +31,19 @@ type ContextStatus = {
   knowledge_entries_used?: number
 }
 
+type CohortProposal = {
+  status: string
+  message: string
+  inventory: { total_contacts: number; source_groups: Array<{ source: string; count: number }> }
+  proposal: {
+    cohorts?: Array<{ name: string; source: string; estimated_count: number; priority: string; reason: string; eligibility_rule: string }>
+    recommended_first_batch?: { cohort_name: string; estimated_count: number; reason: string }
+    human_decision?: string
+    unknowns?: string[]
+    raw_proposal?: string
+  }
+}
+
 const suggestions = [
   'Give me a concise view of our highest-impact priorities this week.',
   'Turn the current lead-scoring result into a CEO action plan.',
@@ -46,6 +59,8 @@ export default function AIDeskPage() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingConversations, setLoadingConversations] = useState(true)
+  const [cohortReview, setCohortReview] = useState<CohortProposal | null>(null)
+  const [cohortLoading, setCohortLoading] = useState(false)
 
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -107,6 +122,21 @@ export default function AIDeskPage() {
         setMessages([])
         setContextStatus(null)
       }
+    }
+  }
+
+  const reviewCohorts = async () => {
+    setCohortLoading(true)
+    setError(null)
+    try {
+      const response = await authFetch('/cohort-review', { method: 'POST', body: JSON.stringify({}) })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Cohort review could not be generated.')
+      setCohortReview(payload)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Cohort review could not be generated.')
+    } finally {
+      setCohortLoading(false)
     }
   }
 
@@ -221,6 +251,9 @@ export default function AIDeskPage() {
               </button>
             ))}
           </div>
+          <button type="button" onClick={() => void reviewCohorts()} disabled={cohortLoading} className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm font-medium text-amber-100 transition hover:bg-amber-300/20 disabled:opacity-50">
+            <ClipboardCheck className="h-4 w-4" /> {cohortLoading ? 'Reviewing contacts...' : 'Review lead cohorts'}
+          </button>
         </div>
 
         <div className="flex min-h-[520px] flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
@@ -252,6 +285,17 @@ export default function AIDeskPage() {
           </form>
         </div>
       </section>
+
+      {cohortReview && <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5 text-slate-200">
+        <div className="flex items-start justify-between gap-4">
+          <div><p className="text-[10px] uppercase tracking-[0.2em] text-amber-200">Human review required</p><h2 className="mt-2 text-xl font-semibold text-white">Lead cohort proposal</h2><p className="mt-2 text-sm text-slate-300">{cohortReview.message} Inventory: {cohortReview.inventory.total_contacts} contacts.</p></div>
+          <button type="button" onClick={() => setCohortReview(null)} aria-label="Close cohort review" className="text-slate-400 hover:text-white">×</button>
+        </div>
+        {cohortReview.proposal.cohorts && <div className="mt-5 grid gap-3 md:grid-cols-2">{cohortReview.proposal.cohorts.map((cohort) => <div key={`${cohort.name}-${cohort.source}`} className="rounded-xl border border-white/10 bg-slate-950/50 p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-white">{cohort.name}</h3><span className="text-xs uppercase tracking-[0.14em] text-amber-200">{cohort.priority}</span></div><p className="mt-2 text-sm text-slate-300">{cohort.estimated_count} contacts · {cohort.source}</p><p className="mt-2 text-xs leading-5 text-slate-400">{cohort.reason}</p><p className="mt-3 text-xs text-cyan-200">Eligibility: {cohort.eligibility_rule}</p></div>)}</div>}
+        {cohortReview.proposal.recommended_first_batch && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm"><span className="font-semibold text-emerald-100">Recommended first batch:</span> {cohortReview.proposal.recommended_first_batch.cohort_name} ({cohortReview.proposal.recommended_first_batch.estimated_count})<p className="mt-1 text-emerald-100/80">{cohortReview.proposal.recommended_first_batch.reason}</p></div>}
+        {cohortReview.proposal.human_decision && <div className="mt-4 border-t border-white/10 pt-4 text-sm"><span className="font-semibold text-white">Decision owner:</span> {cohortReview.proposal.human_decision}</div>}
+        {cohortReview.proposal.unknowns && <div className="mt-3 text-xs text-slate-400"><span className="font-semibold text-slate-300">Unknowns:</span> {cohortReview.proposal.unknowns.join(' · ')}</div>}
+      </section>}
     </div>
       </div>
   )

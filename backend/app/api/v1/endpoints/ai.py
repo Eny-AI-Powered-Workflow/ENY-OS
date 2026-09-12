@@ -50,6 +50,13 @@ class ConversationResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class CohortReviewRequest(BaseModel):
+    instruction: str = Field(
+        default="Classify the unscored contacts into actionable cohorts for human review.",
+        max_length=2000,
+    )
+
+
 def get_user_roles(current_user: Any, db: Session) -> list[str]:
     rows = (
         db.query(Role.name)
@@ -251,6 +258,56 @@ async def chat_with_department_ai(
             "pipeline_available": "pipeline" in business_context and "error" not in business_context.get("pipeline", {}),
             "knowledge_entries_used": len(knowledge_context),
         },
+    }
+
+
+@router.post(
+    "/cohort-review",
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def review_lead_cohorts(
+    request: CohortReviewRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Propose lead cohorts for human approval; this endpoint never changes GHL."""
+    roles = get_user_roles(current_user, db)
+    if not set(roles).intersection({"ceo", "enrollment", "programs_manager"}):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cohort review is not available for this role")
+
+    inventory = await ghl_service.get_cohort_inventory()
+    prompt = f"""{request.instruction}
+
+You are proposing a review plan only. Do not score contacts, update GHL, send messages, or claim that a cohort is approved.
+Use only this server-retrieved inventory:
+<cohort_inventory>
+{inventory}
+</cohort_inventory>
+
+Return valid JSON with this shape:
+{{
+  "cohorts": [{{"name": "", "source": "", "estimated_count": 0, "priority": "high|medium|low|hold", "reason": "", "eligibility_rule": "", "excluded_contacts": ""}}],
+  "recommended_first_batch": {{"cohort_name": "", "estimated_count": 0, "reason": ""}},
+  "human_decision": "State exactly what a CEO or enrollment owner must approve before scoring.",
+  "unknowns": [""]
+}}"""
+
+    answer = await ClaudeService().invoke(
+        prompt=prompt,
+        role_context=get_role_context(roles),
+        max_tokens=1400,
+        temperature=0.2,
+    )
+    try:
+        proposal = json.loads(answer)
+    except json.JSONDecodeError:
+        proposal = {"raw_proposal": answer, "parse_error": True}
+
+    return {
+        "status": "review_required",
+        "message": "No contacts were changed. Human approval is required before scoring.",
+        "inventory": inventory,
+        "proposal": proposal,
     }
 
 

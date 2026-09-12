@@ -342,6 +342,38 @@ class GHLService:
             context["pipeline"] = await self.get_pipeline_data()
         return context
 
+    async def get_cohort_inventory(self) -> Dict[str, Any]:
+        """Return privacy-minimized source/tag groups for human-reviewed cohorting."""
+        contacts, inventory_status = await self.get_all_contacts()
+        source_groups: Dict[str, Dict[str, Any]] = {}
+        unscored_samples: List[Dict[str, Any]] = []
+
+        for contact in contacts:
+            source = contact.get("source") or "unknown"
+            group = source_groups.setdefault(source, {"source": source, "count": 0, "tags": {}})
+            group["count"] += 1
+            for tag in contact.get("tags", [])[:10]:
+                group["tags"][tag] = group["tags"].get(tag, 0) + 1
+
+            custom_fields = contact.get("customFields", [])
+            if isinstance(custom_fields, dict):
+                custom_fields = [custom_fields]
+            field_ids = {field.get("id") for field in custom_fields if isinstance(field, dict)}
+            if settings.GHL_SALES_SCORE_FIELD_ID not in field_ids and len(unscored_samples) < 30:
+                unscored_samples.append({
+                    "id": contact.get("id"),
+                    "source": source,
+                    "tags": contact.get("tags", [])[:10],
+                    "created_at": contact.get("dateAdded"),
+                })
+
+        return {
+            "inventory": inventory_status,
+            "total_contacts": len(contacts),
+            "source_groups": list(source_groups.values()),
+            "unscored_sample": unscored_samples,
+        }
+
 
 # Create a singleton instance for use in the application
 ghl_service = GHLService()
