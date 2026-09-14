@@ -7,6 +7,7 @@ The role_context ensures agent output is genuinely personalized per role.
 """
 import os
 import logging
+import re
 from typing import AsyncGenerator, Optional, Dict, Any
 import anthropic
 
@@ -103,6 +104,64 @@ When providing advice or analysis, frame it within the context of {role_context}
         except Exception as exc:
             logger.error(f"Error streaming Claude response: {exc}")
             raise
+
+    def deterministic_score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply a deterministic score for ENY sales routing with no randomness or model drift."""
+        source = str(lead_data.get("source") or "unknown").lower().strip()
+        tags = [str(tag).lower() for tag in (lead_data.get("tags") or [])]
+        name = str(lead_data.get("name") or "")
+        email = str(lead_data.get("email") or "")
+        phone = str(lead_data.get("phone") or "")
+
+        score = 35
+
+        high_intent_sources = {"bootcamp", "free training", "bas", "waitlist", "consulting offer", "workshop", "webinar"}
+        if source in high_intent_sources:
+            score += 25
+        elif source in {"referral", "linkedin", "organic", "social"}:
+            score += 15
+        elif source in {"unknown", "cold"}:
+            score += 5
+
+        if any(token in " ".join(tags) for token in ["hot", "vip", "high intent", "booked", "qualified"]):
+            score += 20
+        elif any(token in " ".join(tags) for token in ["warm", "follow-up", "nurture"]):
+            score += 10
+
+        if email and "@" in email:
+            score += 10
+        if phone and re.search(r"\d{7,}", phone):
+            score += 10
+        if name and len(name.split()) >= 2:
+            score += 5
+
+        if any(keyword in source for keyword in ["bootcamp", "training", "consulting"]):
+            score += 5
+
+        score = max(1, min(99, score))
+
+        if score >= 85:
+            category = "hot"
+            next_best_action = "Route immediately to enrollment and book a discovery call"
+        elif score >= 70:
+            category = "warm"
+            next_best_action = "Send a focused follow-up and confirm fit"
+        elif score >= 50:
+            category = "follow-up"
+            next_best_action = "Keep in nurture queue and monitor engagement"
+        else:
+            category = "cold"
+            next_best_action = "Leave in low-priority nurture"
+
+        recommended_tags = list(dict.fromkeys(tags + [category, "lead-scored", "approved-batch"]))
+        return {
+            "score": score,
+            "category": category,
+            "reasoning": f"Deterministic score based on source quality, contact completeness, and prior tags for {source}.",
+            "recommended_tags": recommended_tags,
+            "next_best_action": next_best_action,
+            "source": source,
+        }
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """

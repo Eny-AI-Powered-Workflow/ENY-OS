@@ -45,11 +45,11 @@ class N8NService:
         Returns:
             The response from the n8n workflow execution
         """
-        # In a real implementation, we would have a mapping from workflow names to webhook URLs
-        # For now, we'll construct a webhook URL based on the workflow name
-        webhook_url = f"{self.base_url}/webhook/{workflow_name}"
+        normalized_name = (workflow_name or "").strip().lower()
+        webhook_url = f"{self.base_url}/webhook/{normalized_name}"
 
-        if workflow_name not in {"eny-sales-score"}:
+        allowed = {"eny-sales-score", "eny-enrollment-hot-leads"}
+        if normalized_name not in allowed:
             return {
                 "status": "error",
                 "workflow": workflow_name,
@@ -63,20 +63,27 @@ class N8NService:
             await asyncio.sleep(0.1)
 
             # Return mock response based on workflow type
-            if workflow_name == "eny-sales-score":
+            if normalized_name == "eny-sales-score":
+                score = int(data.get("score", 85))
                 return {
                     "status": "success",
-                    "workflow": workflow_name,
-                    "score": 85,
-                    "tags": ["hot", "follow-up"],
+                    "workflow": normalized_name,
+                    "score": score,
+                    "tags": ["hot", "follow-up"] if score >= 85 else ["warm", "follow-up"],
                     "message": "Workflow executed successfully"
                 }
-            else:
+            if normalized_name == "eny-enrollment-hot-leads":
                 return {
                     "status": "success",
-                    "workflow": workflow_name,
-                    "message": f"Workflow {workflow_name} executed successfully"
+                    "workflow": normalized_name,
+                    "message": "Enrollment notification queued",
+                    "notified": True,
                 }
+            return {
+                "status": "success",
+                "workflow": normalized_name,
+                "message": f"Workflow {normalized_name} executed successfully"
+            }
 
         # Real n8n API call
         try:

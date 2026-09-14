@@ -43,10 +43,14 @@ async def test_execute_approved_batch_scores_only_approved_contacts(monkeypatch)
     monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.get_all_contacts", fake_get_all_contacts)
     monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.update_contact", AsyncMock(return_value=True))
 
-    async def fake_score_lead(self, lead_data):
-        return {"score": 84, "reasoning": "Strong fit", "recommended_tags": ["bootcamp"], "next_best_action": "Follow up"}
+    async def fake_trigger_workflow(self, workflow_name, data):
+        if workflow_name == "eny-sales-score":
+            return {"status": "success", "score": 84, "tags": ["hot", "bootcamp"], "message": "Workflow executed successfully"}
+        if workflow_name == "eny-enrollment-hot-leads":
+            return {"status": "success", "notified": True, "message": "Enrollment notification queued"}
+        return {"status": "success", "message": "ok"}
 
-    monkeypatch.setattr("app.api.v1.endpoints.ai.ClaudeService.score_lead", fake_score_lead)
+    monkeypatch.setattr("app.api.v1.endpoints.ai.N8NService.trigger_workflow", fake_trigger_workflow)
 
     result = await execute_approved_batch(
         approval_id="01234567-89ab-cdef-0123-456789abcdef",

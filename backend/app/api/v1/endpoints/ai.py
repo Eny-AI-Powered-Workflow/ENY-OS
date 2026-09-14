@@ -21,6 +21,7 @@ from app.models.cohort_approval import CohortApproval
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
+from app.services.n8n_service import N8NService
 
 router = APIRouter()
 
@@ -393,6 +394,7 @@ async def execute_approved_batch(
     results: list[dict[str, Any]] = []
     processed_count = 0
     failed_count = 0
+    n8n_service = N8NService()
 
     for contact_id in approved_ids:
         contact = contact_map.get(contact_id)
@@ -436,15 +438,28 @@ async def execute_approved_batch(
             "customFields": custom_fields,
         }
 
-        scoring = await ClaudeService().score_lead(lead_data)
-        score_value = scoring.get("score", 50)
+        workflow_payload = {
+            "contact_id": str(contact_id),
+            "lead_data": lead_data,
+            "approval_id": str(approval.id),
+            "source": lead_data["source"],
+            "tags": lead_data["tags"],
+        }
+        workflow_result = await n8n_service.trigger_workflow("eny-sales-score", workflow_payload)
+        if workflow_result.get("status") == "success":
+            score_value = workflow_result.get("score", 0)
+            scoring = {"score": score_value, "category": _derive_score_category(score_value), "reasoning": workflow_result.get("message", "Workflow-driven scoring"), "next_best_action": "Follow up with the lead", "recommended_tags": workflow_result.get("tags", [])}
+        else:
+            scoring = ClaudeService().deterministic_score_lead(lead_data)
+            score_value = scoring.get("score", 50)
+
         try:
             score_int = int(score_value)
         except (TypeError, ValueError):
             score_int = 50
 
-        category = _derive_score_category(score_int)
-        combined_tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch"]))
+        category = scoring.get("category") or _derive_score_category(score_int)
+        combined_tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch", category]))
         update_payload = {
             "customFields": [
                 {"id": settings.GHL_SALES_SCORE_FIELD_ID, "value": score_int},
@@ -456,6 +471,19 @@ async def execute_approved_batch(
         write_ok = await ghl_service.update_contact(str(contact_id), update_payload)
         if write_ok:
             processed_count += 1
+            enrollment_notification = None
+            if category == "hot":
+                enrollment_notification = await n8n_service.trigger_workflow(
+                    "eny-enrollment-hot-leads",
+                    {
+                        "contact_id": str(contact_id),
+                        "score": score_int,
+                        "category": category,
+                        "source": lead_data["source"],
+                        "tags": combined_tags,
+                        "approval_id": str(approval.id),
+                    },
+                )
             results.append({
                 "contact_id": contact_id,
                 "status": "scored",
@@ -463,6 +491,7 @@ async def execute_approved_batch(
                 "category": category,
                 "reasoning": scoring.get("reasoning", ""),
                 "next_best_action": scoring.get("next_best_action", ""),
+                "enrollment_notification": enrollment_notification,
             })
         else:
             failed_count += 1
