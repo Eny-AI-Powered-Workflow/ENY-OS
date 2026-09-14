@@ -7,8 +7,27 @@ from app.db.session import get_db
 from sqlalchemy.orm import Session
 import logging
 
+from app.models.batch_execution_result import BatchExecutionResult
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _normalize_int(value: Any, default: int) -> int:
+    if hasattr(value, "default"):
+        value = getattr(value, "default")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _serialize_datetime(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
 @router.get("/metrics", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_metrics(
@@ -64,6 +83,100 @@ async def get_enrollment_leads(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch leads: {str(e)}"
+        )
+
+
+@router.get("/hot-leads", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_hot_leads(
+    limit: int = Query(20, ge=1, le=100),
+    min_score: int = Query(80, ge=0, le=100),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the current hot-lead queue sourced from approved execution results."""
+    try:
+        limit = _normalize_int(limit, 20)
+        min_score = _normalize_int(min_score, 80)
+
+        rows = (
+            db.query(BatchExecutionResult)
+            .filter(BatchExecutionResult.status.in_(["scored", "queued", "hot"]))
+            .filter(BatchExecutionResult.category == "hot")
+            .filter(BatchExecutionResult.score >= min_score)
+            .order_by(BatchExecutionResult.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        leads = [
+            {
+                "id": str(row.contact_id),
+                "contact_id": row.contact_id,
+                "firstName": (row.contact_name or "").split(" ")[0] if row.contact_name else "",
+                "lastName": " ".join((row.contact_name or "").split(" ")[1:]) if row.contact_name else "",
+                "email": row.email,
+                "phone": row.phone,
+                "score": row.score,
+                "source": getattr(row, "source", None),
+                "tags": row.tags or [row.category or "hot"],
+                "category": row.category,
+                "approval_id": str(row.approval_id) if row.approval_id else None,
+                "status": row.status,
+                "created_at": _serialize_datetime(getattr(row, "created_at", None)),
+            }
+            for row in rows
+        ]
+        return {"leads": leads, "total": len(leads), "limit": limit, "min_score": min_score}
+    except Exception as e:
+        logger.error(f"Error fetching hot leads: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch hot leads: {str(e)}",
+        )
+
+
+@router.get("/batch-results", dependencies=[Depends(require_permission("leads:read"))])
+async def get_batch_execution_results(
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the approved batch execution ledger for review and retry tracking."""
+    try:
+        limit = _normalize_int(limit, 20)
+
+        rows = (
+            db.query(BatchExecutionResult)
+            .order_by(BatchExecutionResult.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        results = [
+            {
+                "id": str(row.id),
+                "approval_id": str(row.approval_id) if row.approval_id else None,
+                "cohort_name": row.cohort_name,
+                "contact_id": row.contact_id,
+                "contact_name": getattr(row, "contact_name", None),
+                "email": getattr(row, "email", None),
+                "phone": getattr(row, "phone", None),
+                "source": getattr(row, "source", None),
+                "score": row.score,
+                "category": row.category,
+                "status": row.status,
+                "error": row.error,
+                "retry_count": row.retry_count,
+                "created_at": _serialize_datetime(getattr(row, "created_at", None)),
+            }
+            for row in rows
+        ]
+        return {"results": results, "total": len(results), "limit": limit}
+    except Exception as e:
+        logger.error(f"Error fetching batch execution results: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch batch execution results: {str(e)}",
         )
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("leads:read"))])

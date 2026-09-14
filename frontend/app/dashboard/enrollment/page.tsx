@@ -1,6 +1,7 @@
 import EnrollmentMetrics from "@/components/EnrollmentMetrics";
 import EnrollmentLeads from "@/components/EnrollmentLeads";
 import EnrollmentPipeline from "@/components/EnrollmentPipeline";
+import HotLeadsCard from "@/components/HotLeadsCard";
 
 export default function EnrollmentDashboard() {
   return (
@@ -19,6 +20,8 @@ export default function EnrollmentDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <EnrollmentMetrics />
       </div>
+
+      <HotLeadsCard />
 
       {/* Leads and Pipeline */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

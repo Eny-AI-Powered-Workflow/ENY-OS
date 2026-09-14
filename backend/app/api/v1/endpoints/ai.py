@@ -17,6 +17,8 @@ from app.db.session import get_db
 from app.models.role import Role
 from app.models.user_role import UserRole
 from app.models.ai_conversation import AIConversation, AIMessage
+from app.models.batch_execution_result import BatchExecutionResult
+from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
@@ -368,6 +370,39 @@ def _derive_score_category(score: int | float) -> str:
     return "cold"
 
 
+def _record_batch_result(
+    db: Session,
+    approval: CohortApproval,
+    contact: dict[str, Any],
+    *,
+    status: str,
+    score: int | None = None,
+    category: str | None = None,
+    error: str | None = None,
+    retry_count: int = 0,
+):
+    result = BatchExecutionResult(
+        approval_id=approval.id,
+        cohort_name=approval.cohort_name,
+        contact_id=str(contact.get("id")),
+        contact_name=(contact.get("name") or " ".join(
+            part for part in [contact.get("firstName"), contact.get("lastName")] if part
+        ) or "Unknown lead"),
+        email=contact.get("email"),
+        phone=contact.get("phone"),
+        source=contact.get("source") or "unknown",
+        score=score,
+        category=category,
+        status=status,
+        error=error,
+        retry_count=retry_count,
+        tags=contact.get("tags") or [],
+    )
+    db.add(result)
+    db.flush()
+    return result
+
+
 async def execute_approved_batch(
     approval_id: str,
     current_user: Any,
@@ -399,6 +434,14 @@ async def execute_approved_batch(
     for contact_id in approved_ids:
         contact = contact_map.get(contact_id)
         if not contact:
+            missing_contact = {"id": contact_id, "source": "unknown", "tags": []}
+            _record_batch_result(
+                db,
+                approval,
+                missing_contact,
+                status="missing_in_ghl",
+                error="Contact not found in GHL",
+            )
             results.append({"contact_id": contact_id, "status": "missing_in_ghl", "error": "Contact not found in GHL"})
             failed_count += 1
             continue
@@ -420,6 +463,14 @@ async def execute_approved_batch(
 
         existing_score = field_lookup.get(settings.GHL_SALES_SCORE_FIELD_ID)
         if existing_score is not None:
+            _record_batch_result(
+                db,
+                approval,
+                contact,
+                status="already_scored",
+                score=int(existing_score),
+                category=_derive_score_category(int(existing_score)),
+            )
             results.append({
                 "contact_id": contact_id,
                 "status": "already_scored",
@@ -484,6 +535,21 @@ async def execute_approved_batch(
                         "approval_id": str(approval.id),
                     },
                 )
+            result_row = _record_batch_result(
+                db,
+                approval,
+                contact,
+                status="scored",
+                score=score_int,
+                category=category,
+            )
+            if category == "hot":
+                db.add(BatchRetry(
+                    result_id=result_row.id,
+                    attempt_number=1,
+                    error_message="Hot lead queued for enrollment follow-up",
+                    status="queued",
+                ))
             results.append({
                 "contact_id": contact_id,
                 "status": "scored",
@@ -495,6 +561,22 @@ async def execute_approved_batch(
             })
         else:
             failed_count += 1
+            result_row = _record_batch_result(
+                db,
+                approval,
+                contact,
+                status="failed",
+                score=score_int,
+                category=category,
+                error="GHL update failed",
+                retry_count=1,
+            )
+            db.add(BatchRetry(
+                result_id=result_row.id,
+                attempt_number=1,
+                error_message="GHL update failed",
+                status="retry_pending",
+            ))
             results.append({
                 "contact_id": contact_id,
                 "status": "failed",

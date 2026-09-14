@@ -32,7 +32,7 @@ export default function HotLeadsCard() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/leads?limit=20`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads?limit=20&min_score=80`, {
         headers,
         credentials: 'include',
       });
