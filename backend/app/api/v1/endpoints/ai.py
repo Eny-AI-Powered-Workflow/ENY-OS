@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permission
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.role import Role
@@ -354,6 +355,156 @@ async def approve_cohort_batch(
         "source_filter": approval.source_filter,
         "contacts": contacts,
     }
+
+
+def _derive_score_category(score: int | float) -> str:
+    if score >= 85:
+        return "hot"
+    if score >= 70:
+        return "warm"
+    if score >= 50:
+        return "follow-up"
+    return "cold"
+
+
+async def execute_approved_batch(
+    approval_id: str,
+    current_user: Any,
+    db: Session,
+) -> dict[str, Any]:
+    """Execute a previously approved cohort batch against GHL using only the exact approved contact IDs."""
+    approval_uuid = None
+    try:
+        approval_uuid = UUID(str(approval_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid approval ID") from exc
+
+    approval = db.query(CohortApproval).filter(
+        CohortApproval.id == approval_uuid,
+        CohortApproval.user_id == current_user.id,
+    ).first()
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+
+    contacts, _ = await ghl_service.get_all_contacts()
+    contact_map = {str(contact.get("id")): contact for contact in contacts if contact.get("id")}
+    approved_ids = [str(contact_id) for contact_id in (approval.contact_ids or [])]
+
+    results: list[dict[str, Any]] = []
+    processed_count = 0
+    failed_count = 0
+
+    for contact_id in approved_ids:
+        contact = contact_map.get(contact_id)
+        if not contact:
+            results.append({"contact_id": contact_id, "status": "missing_in_ghl", "error": "Contact not found in GHL"})
+            failed_count += 1
+            continue
+
+        custom_fields = contact.get("customFields", [])
+        if isinstance(custom_fields, dict):
+            custom_fields = [custom_fields]
+        field_lookup: dict[str, Any] = {}
+        for field in custom_fields:
+            if not isinstance(field, dict):
+                continue
+            field_id = field.get("id")
+            field_key = field.get("fieldKey") or field.get("key")
+            value = field.get("value")
+            if field_id is not None:
+                field_lookup[str(field_id)] = value
+            if field_key is not None:
+                field_lookup[str(field_key)] = value
+
+        existing_score = field_lookup.get(settings.GHL_SALES_SCORE_FIELD_ID)
+        if existing_score is not None:
+            results.append({
+                "contact_id": contact_id,
+                "status": "already_scored",
+                "score": existing_score,
+            })
+            processed_count += 1
+            continue
+
+        lead_data = {
+            "id": contact.get("id"),
+            "name": contact.get("name") or " ".join(part for part in [contact.get("firstName"), contact.get("lastName")] if part),
+            "email": contact.get("email"),
+            "phone": contact.get("phone"),
+            "source": contact.get("source") or "unknown",
+            "tags": contact.get("tags", []),
+            "customFields": custom_fields,
+        }
+
+        scoring = await ClaudeService().score_lead(lead_data)
+        score_value = scoring.get("score", 50)
+        try:
+            score_int = int(score_value)
+        except (TypeError, ValueError):
+            score_int = 50
+
+        category = _derive_score_category(score_int)
+        combined_tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch"]))
+        update_payload = {
+            "customFields": [
+                {"id": settings.GHL_SALES_SCORE_FIELD_ID, "value": score_int},
+                {"id": settings.GHL_SCORE_CATEGORY_FIELD_ID, "value": category},
+            ],
+            "tags": combined_tags,
+        }
+
+        write_ok = await ghl_service.update_contact(str(contact_id), update_payload)
+        if write_ok:
+            processed_count += 1
+            results.append({
+                "contact_id": contact_id,
+                "status": "scored",
+                "score": score_int,
+                "category": category,
+                "reasoning": scoring.get("reasoning", ""),
+                "next_best_action": scoring.get("next_best_action", ""),
+            })
+        else:
+            failed_count += 1
+            results.append({
+                "contact_id": contact_id,
+                "status": "failed",
+                "score": score_int,
+                "category": category,
+                "error": "GHL update failed",
+            })
+
+    if failed_count and processed_count == 0:
+        approval.status = "failed"
+    elif failed_count:
+        approval.status = "completed_with_failures"
+    else:
+        approval.status = "completed"
+
+    db.commit()
+
+    return {
+        "status": approval.status,
+        "approval_id": str(approval.id),
+        "cohort_name": approval.cohort_name,
+        "source_filter": approval.source_filter,
+        "processed_count": processed_count,
+        "failed_count": failed_count,
+        "results": results,
+    }
+
+
+@router.post(
+    "/cohort-batch/execute/{approval_id}",
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def execute_approved_batch_route(
+    approval_id: UUID,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Execute an already approved cohort batch against GHL in a controlled, auditable way."""
+    return await execute_approved_batch(str(approval_id), current_user, db)
 
 
 @router.get(

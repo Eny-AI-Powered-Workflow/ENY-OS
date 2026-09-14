@@ -71,6 +71,7 @@ export default function AIDeskPage() {
   const [cohortReview, setCohortReview] = useState<CohortProposal | null>(null)
   const [cohortLoading, setCohortLoading] = useState(false)
   const [batchApproval, setBatchApproval] = useState<BatchApproval | null>(null)
+  const [batchExecution, setBatchExecution] = useState<{ status: string; processed_count?: number; failed_count?: number; approval_id?: string } | null>(null)
 
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -161,8 +162,30 @@ export default function AIDeskPage() {
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || 'Batch approval failed.')
       setBatchApproval(payload)
+      setBatchExecution(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Batch approval failed.')
+    } finally {
+      setCohortLoading(false)
+    }
+  }
+
+  const executeApprovedBatch = async () => {
+    if (!batchApproval?.approval_id) return
+    setCohortLoading(true)
+    setError(null)
+    try {
+      const response = await authFetch(`/cohort-batch/execute/${batchApproval.approval_id}`, { method: 'POST' })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Batch execution failed.')
+      setBatchExecution({
+        status: payload.status,
+        processed_count: payload.processed_count,
+        failed_count: payload.failed_count,
+        approval_id: payload.approval_id,
+      })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Batch execution failed.')
     } finally {
       setCohortLoading(false)
     }
@@ -326,7 +349,7 @@ export default function AIDeskPage() {
         <button type="button" onClick={() => void approveBootcampBatch()} disabled={cohortLoading} className="mt-5 rounded-xl bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50">{cohortLoading ? 'Approving...' : 'Approve Bootcamp Batch 1 (25)'}</button>
       </section>}
 
-      {batchApproval && <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-slate-200"><p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200">Approved batch recorded</p><h2 className="mt-2 text-xl font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-sm text-slate-300">{batchApproval.message}</p><p className="mt-3 text-xs text-emerald-100">Approval ID: {batchApproval.approval_id}</p><div className="mt-4 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-slate-950/40 p-3">{batchApproval.contacts.map((contact) => <div key={contact.id} className="flex justify-between gap-3 text-xs text-slate-300"><span>{contact.name || contact.id}</span><span className="text-slate-500">{contact.tags?.slice(0, 2).join(', ')}</span></div>)}</div></section>}
+      {batchApproval && <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-slate-200"><p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200">Approved batch recorded</p><h2 className="mt-2 text-xl font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-sm text-slate-300">{batchApproval.message}</p><p className="mt-3 text-xs text-emerald-100">Approval ID: {batchApproval.approval_id}</p><div className="mt-4 flex gap-3"><button type="button" onClick={() => void executeApprovedBatch()} disabled={cohortLoading} className="rounded-xl bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">{cohortLoading ? 'Executing...' : 'Execute approved batch'}</button></div>{batchExecution && <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300"><p><span className="font-semibold text-white">Status:</span> {batchExecution.status}</p><p><span className="font-semibold text-white">Processed:</span> {batchExecution.processed_count ?? 0}</p><p><span className="font-semibold text-white">Failed:</span> {batchExecution.failed_count ?? 0}</p></div>}<div className="mt-4 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-slate-950/40 p-3">{batchApproval.contacts.map((contact) => <div key={contact.id} className="flex justify-between gap-3 text-xs text-slate-300"><span>{contact.name || contact.id}</span><span className="text-slate-500">{contact.tags?.slice(0, 2).join(', ')}</span></div>)}</div></section>}
     </div>
       </div>
   )
