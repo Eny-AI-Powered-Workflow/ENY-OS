@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.role import Role
 from app.models.user_role import UserRole
 from app.models.ai_conversation import AIConversation, AIMessage
+from app.models.cohort_approval import CohortApproval
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
@@ -55,6 +56,12 @@ class CohortReviewRequest(BaseModel):
         default="Classify the unscored contacts into actionable cohorts for human review.",
         max_length=2000,
     )
+
+
+class CohortApprovalRequest(BaseModel):
+    cohort_name: str = Field(..., min_length=1, max_length=120)
+    source_filter: str = Field(..., min_length=1, max_length=200)
+    batch_size: int = Field(25, ge=1, le=100)
 
 
 def get_user_roles(current_user: Any, db: Session) -> list[str]:
@@ -308,6 +315,44 @@ Return valid JSON with this shape:
         "message": "No contacts were changed. Human approval is required before scoring.",
         "inventory": inventory,
         "proposal": proposal,
+    }
+
+
+@router.post(
+    "/cohort-batch/approve",
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def approve_cohort_batch(
+    request: CohortApprovalRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Approve an exact, capped cohort for later scoring without changing GHL."""
+    roles = get_user_roles(current_user, db)
+    if not set(roles).intersection({"ceo", "enrollment", "programs_manager"}):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cohort approval is not available for this role")
+
+    contacts = await ghl_service.get_unscored_source_contacts(request.source_filter, request.batch_size)
+    if not contacts:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No unscored contacts matched this cohort")
+
+    approval = CohortApproval(
+        user_id=current_user.id,
+        cohort_name=request.cohort_name,
+        source_filter=request.source_filter,
+        contact_ids=[contact["id"] for contact in contacts if contact.get("id")],
+        batch_size=len(contacts),
+    )
+    db.add(approval)
+    db.commit()
+    db.refresh(approval)
+    return {
+        "status": "approved_for_scoring",
+        "approval_id": str(approval.id),
+        "message": "No GHL contacts were changed. This approved batch is ready for the scoring execution phase.",
+        "cohort_name": approval.cohort_name,
+        "source_filter": approval.source_filter,
+        "contacts": contacts,
     }
 
 

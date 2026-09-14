@@ -44,6 +44,15 @@ type CohortProposal = {
   }
 }
 
+type BatchApproval = {
+  status: string
+  approval_id: string
+  message: string
+  cohort_name: string
+  source_filter: string
+  contacts: Array<{ id: string; name: string; source: string; tags: string[] }>
+}
+
 const suggestions = [
   'Give me a concise view of our highest-impact priorities this week.',
   'Turn the current lead-scoring result into a CEO action plan.',
@@ -61,6 +70,7 @@ export default function AIDeskPage() {
   const [loadingConversations, setLoadingConversations] = useState(true)
   const [cohortReview, setCohortReview] = useState<CohortProposal | null>(null)
   const [cohortLoading, setCohortLoading] = useState(false)
+  const [batchApproval, setBatchApproval] = useState<BatchApproval | null>(null)
 
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -135,6 +145,24 @@ export default function AIDeskPage() {
       setCohortReview(payload)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Cohort review could not be generated.')
+    } finally {
+      setCohortLoading(false)
+    }
+  }
+
+  const approveBootcampBatch = async () => {
+    setCohortLoading(true)
+    setError(null)
+    try {
+      const response = await authFetch('/cohort-batch/approve', {
+        method: 'POST',
+        body: JSON.stringify({ cohort_name: 'Bootcamp waitlist Batch 1', source_filter: '30-DAY CONSULTING OFFER BOOTCAMP WAITLIST', batch_size: 25 }),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.detail || 'Batch approval failed.')
+      setBatchApproval(payload)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Batch approval failed.')
     } finally {
       setCohortLoading(false)
     }
@@ -295,7 +323,10 @@ export default function AIDeskPage() {
         {cohortReview.proposal.recommended_first_batch && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm"><span className="font-semibold text-emerald-100">Recommended first batch:</span> {cohortReview.proposal.recommended_first_batch.cohort_name} ({cohortReview.proposal.recommended_first_batch.estimated_count})<p className="mt-1 text-emerald-100/80">{cohortReview.proposal.recommended_first_batch.reason}</p></div>}
         {cohortReview.proposal.human_decision && <div className="mt-4 border-t border-white/10 pt-4 text-sm"><span className="font-semibold text-white">Decision owner:</span> {cohortReview.proposal.human_decision}</div>}
         {cohortReview.proposal.unknowns && <div className="mt-3 text-xs text-slate-400"><span className="font-semibold text-slate-300">Unknowns:</span> {cohortReview.proposal.unknowns.join(' · ')}</div>}
+        <button type="button" onClick={() => void approveBootcampBatch()} disabled={cohortLoading} className="mt-5 rounded-xl bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50">{cohortLoading ? 'Approving...' : 'Approve Bootcamp Batch 1 (25)'}</button>
       </section>}
+
+      {batchApproval && <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-slate-200"><p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200">Approved batch recorded</p><h2 className="mt-2 text-xl font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-sm text-slate-300">{batchApproval.message}</p><p className="mt-3 text-xs text-emerald-100">Approval ID: {batchApproval.approval_id}</p><div className="mt-4 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-slate-950/40 p-3">{batchApproval.contacts.map((contact) => <div key={contact.id} className="flex justify-between gap-3 text-xs text-slate-300"><span>{contact.name || contact.id}</span><span className="text-slate-500">{contact.tags?.slice(0, 2).join(', ')}</span></div>)}</div></section>}
     </div>
       </div>
   )

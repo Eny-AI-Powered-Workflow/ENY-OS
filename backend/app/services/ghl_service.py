@@ -211,11 +211,12 @@ class GHLService:
             }
 
         try:
+            opportunity_headers = {**self.headers, "Version": "v3"}
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.base_url}/opportunities/",
-                    params={"locationId": self.location_id},
-                    headers=self.headers,
+                    f"{self.base_url}/opportunities/search",
+                    params={"locationId": self.location_id, "status": "all", "limit": 100},
+                    headers=opportunity_headers,
                     timeout=30.0,
                 )
                 response.raise_for_status()
@@ -225,7 +226,7 @@ class GHLService:
             total_leads = len(opportunities)
             won_opportunities = [
                 opportunity for opportunity in opportunities
-                if str(opportunity.get("pipelineStage", "")).lower() == "won"
+                if str(opportunity.get("status", "")).lower() == "won"
             ]
             conversion_rate = len(won_opportunities) / total_leads if total_leads else 0.0
 
@@ -238,7 +239,7 @@ class GHLService:
                 ),
                 "at_risk_deals": len([
                     opportunity for opportunity in opportunities
-                    if str(opportunity.get("pipelineStage", "")).lower()
+                    if str(opportunity.get("status", "")).lower()
                     in {"stalled", "negotiation"}
                 ]),
                 "sources_breakdown": {},
@@ -373,6 +374,30 @@ class GHLService:
             "source_groups": list(source_groups.values()),
             "unscored_sample": unscored_samples,
         }
+
+    async def get_unscored_source_contacts(self, source_filter: str, limit: int) -> List[Dict[str, Any]]:
+        """Return unscored contacts for an explicitly approved source cohort."""
+        contacts, _ = await self.get_all_contacts()
+        selected = []
+        for contact in contacts:
+            if (contact.get("source") or "unknown").strip().lower() != source_filter.strip().lower():
+                continue
+            custom_fields = contact.get("customFields", [])
+            if isinstance(custom_fields, dict):
+                custom_fields = [custom_fields]
+            field_ids = {field.get("id") for field in custom_fields if isinstance(field, dict)}
+            if settings.GHL_SALES_SCORE_FIELD_ID in field_ids:
+                continue
+            selected.append({
+                "id": contact.get("id"),
+                "name": contact.get("name") or " ".join(part for part in [contact.get("firstName"), contact.get("lastName")] if part),
+                "source": contact.get("source"),
+                "tags": contact.get("tags", []),
+                "created_at": contact.get("dateAdded"),
+            })
+            if len(selected) >= limit:
+                break
+        return selected
 
 
 # Create a singleton instance for use in the application
