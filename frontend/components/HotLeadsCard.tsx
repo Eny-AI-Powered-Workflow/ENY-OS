@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Clock, Sparkles, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, ChevronDown, ChevronUp, Clock, Sparkles, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 interface Lead {
   id: string;
+  result_id?: string;
   firstName: string;
   lastName: string;
   email: string;
   phone: string | null;
   tags: string[];
   score?: number;
+  status?: string;
 }
 
 export default function HotLeadsCard() {
@@ -20,6 +22,30 @@ export default function HotLeadsCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
+
+  const actOnLead = async (lead: Lead, action: 'claim' | 'follow-up') => {
+    if (!lead.result_id) return;
+    setActingId(lead.result_id);
+    setActionMessage(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads/${lead.result_id}/${action}`, {
+        method: 'POST',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Unable to ${action} lead`);
+      setActionMessage(action === 'claim' ? 'Lead assigned to you.' : 'Follow-up queued.');
+      await fetchLeads();
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : 'Lead action failed');
+    } finally {
+      setActingId(null);
+    }
+  };
 
   const fetchLeads = async () => {
     try {
@@ -119,6 +145,7 @@ export default function HotLeadsCard() {
         <p className="mt-3 text-sm text-slate-300">
           Leads scored by the ENY-SALES-SCORE workflow and ready for follow-up.
         </p>
+        {actionMessage && <p className="mt-2 text-xs text-amber-200">{actionMessage}</p>}
       </CardHeader>
 
       <CardContent className="space-y-3 p-4 md:p-5">
@@ -202,10 +229,17 @@ export default function HotLeadsCard() {
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Next step</p>
-                      <button type="button" className="mt-2 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950">
-                        Contact lead
-                        <ArrowRight className="h-3 w-3" />
-                      </button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {lead.status !== 'assigned' && lead.status !== 'contacted' && (
+                          <button type="button" onClick={() => actOnLead(lead, 'claim')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">
+                            <Check className="h-3 w-3" /> Claim
+                          </button>
+                        )}
+                        <button type="button" onClick={() => actOnLead(lead, 'follow-up')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950 disabled:opacity-60">
+                          Contact lead
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

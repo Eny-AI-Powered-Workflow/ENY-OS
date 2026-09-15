@@ -19,8 +19,17 @@ type BatchResult = {
   created_at: string | null;
 };
 
+type BatchSummary = {
+  total: number;
+  succeeded: number;
+  pending: number;
+  failed: number;
+  exhausted: number;
+};
+
 export default function BatchExecutionLedger() {
   const [results, setResults] = useState<BatchResult[]>([]);
+  const [summary, setSummary] = useState<BatchSummary>({ total: 0, succeeded: 0, pending: 0, failed: 0, exhausted: 0 });
   const [loading, setLoading] = useState(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -41,6 +50,7 @@ export default function BatchExecutionLedger() {
       if (!res.ok) throw new Error(`Failed to load batch results: ${res.status}`);
       const data = await res.json();
       setResults(data.results || []);
+      setSummary(data.summary || { total: 0, succeeded: 0, pending: 0, failed: 0, exhausted: 0 });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to load batch results');
     } finally {
@@ -85,6 +95,20 @@ export default function BatchExecutionLedger() {
           <span className="text-xs text-slate-500">{results.length} recent results</span>
         </div>
         {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+          {[
+            ['Total', summary.total, 'text-slate-700'],
+            ['Succeeded', summary.succeeded, 'text-emerald-700'],
+            ['Pending', summary.pending, 'text-amber-700'],
+            ['Failed', summary.failed, 'text-rose-700'],
+            ['Exhausted', summary.exhausted, 'text-slate-700'],
+          ].map(([label, value, color]) => (
+            <div key={label} className="rounded-md bg-slate-50 px-2 py-1.5">
+              <span className="block text-[10px] uppercase tracking-wide text-slate-400">{label}</span>
+              <span className={`font-semibold ${color}`}>{value}</span>
+            </div>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (

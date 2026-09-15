@@ -1,10 +1,12 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/services/batch_execution_service.py
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import settings
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
+from app.models.enrollment_audit import EnrollmentAudit
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.n8n_service import N8NService
@@ -26,6 +28,17 @@ async def retry_batch_result(
     db: Any,
 ) -> dict[str, Any]:
     """Retry one approved contact write in GHL and update its execution ledger row."""
+    if int(result.retry_count or 0) >= settings.BATCH_MAX_RETRIES:
+        result.status = "exhausted"
+        result.error = "Maximum retry attempts reached"
+        db.commit()
+        return {
+            "status": "exhausted",
+            "result_id": str(result.id),
+            "contact_id": result.contact_id,
+            "retry_count": result.retry_count,
+        }
+
     pending_retry = db.query(BatchRetry).filter(
         BatchRetry.result_id == result.id,
         BatchRetry.status == "retry_pending",
@@ -35,6 +48,8 @@ async def retry_batch_result(
 
     contact = await ghl_service.get_contact(str(result.contact_id))
     attempt_number = int(result.retry_count or 0) + 1
+    retry_delay = settings.BATCH_RETRY_BACKOFF_SECONDS * (2 ** max(attempt_number - 1, 0))
+    next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=retry_delay)
 
     if not contact:
         error = "Contact not found in GHL"
@@ -45,11 +60,14 @@ async def retry_batch_result(
             result_id=result.id,
             attempt_number=attempt_number,
             error_message=error,
-            status="retry_pending",
+            status="retry_pending" if attempt_number < settings.BATCH_MAX_RETRIES else "exhausted",
+            next_attempt_at=next_attempt_at if attempt_number < settings.BATCH_MAX_RETRIES else None,
         ))
+        if attempt_number >= settings.BATCH_MAX_RETRIES:
+            result.status = "exhausted"
         db.commit()
         return {
-            "status": "retry_pending",
+            "status": result.status,
             "result_id": str(result.id),
             "contact_id": result.contact_id,
             "error": error,
@@ -118,11 +136,14 @@ async def retry_batch_result(
             result_id=result.id,
             attempt_number=attempt_number,
             error_message=error,
-            status="retry_pending",
+            status="retry_pending" if attempt_number < settings.BATCH_MAX_RETRIES else "exhausted",
+            next_attempt_at=next_attempt_at if attempt_number < settings.BATCH_MAX_RETRIES else None,
         ))
+        if attempt_number >= settings.BATCH_MAX_RETRIES:
+            result.status = "exhausted"
         db.commit()
         return {
-            "status": "retry_pending",
+            "status": result.status,
             "result_id": str(result.id),
             "contact_id": result.contact_id,
             "error": error,
@@ -137,12 +158,21 @@ async def retry_batch_result(
     result.phone = contact.get("phone")
     result.source = contact.get("source") or "unknown"
     result.tags = tags
+    result.queue_status = "new" if category == "hot" else result.queue_status
+    result.follow_up_status = "not_started"
     db.add(BatchRetry(
         result_id=result.id,
         attempt_number=attempt_number,
         error_message="Retry completed successfully",
         status="succeeded",
     ))
+    if getattr(approval, "user_id", None):
+        db.add(EnrollmentAudit(
+            user_id=approval.user_id,
+            result_id=result.id,
+            event_type="retry_succeeded",
+            details={"contact_id": result.contact_id, "attempt_number": attempt_number},
+        ))
     db.commit()
 
     notification = None

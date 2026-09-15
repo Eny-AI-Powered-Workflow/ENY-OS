@@ -7,6 +7,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 | Workflow Name | Webhook Path | Description |
 |---------------|--------------|-------------|
 | ENY-SALES-SCORE | /webhook/eny-sales-score | Lead scoring workflow that analyzes leads and assigns scores based on engagement and fit criteria |
+| ENY-ENROLLMENT-FOLLOW-UP | /webhook/eny-enrollment-follow-up | Queues approved hot-lead follow-up for the Enrollment team |
 
 ## How to Use
 
@@ -27,6 +28,13 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Trigger Type**: Webhook
 - **Expected Input**: Lead data object with contact information and engagement metrics
 - **Output**: Updated lead record with score and appropriate tags (hot, warm, cold, follow-up)
+
+### ENY-ENROLLMENT-FOLLOW-UP
+- **Webhook Path**: `/webhook/eny-enrollment-follow-up`
+- **Description**: Receives an approved, assigned hot lead and queues the configured Enrollment follow-up action.
+- **Trigger Type**: Webhook
+- **Expected Input**: `contact_id`, `result_id`, `approval_id`, `assigned_user_id`, `source`, `score`, and `category`
+- **Output**: Follow-up queue acknowledgement for downstream Enrollment handling
 
 ## Development Notes
 

@@ -1,0 +1,40 @@
+{
+  "name": "ENY-ENROLLMENT-FOLLOW-UP",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "eny-enrollment-follow-up",
+        "responseMode": "onReceived",
+        "responseData": {
+          "options": {
+            "respondWithJson": true,
+            "responseCode": 200
+          }
+        }
+      },
+      "name": "Enrollment Follow-up Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const lead = items[0].json;\n\nreturn [{ json: {\n  status: 'queued',\n  contact_id: lead.contact_id,\n  result_id: lead.result_id,\n  approval_id: lead.approval_id,\n  assigned_user_id: lead.assigned_user_id,\n  action: 'enrollment_follow_up',\n  queued_at: new Date().toISOString()\n} }];"
+      },
+      "name": "Queue Approved Follow-up",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [520, 300]
+    }
+  ],
+  "connections": {
+    "Enrollment Follow-up Webhook": {
+      "main": [[{"node": "Queue Approved Follow-up", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

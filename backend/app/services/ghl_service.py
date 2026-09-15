@@ -207,7 +207,9 @@ class GHLService:
                 "revenue_forecast": 0,
                 "at_risk_deals": 0,
                 "sources_breakdown": {},
-                "recent_activities": []
+                "recent_activities": [],
+                "opportunities": [],
+                "stages": [],
             }
 
         try:
@@ -229,6 +231,26 @@ class GHLService:
                 if str(opportunity.get("status", "")).lower() == "won"
             ]
             conversion_rate = len(won_opportunities) / total_leads if total_leads else 0.0
+            stage_counts: Dict[str, int] = {}
+            for opportunity in opportunities:
+                stage_name = (
+                    opportunity.get("pipelineStageName")
+                    or opportunity.get("stageName")
+                    or opportunity.get("status")
+                    or "Unassigned"
+                )
+                stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+            stages = [
+                {
+                    "id": str(index),
+                    "name": name,
+                    "description": "Live GoHighLevel opportunity stage",
+                    "count": count,
+                    "percentage": round((count / total_leads) * 100, 1) if total_leads else 0,
+                    "color": "brass",
+                }
+                for index, (name, count) in enumerate(stage_counts.items(), start=1)
+            ]
 
             return {
                 "total_leads": total_leads,
@@ -244,6 +266,8 @@ class GHLService:
                 ]),
                 "sources_breakdown": {},
                 "recent_activities": [],
+                "opportunities": opportunities,
+                "stages": stages,
             }
         except Exception as exc:
             logger.error(f"Error fetching pipeline data from GHL: {exc}")
@@ -254,6 +278,8 @@ class GHLService:
                 "at_risk_deals": 0,
                 "sources_breakdown": {},
                 "recent_activities": [],
+                "opportunities": [],
+                "stages": [],
                 "error": "Pipeline data unavailable",
             }
 

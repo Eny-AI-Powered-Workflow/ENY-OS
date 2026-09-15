@@ -48,7 +48,7 @@ class N8NService:
         normalized_name = (workflow_name or "").strip().lower()
         webhook_url = f"{self.base_url}/webhook/{normalized_name}"
 
-        allowed = {"eny-sales-score", "eny-enrollment-hot-leads"}
+        allowed = {"eny-sales-score", "eny-enrollment-hot-leads", "eny-enrollment-follow-up"}
         if normalized_name not in allowed:
             return {
                 "status": "error",
@@ -78,6 +78,13 @@ class N8NService:
                     "workflow": normalized_name,
                     "message": "Enrollment notification queued",
                     "notified": True,
+                }
+            if normalized_name == "eny-enrollment-follow-up":
+                return {
+                    "status": "success",
+                    "workflow": normalized_name,
+                    "message": "Enrollment follow-up queued",
+                    "queued": True,
                 }
             return {
                 "status": "success",

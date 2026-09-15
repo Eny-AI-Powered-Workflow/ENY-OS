@@ -28,4 +28,9 @@ LOCAL_TESTING_SUMMARY.md
 cred.md
 PROJECT.md
 supabase/
+!supabase/
+supabase/*
+!supabase/migrations/
+supabase/migrations/*
+!supabase/migrations/0008_enrollment_operations.sql
 Continuation.md

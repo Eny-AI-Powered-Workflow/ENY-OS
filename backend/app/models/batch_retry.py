@@ -16,4 +16,5 @@ class BatchRetry(Base):
     attempt_number = Column(Integer, nullable=False, default=1)
     error_message = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="retry_pending")
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

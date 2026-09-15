@@ -20,6 +20,7 @@ from app.models.ai_conversation import AIConversation, AIMessage
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
+from app.models.enrollment_audit import EnrollmentAudit
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
@@ -446,6 +447,26 @@ async def execute_approved_batch(
             failed_count += 1
             continue
 
+        existing_result = None
+        if isinstance(db, Session):
+            existing_result = db.query(BatchExecutionResult).filter(
+                BatchExecutionResult.approval_id == approval.id,
+                BatchExecutionResult.contact_id == contact_id,
+            ).first()
+        if existing_result:
+            results.append({
+                "contact_id": contact_id,
+                "status": existing_result.status,
+                "score": existing_result.score,
+                "category": existing_result.category,
+                "duplicate": True,
+            })
+            if existing_result.status in {"scored", "already_scored"}:
+                processed_count += 1
+            else:
+                failed_count += 1
+            continue
+
         custom_fields = contact.get("customFields", [])
         if isinstance(custom_fields, dict):
             custom_fields = [custom_fields]
@@ -543,12 +564,19 @@ async def execute_approved_batch(
                 score=score_int,
                 category=category,
             )
+            result_row.queue_status = "new" if category == "hot" else "new"
             if category == "hot":
                 db.add(BatchRetry(
                     result_id=result_row.id,
                     attempt_number=1,
                     error_message="Hot lead queued for enrollment follow-up",
                     status="queued",
+                ))
+                db.add(EnrollmentAudit(
+                    user_id=approval.user_id,
+                    result_id=result_row.id,
+                    event_type="batch_result_created",
+                    details={"contact_id": contact_id, "category": category},
                 ))
             results.append({
                 "contact_id": contact_id,
@@ -576,6 +604,13 @@ async def execute_approved_batch(
                 attempt_number=1,
                 error_message="GHL update failed",
                 status="retry_pending",
+                next_attempt_at=datetime.now(timezone.utc),
+            ))
+            db.add(EnrollmentAudit(
+                user_id=approval.user_id,
+                result_id=result_row.id,
+                event_type="batch_result_failed",
+                details={"contact_id": contact_id, "error": "GHL update failed"},
             ))
             results.append({
                 "contact_id": contact_id,
