@@ -1,0 +1,138 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { supabase } from '@/lib/supabaseClient';
+
+type BatchResult = {
+  id: string;
+  cohort_name: string;
+  contact_id: string;
+  contact_name: string | null;
+  email: string | null;
+  status: string;
+  score: number | null;
+  category: string | null;
+  error: string | null;
+  retry_count: number;
+  created_at: string | null;
+};
+
+export default function BatchExecutionLedger() {
+  const [results, setResults] = useState<BatchResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const getHeaders = async (): Promise<HeadersInit> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token
+      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }
+      : { 'Content-Type': 'application/json' };
+  };
+
+  const loadResults = async () => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/batch-results?limit=30`, {
+        headers: await getHeaders(),
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Failed to load batch results: ${res.status}`);
+      const data = await res.json();
+      setResults(data.results || []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to load batch results');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadResults();
+    const interval = setInterval(loadResults, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const retry = async (resultId: string) => {
+    setRetryingId(resultId);
+    setMessage(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/batch-results/${resultId}/retry`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Retry failed: ${res.status}`);
+      setMessage(data.status === 'scored' ? 'Retry completed and the result is back in the queue.' : 'Retry remains pending.');
+      await loadResults();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to retry this result');
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  return (
+    <Card className="w-full border-slate-200/80 bg-white shadow-sm">
+      <CardHeader className="border-b border-slate-100 pb-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Approved work</p>
+            <CardTitle className="mt-1 text-lg text-slate-900">Batch execution ledger</CardTitle>
+          </div>
+          <span className="text-xs text-slate-500">{results.length} recent results</span>
+        </div>
+        {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
+      </CardHeader>
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="flex items-center gap-2 p-5 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading execution results...
+          </div>
+        ) : results.length === 0 ? (
+          <div className="p-5 text-sm text-slate-500">No approved batch results have been recorded yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {results.map((result) => {
+              const pendingRetry = result.status === 'failed' && Boolean(result.error);
+              return (
+                <div key={result.id} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {result.status === 'scored' ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-rose-600" />
+                      )}
+                      <span className="font-medium text-slate-900">{result.contact_name || result.contact_id}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
+                        {result.status}
+                      </span>
+                      {result.score !== null && <span className="text-xs text-slate-500">Score {result.score}</span>}
+                    </div>
+                    <p className="mt-1 truncate text-xs text-slate-500">{result.cohort_name} · {result.email || result.contact_id}</p>
+                    {result.error && <p className="mt-1 text-xs text-rose-600">{result.error}</p>}
+                  </div>
+                  {pendingRetry && (
+                    <button
+                      type="button"
+                      onClick={() => retry(result.id)}
+                      disabled={retryingId === result.id}
+                      title="Retry this approved contact"
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {retryingId === result.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      {retryingId === result.id ? 'Retrying...' : 'Retry'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

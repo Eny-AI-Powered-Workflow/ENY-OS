@@ -6,8 +6,12 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 import logging
+from uuid import UUID
 
 from app.models.batch_execution_result import BatchExecutionResult
+from app.models.batch_retry import BatchRetry
+from app.models.cohort_approval import CohortApproval
+from app.services.batch_execution_service import retry_batch_result
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -178,6 +182,41 @@ async def get_batch_execution_results(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch batch execution results: {str(e)}",
         )
+
+
+@router.post("/batch-results/{result_id}/retry", dependencies=[Depends(require_permission("leads:write"))])
+async def retry_enrollment_batch_result(
+    result_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Retry one failed result from its original, user-owned approved cohort."""
+    result = db.query(BatchExecutionResult).filter(
+        BatchExecutionResult.id == result_id,
+    ).first()
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch result not found")
+
+    approval = db.query(CohortApproval).filter(
+        CohortApproval.id == result.approval_id,
+        CohortApproval.user_id == current_user.id,
+    ).first()
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if str(result.contact_id) not in {str(contact_id) for contact_id in (approval.contact_ids or [])}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contact is outside the original approved batch")
+
+    pending_retry = db.query(BatchRetry).filter(
+        BatchRetry.result_id == result.id,
+        BatchRetry.status == "retry_pending",
+    ).order_by(BatchRetry.created_at.desc()).first()
+    if not pending_retry:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This batch result is not waiting for retry",
+        )
+
+    return await retry_batch_result(result, approval, db)
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_pipeline(
