@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Users, Search, Trash2 } from 'lucide-react';
+import { Users, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function EnrollmentLeads() {
@@ -155,14 +155,6 @@ export default function EnrollmentLeads() {
                       {tag}
                     </span>
                   ))}
-                </div>
-                <div className="flex space-x-2">
-                  <button onClick={() => console.log('View lead:', lead.id)} className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded">
-                    View
-                  </button>
-                  <button onClick={() => console.log('Delete lead:', lead.id)} className="px-3 py-1 text-xs text-destructive bg-transparent hover:bg-destructive/10 rounded">
-                    <Trash2 className="h-3.5 w-3.5 inline-block mr-1" /> Delete
-                  </button>
                 </div>
               </div>
             </div>

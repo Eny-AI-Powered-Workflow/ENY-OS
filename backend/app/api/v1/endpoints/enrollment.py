@@ -12,6 +12,7 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.services.batch_execution_service import retry_batch_result
+from app.services.ghl_service import ghl_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -69,19 +70,8 @@ async def get_enrollment_leads(
     Requires leads:read permission.
     """
     try:
-        # Mock data
-        leads = []
-        for i in range(min(limit, 10)):  # Return up to 10 mock leads
-            leads.append({
-                "id": f"lead_{i+1}",
-                "firstName": f"FirstName{i+1}",
-                "lastName": f"LastName{i+1}",
-                "email": f"lead{i+1}@example.com",
-                "phone": f"555-000-{i+1:04d}",
-                "score": 75 + (i * 2) % 25,
-                "tags": ["hot"] if i % 3 == 0 else ["warm"] if i % 3 == 1 else ["follow-up"]
-            })
-        return {"leads": leads}
+        leads = await ghl_service.get_enrollment_leads(limit=limit, search=search or "")
+        return {"leads": leads, "total": len(leads), "limit": limit, "search": search or ""}
     except Exception as e:
         logger.error(f"Error fetching enrollment leads: {e}")
         raise HTTPException(

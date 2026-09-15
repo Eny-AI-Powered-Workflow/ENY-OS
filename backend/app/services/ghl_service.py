@@ -399,6 +399,62 @@ class GHLService:
                 break
         return selected
 
+    async def get_enrollment_leads(self, limit: int = 20, search: str = "") -> List[Dict[str, Any]]:
+        """Return GHL contacts shaped for the Enrollment workspace without storing them locally."""
+        contacts, _ = await self.get_all_contacts()
+        normalized_search = search.strip().lower()
+        leads: List[Dict[str, Any]] = []
+
+        for contact in contacts:
+            first_name = contact.get("firstName") or ""
+            last_name = contact.get("lastName") or ""
+            name = contact.get("name") or " ".join(part for part in [first_name, last_name] if part)
+            email = contact.get("email") or ""
+            phone = contact.get("phone") or ""
+            haystack = " ".join([name, email, phone, contact.get("source") or ""]).lower()
+            if normalized_search and normalized_search not in haystack:
+                continue
+
+            custom_fields = contact.get("customFields", [])
+            if isinstance(custom_fields, dict):
+                custom_fields = [custom_fields]
+            fields: Dict[str, Any] = {}
+            for field in custom_fields:
+                if not isinstance(field, dict):
+                    continue
+                value = field.get("value")
+                if field.get("id"):
+                    fields[str(field["id"])] = value
+                if field.get("fieldKey") or field.get("key"):
+                    fields[str(field.get("fieldKey") or field.get("key"))] = value
+
+            score_value = fields.get(settings.GHL_SALES_SCORE_FIELD_ID)
+            category = fields.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
+            try:
+                score = int(float(score_value)) if score_value is not None else None
+            except (TypeError, ValueError):
+                score = None
+            if not category and score is not None:
+                category = "hot" if score >= 85 else "warm" if score >= 70 else "follow-up" if score >= 50 else "cold"
+
+            leads.append({
+                "id": contact.get("id"),
+                "firstName": first_name,
+                "lastName": last_name,
+                "name": name,
+                "email": email,
+                "phone": contact.get("phone"),
+                "score": score,
+                "category": category,
+                "source": contact.get("source"),
+                "tags": contact.get("tags", []),
+                "updated_at": contact.get("dateUpdated"),
+            })
+            if len(leads) >= limit:
+                break
+
+        return leads
+
 
 # Create a singleton instance for use in the application
 ghl_service = GHLService()
