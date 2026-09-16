@@ -315,6 +315,37 @@ Return valid JSON with this shape:
     except json.JSONDecodeError:
         proposal = {"raw_proposal": answer, "parse_error": True}
 
+    proposed_cohorts = proposal.get("cohorts") if isinstance(proposal, dict) else None
+    if not isinstance(proposed_cohorts, list) or not proposed_cohorts:
+        proposed_cohorts = [
+            {
+                "name": group["source"],
+                "source": group["source"],
+                "estimated_count": group.get("unscored_count", 0),
+                "priority": "high" if group.get("unscored_count", 0) > 0 else "hold",
+                "reason": "Live GHL inventory cohort with contacts available for scoring review.",
+                "eligibility_rule": "Contact has no score or category field in GHL.",
+                "excluded_contacts": "Already-scored contacts are excluded.",
+            }
+            for group in inventory.get("source_groups", [])
+            if group.get("unscored_count", 0) > 0
+        ]
+        if isinstance(proposal, dict):
+            proposal["cohorts"] = proposed_cohorts
+            if proposed_cohorts and not proposal.get("recommended_first_batch"):
+                first = proposed_cohorts[0]
+                proposal["recommended_first_batch"] = {
+                    "cohort_name": first["name"],
+                    "source": first["source"],
+                    "estimated_count": first["estimated_count"],
+                    "reason": "First eligible cohort from live GHL unscored inventory.",
+                }
+    elif isinstance(proposal, dict):
+        proposal["cohorts"] = [
+            cohort for cohort in proposed_cohorts
+            if cohort.get("source") and cohort.get("estimated_count", 0) > 0
+        ]
+
     return {
         "status": "review_required",
         "message": "No contacts were changed. Human approval is required before scoring.",

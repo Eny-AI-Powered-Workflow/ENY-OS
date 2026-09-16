@@ -377,7 +377,7 @@ class GHLService:
 
         for contact in contacts:
             source = contact.get("source") or "unknown"
-            group = source_groups.setdefault(source, {"source": source, "count": 0, "tags": {}})
+            group = source_groups.setdefault(source, {"source": source, "count": 0, "unscored_count": 0, "tags": {}})
             group["count"] += 1
             for tag in contact.get("tags", [])[:10]:
                 group["tags"][tag] = group["tags"].get(tag, 0) + 1
@@ -386,13 +386,29 @@ class GHLService:
             if isinstance(custom_fields, dict):
                 custom_fields = [custom_fields]
             field_ids = {field.get("id") for field in custom_fields if isinstance(field, dict)}
-            if settings.GHL_SALES_SCORE_FIELD_ID not in field_ids and len(unscored_samples) < 30:
-                unscored_samples.append({
-                    "id": contact.get("id"),
-                    "source": source,
-                    "tags": contact.get("tags", [])[:10],
-                    "created_at": contact.get("dateAdded"),
-                })
+            field_values = {
+                str(field.get("id")): field.get("value")
+                for field in custom_fields
+                if isinstance(field, dict) and field.get("id") is not None
+            }
+            field_values.update({
+                str(field.get("fieldKey") or field.get("key")): field.get("value")
+                for field in custom_fields
+                if isinstance(field, dict) and (field.get("fieldKey") or field.get("key"))
+            })
+            has_score = field_values.get(settings.GHL_SALES_SCORE_FIELD_ID) not in (None, "")
+            has_score = has_score or field_values.get("contact.sales_score") not in (None, "")
+            has_category = field_values.get(settings.GHL_SCORE_CATEGORY_FIELD_ID) not in (None, "")
+            has_category = has_category or field_values.get("contact.score_category") not in (None, "")
+            if not has_score and not has_category:
+                group["unscored_count"] += 1
+                if len(unscored_samples) < 30:
+                    unscored_samples.append({
+                        "id": contact.get("id"),
+                        "source": source,
+                        "tags": contact.get("tags", [])[:10],
+                        "created_at": contact.get("dateAdded"),
+                    })
 
         return {
             "inventory": inventory_status,
