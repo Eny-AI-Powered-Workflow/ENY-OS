@@ -60,6 +60,25 @@ const suggestions = [
   'Draft a decision brief with risks, options, and a recommended next move.',
 ]
 
+function formatApiError(detail: unknown, fallback: string): string {
+  if (!detail) return fallback
+  if (typeof detail === 'string') return detail
+  if (typeof detail === 'object') {
+    const value = detail as {
+      message?: string
+      requested_source?: string
+      available_sources?: string[]
+      unscored_sample_count?: number
+    }
+    const parts = [value.message || fallback]
+    if (value.requested_source) parts.push(`Requested source: ${value.requested_source}`)
+    if (value.available_sources?.length) parts.push(`Available GHL sources: ${value.available_sources.join(', ')}`)
+    if (value.unscored_sample_count !== undefined) parts.push(`Unscored sample available: ${value.unscored_sample_count}`)
+    return parts.join(' · ')
+  }
+  return fallback
+}
+
 export default function AIDeskPage() {
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -143,7 +162,7 @@ export default function AIDeskPage() {
     try {
       const response = await authFetch('/cohort-review', { method: 'POST', body: JSON.stringify({}) })
       const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'Cohort review could not be generated.')
+      if (!response.ok) throw new Error(formatApiError(payload.detail, 'Cohort review could not be generated.'))
       setCohortReview(payload)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Cohort review could not be generated.')
@@ -161,7 +180,7 @@ export default function AIDeskPage() {
         body: JSON.stringify({ cohort_name: 'Bootcamp waitlist Batch 1', source_filter: '30-DAY CONSULTING OFFER BOOTCAMP WAITLIST', batch_size: 25 }),
       })
       const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'Batch approval failed.')
+      if (!response.ok) throw new Error(formatApiError(payload.detail, 'Batch approval failed.'))
       setBatchApproval(payload)
       setBatchExecution(null)
     } catch (caught) {
@@ -178,7 +197,7 @@ export default function AIDeskPage() {
     try {
       const response = await authFetch(`/cohort-batch/execute/${batchApproval.approval_id}`, { method: 'POST' })
       const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'Batch execution failed.')
+      if (!response.ok) throw new Error(formatApiError(payload.detail, 'Batch execution failed.'))
       setBatchExecution({
         status: payload.status,
         processed_count: payload.processed_count,
