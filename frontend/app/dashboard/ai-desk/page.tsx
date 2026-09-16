@@ -38,7 +38,7 @@ type CohortProposal = {
   inventory: { total_contacts: number; source_groups: Array<{ source: string; count: number }> }
   proposal: {
     cohorts?: Array<{ name: string; source: string; estimated_count: number; priority: string; reason: string; eligibility_rule: string }>
-    recommended_first_batch?: { cohort_name: string; estimated_count: number; reason: string }
+    recommended_first_batch?: { cohort_name: string; source?: string; estimated_count: number; reason: string }
     human_decision?: string
     unknowns?: string[]
     raw_proposal?: string
@@ -171,13 +171,17 @@ export default function AIDeskPage() {
     }
   }
 
-  const approveBootcampBatch = async () => {
+  const approveCohortBatch = async (cohort: { name: string; source: string; estimated_count: number }) => {
     setCohortLoading(true)
     setError(null)
     try {
       const response = await authFetch('/cohort-batch/approve', {
         method: 'POST',
-        body: JSON.stringify({ cohort_name: 'Bootcamp waitlist Batch 1', source_filter: '30-DAY CONSULTING OFFER BOOTCAMP WAITLIST', batch_size: 25 }),
+        body: JSON.stringify({
+          cohort_name: `${cohort.name} Batch 1`,
+          source_filter: cohort.source,
+          batch_size: Math.min(25, Math.max(1, cohort.estimated_count)),
+        }),
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(formatApiError(payload.detail, 'Batch approval failed.'))
@@ -378,7 +382,7 @@ export default function AIDeskPage() {
           {cohortReview.proposal.cohorts && <div className="mt-4 space-y-2">{cohortReview.proposal.cohorts.map((cohort) => <div key={`${cohort.name}-${cohort.source}`} className="rounded-xl border border-white/10 bg-white/[0.04] p-3"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">{cohort.name}</h3><span className="text-[10px] uppercase tracking-[0.14em] text-amber-200">{cohort.priority}</span></div><p className="mt-1 text-xs text-slate-300">{cohort.estimated_count} contacts · {cohort.source}</p><p className="mt-2 text-xs leading-5 text-slate-500">{cohort.reason}</p></div>)}</div>}
           {cohortReview.proposal.recommended_first_batch && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-xs"><span className="font-semibold text-emerald-100">Recommended:</span> {cohortReview.proposal.recommended_first_batch.cohort_name} ({cohortReview.proposal.recommended_first_batch.estimated_count})</div>}
           {cohortReview.proposal.human_decision && <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-5 text-slate-300"><span className="font-semibold text-white">Decision owner:</span> {cohortReview.proposal.human_decision}</p>}
-          <button type="button" onClick={() => void approveBootcampBatch()} disabled={cohortLoading} className="mt-5 w-full rounded-xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:opacity-50">{cohortLoading ? 'Approving...' : 'Approve Bootcamp Batch 1 (25)'}</button>
+          {cohortReview.proposal.cohorts && <div className="mt-5 space-y-2">{cohortReview.proposal.cohorts.map((cohort) => <button key={`approve-${cohort.name}-${cohort.source}`} type="button" onClick={() => void approveCohortBatch(cohort)} disabled={cohortLoading || cohort.priority === 'hold'} className="flex w-full items-center justify-between rounded-xl bg-amber-300 px-4 py-3 text-left text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"><span>{cohortLoading ? 'Approving...' : `Approve ${cohort.name}`}</span><span className="text-xs font-normal">up to {Math.min(25, cohort.estimated_count)}</span></button>)}</div>}
         </section>}
 
         {batchApproval && <section className="rounded-[24px] border border-emerald-300/20 bg-emerald-300/[0.07] p-5 text-slate-200 shadow-xl shadow-slate-950/20"><div className="flex items-center gap-2 text-emerald-200"><CheckCircle2 className="h-4 w-4" /><p className="text-[10px] uppercase tracking-[0.2em]">Approved batch recorded</p></div><h2 className="mt-2 text-lg font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-xs leading-5 text-slate-300">{batchApproval.message}</p><p className="mt-3 truncate text-[10px] text-emerald-100">Approval ID: {batchApproval.approval_id}</p><button type="button" onClick={() => void executeApprovedBatch()} disabled={cohortLoading} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">{cohortLoading ? 'Executing...' : 'Execute approved batch'}</button>{batchExecution && <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Status</span><span className="font-semibold text-white">{batchExecution.status}</span></div><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Success</span><span className="font-semibold text-emerald-200">{batchExecution.processed_count ?? 0}</span></div><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Failed</span><span className="font-semibold text-rose-200">{batchExecution.failed_count ?? 0}</span></div></div>}<Link href="/dashboard/enrollment" className="mt-4 flex items-center justify-center gap-2 text-xs text-emerald-200 hover:text-white">Open Enrollment queue <ExternalLink className="h-3 w-3" /></Link></section>}
