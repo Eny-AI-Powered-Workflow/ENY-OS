@@ -17,6 +17,17 @@ interface Lead {
   status?: string;
 }
 
+function formatActionError(detail: unknown, action: string): string {
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object') {
+    const value = detail as { message?: string; error?: string; contact_id?: string };
+    return [value.message || `Unable to ${action} lead`, value.error, value.contact_id ? `Contact: ${value.contact_id}` : '']
+      .filter(Boolean)
+      .join(' · ');
+  }
+  return `Unable to ${action} lead`;
+}
+
 export default function HotLeadsCard() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +48,8 @@ export default function HotLeadsCard() {
         credentials: 'include',
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || `Unable to ${action} lead`);
-      setActionMessage(action === 'claim' ? 'Lead assigned to you.' : 'Follow-up queued.');
+      if (!res.ok) throw new Error(formatActionError(data.detail, action));
+      setActionMessage(action === 'claim' ? 'Lead assigned to you.' : (data.message || 'GHL follow-up tag added.'));
       await fetchLeads();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Lead action failed');

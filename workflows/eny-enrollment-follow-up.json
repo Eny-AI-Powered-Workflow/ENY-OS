@@ -64,7 +64,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"tags\": $json.tags}",
+        "jsonBody": "={{ { tags: $json.tags } }}",
         "options": {}
       },
       "name": "Add Follow-up Tag in GHL",

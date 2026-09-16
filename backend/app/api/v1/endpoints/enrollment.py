@@ -324,15 +324,30 @@ async def follow_up_hot_lead(
         "category": result.category,
     })
     if workflow.get("status") != "success":
-        raise HTTPException(status_code=502, detail="Follow-up workflow could not be queued")
-    result.follow_up_status = "queued"
+        result.follow_up_status = "failed"
+        db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Follow-up workflow could not complete",
+                "workflow": workflow.get("workflow", "eny-enrollment-follow-up"),
+                "error": workflow.get("error") or workflow.get("message") or "Unknown n8n error",
+                "contact_id": result.contact_id,
+            },
+        )
+    result.follow_up_status = "tagged"
     result.follow_up_at = datetime.now(timezone.utc)
     result.queue_status = "contacted"
     _audit(db, current_user, result.id, "follow_up_triggered", {
         "contact_id": result.contact_id,
         "workflow": "eny-enrollment-follow-up",
     })
-    return {"status": result.follow_up_status, "queue_status": result.queue_status, "workflow": workflow}
+    return {
+        "status": result.follow_up_status,
+        "queue_status": result.queue_status,
+        "workflow": workflow,
+        "message": "GHL follow-up tag applied; external email or SMS notification is not configured.",
+    }
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_pipeline(
