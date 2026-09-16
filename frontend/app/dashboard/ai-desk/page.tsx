@@ -2,7 +2,8 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { Bot, ClipboardCheck, MessageSquarePlus, Send, Sparkles, Trash2, UserRound } from 'lucide-react'
+import { Bot, CheckCircle2, ClipboardCheck, ExternalLink, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, X } from 'lucide-react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 
 type Message = {
@@ -257,20 +258,23 @@ export default function AIDeskPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl min-h-[calc(100vh-9rem)] gap-4">
-      <aside className="hidden w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70 lg:flex">
-        <div className="flex items-center justify-between border-b border-white/10 p-4">
-          <div><p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Workspace</p><p className="mt-1 font-semibold text-white">Conversations</p></div>
-          <button type="button" onClick={createConversation} aria-label="New conversation" title="New conversation" className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-300 text-slate-950 hover:bg-cyan-200"><MessageSquarePlus className="h-4 w-4" /></button>
+    <div className="mx-auto flex max-w-[1600px] min-h-[calc(100vh-9rem)] items-start gap-4">
+      <aside className="sticky top-4 hidden h-[calc(100vh-10rem)] w-72 shrink-0 flex-col overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/80 shadow-2xl shadow-slate-950/30 lg:flex">
+        <div className="border-b border-white/10 bg-white/[0.03] p-5">
+          <div className="flex items-center justify-between">
+            <div><p className="text-[10px] uppercase tracking-[0.24em] text-cyan-200/70">AI Desk</p><p className="mt-1 font-semibold text-white">Conversation inbox</p></div>
+            <button type="button" onClick={createConversation} aria-label="New conversation" title="New conversation" className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300 text-slate-950 shadow-lg shadow-cyan-300/20 transition hover:bg-cyan-200"><MessageSquarePlus className="h-4 w-4" /></button>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Private threads, scoped to your department context.</p>
         </div>
-        <div className="flex-1 space-y-1 overflow-y-auto p-2">
+        <div className="flex-1 space-y-1 overflow-y-auto p-3">
           {loadingConversations && <p className="px-3 py-4 text-xs text-slate-500">Loading history...</p>}
           {!loadingConversations && conversations.length === 0 && <p className="px-3 py-4 text-xs leading-5 text-slate-500">No conversations yet. Start a new brief.</p>}
-          {conversations.map((conversation) => <div key={conversation.id} className={`group flex items-center gap-2 rounded-xl px-3 py-2 text-left transition ${conversation.id === conversationId ? 'bg-cyan-300/10 text-cyan-100' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}><button type="button" onClick={() => void loadConversation(conversation.id)} className="min-w-0 flex-1 truncate text-left text-xs">{conversation.title}</button><button type="button" onClick={() => void deleteConversation(conversation.id)} aria-label={`Delete ${conversation.title}`} title="Delete conversation" className="hidden shrink-0 text-slate-500 hover:text-rose-300 group-hover:block"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
+          {conversations.map((conversation) => <div key={conversation.id} className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 text-left transition ${conversation.id === conversationId ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100' : 'border-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white'}`}><button type="button" onClick={() => void loadConversation(conversation.id)} className="min-w-0 flex-1 truncate text-left text-xs">{conversation.title}</button><button type="button" onClick={() => void deleteConversation(conversation.id)} aria-label={`Delete ${conversation.title}`} title="Delete conversation" className="hidden shrink-0 text-slate-500 hover:text-rose-300 group-hover:block"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
         </div>
       </aside>
 
-      <div className="min-w-0 flex-1 space-y-4">
+      <main className="min-w-0 flex-1 space-y-4">
       <section className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_35%),linear-gradient(135deg,_rgba(8,47,73,0.95),_rgba(15,23,42,0.98))] p-6 shadow-[0_24px_70px_rgba(8,47,73,0.35)] sm:p-8">
         <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
@@ -289,7 +293,7 @@ export default function AIDeskPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+      <section className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="space-y-4">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Start with a brief</p>
@@ -307,7 +311,7 @@ export default function AIDeskPage() {
           </button>
         </div>
 
-        <div className="flex min-h-[520px] flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
+          <div className="flex h-[calc(100vh-19rem)] min-h-[620px] flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
           <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><Bot className="h-4 w-4" /></div>
             <div><p className="font-semibold text-white">Department copilot</p><p className="text-xs text-slate-400">Context follows your ENY role</p></div>
@@ -321,7 +325,7 @@ export default function AIDeskPage() {
             {contextStatus.knowledge_entries_used ? ` · ${contextStatus.knowledge_entries_used} ENY knowledge entr${contextStatus.knowledge_entries_used === 1 ? 'y' : 'ies'} used` : ''}
           </div>}
 
-          <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          <div className="flex-1 space-y-4 overflow-y-auto p-5 scrollbar-thin">
             {messages.length === 0 && <div className="flex h-full min-h-[330px] flex-col items-center justify-center text-center"><Sparkles className="h-7 w-7 text-cyan-200" /><p className="mt-4 text-sm text-slate-300">Your first brief is one prompt away.</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">The backend applies your authenticated department context before Claude responds.</p></div>}
             {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`flex max-w-[88%] gap-3 rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/[0.05] text-slate-200'}`}>{message.role === 'assistant' && <Bot className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />}<span className="whitespace-pre-wrap">{message.content}</span>{message.role === 'user' && <UserRound className="mt-1 h-4 w-4 shrink-0" />}</div></div>)}
             {loading && <div className="flex items-center gap-3 text-sm text-slate-400"><Bot className="h-4 w-4 text-cyan-200" /> Thinking through the brief...</div>}
@@ -337,20 +341,29 @@ export default function AIDeskPage() {
         </div>
       </section>
 
-      {cohortReview && <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5 text-slate-200">
-        <div className="flex items-start justify-between gap-4">
-          <div><p className="text-[10px] uppercase tracking-[0.2em] text-amber-200">Human review required</p><h2 className="mt-2 text-xl font-semibold text-white">Lead cohort proposal</h2><p className="mt-2 text-sm text-slate-300">{cohortReview.message} Inventory: {cohortReview.inventory.total_contacts} contacts.</p></div>
-          <button type="button" onClick={() => setCohortReview(null)} aria-label="Close cohort review" className="text-slate-400 hover:text-white">×</button>
-        </div>
-        {cohortReview.proposal.cohorts && <div className="mt-5 grid gap-3 md:grid-cols-2">{cohortReview.proposal.cohorts.map((cohort) => <div key={`${cohort.name}-${cohort.source}`} className="rounded-xl border border-white/10 bg-slate-950/50 p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-white">{cohort.name}</h3><span className="text-xs uppercase tracking-[0.14em] text-amber-200">{cohort.priority}</span></div><p className="mt-2 text-sm text-slate-300">{cohort.estimated_count} contacts · {cohort.source}</p><p className="mt-2 text-xs leading-5 text-slate-400">{cohort.reason}</p><p className="mt-3 text-xs text-cyan-200">Eligibility: {cohort.eligibility_rule}</p></div>)}</div>}
-        {cohortReview.proposal.recommended_first_batch && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm"><span className="font-semibold text-emerald-100">Recommended first batch:</span> {cohortReview.proposal.recommended_first_batch.cohort_name} ({cohortReview.proposal.recommended_first_batch.estimated_count})<p className="mt-1 text-emerald-100/80">{cohortReview.proposal.recommended_first_batch.reason}</p></div>}
-        {cohortReview.proposal.human_decision && <div className="mt-4 border-t border-white/10 pt-4 text-sm"><span className="font-semibold text-white">Decision owner:</span> {cohortReview.proposal.human_decision}</div>}
-        {cohortReview.proposal.unknowns && <div className="mt-3 text-xs text-slate-400"><span className="font-semibold text-slate-300">Unknowns:</span> {cohortReview.proposal.unknowns.join(' · ')}</div>}
-        <button type="button" onClick={() => void approveBootcampBatch()} disabled={cohortLoading} className="mt-5 rounded-xl bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50">{cohortLoading ? 'Approving...' : 'Approve Bootcamp Batch 1 (25)'}</button>
-      </section>}
+    </main>
 
-      {batchApproval && <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-slate-200"><p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200">Approved batch recorded</p><h2 className="mt-2 text-xl font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-sm text-slate-300">{batchApproval.message}</p><p className="mt-3 text-xs text-emerald-100">Approval ID: {batchApproval.approval_id}</p><div className="mt-4 flex gap-3"><button type="button" onClick={() => void executeApprovedBatch()} disabled={cohortLoading} className="rounded-xl bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">{cohortLoading ? 'Executing...' : 'Execute approved batch'}</button></div>{batchExecution && <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300"><p><span className="font-semibold text-white">Status:</span> {batchExecution.status}</p><p><span className="font-semibold text-white">Processed:</span> {batchExecution.processed_count ?? 0}</p><p><span className="font-semibold text-white">Failed:</span> {batchExecution.failed_count ?? 0}</p></div>}<div className="mt-4 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-slate-950/40 p-3">{batchApproval.contacts.map((contact) => <div key={contact.id} className="flex justify-between gap-3 text-xs text-slate-300"><span>{contact.name || contact.id}</span><span className="text-slate-500">{contact.tags?.slice(0, 2).join(', ')}</span></div>)}</div></section>}
+      <aside className="sticky top-4 hidden w-[360px] shrink-0 space-y-4 xl:block">
+        <section className="rounded-[24px] border border-amber-300/20 bg-gradient-to-b from-amber-300/[0.10] to-slate-950/80 p-5 text-slate-200 shadow-xl shadow-slate-950/20">
+          <div className="flex items-start justify-between gap-4">
+            <div><p className="text-[10px] uppercase tracking-[0.22em] text-amber-200">Operations rail</p><h2 className="mt-2 text-xl font-semibold text-white">Lead cohort review</h2></div>
+            <ClipboardCheck className="h-5 w-5 text-amber-200" />
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-300">Review proposes. Approval authorizes. Execution changes the approved contacts.</p>
+          <button type="button" onClick={() => void reviewCohorts()} disabled={cohortLoading} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/20 disabled:opacity-50"><ClipboardCheck className="h-4 w-4" /> {cohortLoading ? 'Reviewing contacts...' : 'Reveal lead cohort'}</button>
+        </section>
+
+        {cohortReview && <section className="max-h-[calc(100vh-18rem)] overflow-y-auto rounded-[24px] border border-amber-300/20 bg-slate-950/80 p-5 text-slate-200 shadow-xl shadow-slate-950/20">
+          <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] uppercase tracking-[0.2em] text-amber-200">Human review required</p><h2 className="mt-2 text-lg font-semibold text-white">Lead cohort proposal</h2></div><button type="button" onClick={() => setCohortReview(null)} aria-label="Close cohort review" title="Close cohort review" className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></button></div>
+          <p className="mt-3 text-xs leading-5 text-slate-400">{cohortReview.message} Inventory: {cohortReview.inventory.total_contacts} contacts.</p>
+          {cohortReview.proposal.cohorts && <div className="mt-4 space-y-2">{cohortReview.proposal.cohorts.map((cohort) => <div key={`${cohort.name}-${cohort.source}`} className="rounded-xl border border-white/10 bg-white/[0.04] p-3"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">{cohort.name}</h3><span className="text-[10px] uppercase tracking-[0.14em] text-amber-200">{cohort.priority}</span></div><p className="mt-1 text-xs text-slate-300">{cohort.estimated_count} contacts · {cohort.source}</p><p className="mt-2 text-xs leading-5 text-slate-500">{cohort.reason}</p></div>)}</div>}
+          {cohortReview.proposal.recommended_first_batch && <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-xs"><span className="font-semibold text-emerald-100">Recommended:</span> {cohortReview.proposal.recommended_first_batch.cohort_name} ({cohortReview.proposal.recommended_first_batch.estimated_count})</div>}
+          {cohortReview.proposal.human_decision && <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-5 text-slate-300"><span className="font-semibold text-white">Decision owner:</span> {cohortReview.proposal.human_decision}</p>}
+          <button type="button" onClick={() => void approveBootcampBatch()} disabled={cohortLoading} className="mt-5 w-full rounded-xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:opacity-50">{cohortLoading ? 'Approving...' : 'Approve Bootcamp Batch 1 (25)'}</button>
+        </section>}
+
+        {batchApproval && <section className="rounded-[24px] border border-emerald-300/20 bg-emerald-300/[0.07] p-5 text-slate-200 shadow-xl shadow-slate-950/20"><div className="flex items-center gap-2 text-emerald-200"><CheckCircle2 className="h-4 w-4" /><p className="text-[10px] uppercase tracking-[0.2em]">Approved batch recorded</p></div><h2 className="mt-2 text-lg font-semibold text-white">{batchApproval.cohort_name}</h2><p className="mt-2 text-xs leading-5 text-slate-300">{batchApproval.message}</p><p className="mt-3 truncate text-[10px] text-emerald-100">Approval ID: {batchApproval.approval_id}</p><button type="button" onClick={() => void executeApprovedBatch()} disabled={cohortLoading} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">{cohortLoading ? 'Executing...' : 'Execute approved batch'}</button>{batchExecution && <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Status</span><span className="font-semibold text-white">{batchExecution.status}</span></div><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Success</span><span className="font-semibold text-emerald-200">{batchExecution.processed_count ?? 0}</span></div><div className="rounded-lg bg-slate-950/40 p-2"><span className="block text-[10px] text-slate-500">Failed</span><span className="font-semibold text-rose-200">{batchExecution.failed_count ?? 0}</span></div></div>}<Link href="/dashboard/enrollment" className="mt-4 flex items-center justify-center gap-2 text-xs text-emerald-200 hover:text-white">Open Enrollment queue <ExternalLink className="h-3 w-3" /></Link></section>}
+      </aside>
     </div>
-      </div>
   )
 }
