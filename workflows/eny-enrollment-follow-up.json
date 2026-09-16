@@ -6,31 +6,97 @@
         "httpMethod": "POST",
         "path": "eny-enrollment-follow-up",
         "responseMode": "lastNode",
-        "responseData": {
-          "options": {
-            "respondWithJson": true,
-            "responseCode": 200
-          }
-        }
+        "options": {}
       },
       "name": "Enrollment Follow-up Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [260, 300]
+      "typeVersion": 2,
+      "position": [240, 300]
     },
     {
       "parameters": {
-        "functionCode": "const lead = items[0].json;\n\nreturn [{ json: {\n  status: 'queued',\n  contact_id: lead.contact_id,\n  result_id: lead.result_id,\n  approval_id: lead.approval_id,\n  assigned_user_id: lead.assigned_user_id,\n  action: 'enrollment_follow_up',\n  queued_at: new Date().toISOString()\n} }];"
+        "jsCode": "const lead = $input.first().json;\nconst required = ['contact_id', 'result_id', 'approval_id', 'assigned_user_id', 'category'];\nconst missing = required.filter((key) => !lead[key]);\n\nif (missing.length) {\n  throw new Error(`Invalid follow-up payload. Missing: ${missing.join(', ')}`);\n}\nif (String(lead.category).toLowerCase() !== 'hot') {\n  throw new Error('Only hot leads can enter the Enrollment follow-up workflow');\n}\n\nreturn [{ json: {\n  ...lead,\n  contact_id: String(lead.contact_id),\n  result_id: String(lead.result_id),\n  approval_id: String(lead.approval_id),\n  assigned_user_id: String(lead.assigned_user_id),\n  action: 'enrollment_follow_up',\n  requested_at: new Date().toISOString()\n} }];"
       },
-      "name": "Queue Approved Follow-up",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [520, 300]
+      "name": "Validate Follow-up Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.GHL_BASE_URL || 'https://services.leadconnectorhq.com'}}/contacts/{{$json.contact_id}}?locationId={{$env.GHL_LOCATION_ID}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{'Bearer ' + $env.GHL_PRIVATE_TOKEN}}" },
+            { "name": "Version", "value": "2021-07-28" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Load GHL Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const contact = $input.first().json;\nconst request = $('Validate Follow-up Payload').first().json;\nconst existingTags = Array.isArray(contact.tags) ? contact.tags : [];\nconst tags = [...new Set([...existingTags, 'eny-follow-up-queued'])];\n\nreturn [{ json: {\n  ...request,\n  contact_name: contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' '),\n  email: contact.email || null,\n  tags\n} }];"
+      },
+      "name": "Prepare Follow-up Tag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{$env.GHL_BASE_URL || 'https://services.leadconnectorhq.com'}}/contacts/{{$json.contact_id}}?locationId={{$env.GHL_LOCATION_ID}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{'Bearer ' + $env.GHL_PRIVATE_TOKEN}}" },
+            { "name": "Version", "value": "2021-07-28" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"tags\": $json.tags}",
+        "options": {}
+      },
+      "name": "Add Follow-up Tag in GHL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Prepare Follow-up Tag').first().json;\n\nreturn [{ json: {\n  status: 'success',\n  action: 'enrollment_follow_up',\n  contact_id: request.contact_id,\n  result_id: request.result_id,\n  approval_id: request.approval_id,\n  assigned_user_id: request.assigned_user_id,\n  category: request.category,\n  follow_up_tag: 'eny-follow-up-queued',\n  ghl_updated: true,\n  queued_at: new Date().toISOString()\n} }];"
+      },
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
     }
   ],
   "connections": {
     "Enrollment Follow-up Webhook": {
-      "main": [[{"node": "Queue Approved Follow-up", "type": "main", "index": 0}]]
+      "main": [[{ "node": "Validate Follow-up Payload", "type": "main", "index": 0 }]]
+    },
+    "Validate Follow-up Payload": {
+      "main": [[{ "node": "Load GHL Contact", "type": "main", "index": 0 }]]
+    },
+    "Load GHL Contact": {
+      "main": [[{ "node": "Prepare Follow-up Tag", "type": "main", "index": 0 }]]
+    },
+    "Prepare Follow-up Tag": {
+      "main": [[{ "node": "Add Follow-up Tag in GHL", "type": "main", "index": 0 }]]
+    },
+    "Add Follow-up Tag in GHL": {
+      "main": [[{ "node": "Return Success", "type": "main", "index": 0 }]]
     }
   },
   "active": false,

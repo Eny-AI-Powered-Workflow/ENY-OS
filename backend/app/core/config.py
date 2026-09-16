@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     N8N_BASE_URL: str = Field("http://localhost:5678", env="N8N_BASE_URL")
     N8N_API_KEY: str = Field("", env="N8N_API_KEY")
+    N8N_WEBHOOK_TOKEN: str = Field("", env="N8N_WEBHOOK_TOKEN")
     N8N_MOCK_MODE: bool = Field(False, env="N8N_MOCK_MODE")
 
     ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")

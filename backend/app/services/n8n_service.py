@@ -19,6 +19,7 @@ class N8NService:
     def __init__(self):
         self.base_url = settings.N8N_BASE_URL.rstrip("/")
         self.api_key = settings.N8N_API_KEY
+        self.webhook_token = settings.N8N_WEBHOOK_TOKEN
         self.mock_mode = settings.N8N_MOCK_MODE
 
         if self.mock_mode:
@@ -27,6 +28,8 @@ class N8NService:
         self.headers = {
             "Content-Type": "application/json",
         }
+        if self.webhook_token:
+            self.headers["X-ENY-WEBHOOK-TOKEN"] = self.webhook_token
         if self.api_key:
             self.headers["X-N8N-API-KEY"] = self.api_key
 
@@ -102,7 +105,14 @@ class N8NService:
                     timeout=30.0
                 )
                 response.raise_for_status()
-                return response.json()
+                payload = response.json()
+                if isinstance(payload, list):
+                    if payload and isinstance(payload[0], dict):
+                        return payload[0]
+                    return {"status": "success", "workflow": normalized_name, "data": payload}
+                if isinstance(payload, dict):
+                    return payload
+                return {"status": "success", "workflow": normalized_name, "data": payload}
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error triggering workflow {workflow_name}: {e}")
             return {
