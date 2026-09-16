@@ -12,7 +12,8 @@ class EnrollmentAudit(Base):
     __tablename__ = "enrollment_audit_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="RESTRICT"), nullable=False)
+    # Supabase owns auth.users outside this application's SQLAlchemy metadata.
+    user_id = Column(UUID(as_uuid=True), nullable=False)
     result_id = Column(UUID(as_uuid=True), ForeignKey("batch_execution_results.id", ondelete="SET NULL"), nullable=True)
     event_type = Column(String, nullable=False, index=True)
     details = Column(JSONB, nullable=False, default=dict)

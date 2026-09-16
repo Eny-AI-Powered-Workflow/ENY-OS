@@ -25,7 +25,8 @@ class BatchExecutionResult(Base):
     error = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     queue_status = Column(String, nullable=False, default="new", index=True)
-    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Supabase owns auth.users outside this application's SQLAlchemy metadata.
+    assigned_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     follow_up_status = Column(String, nullable=False, default="not_started")
     follow_up_at = Column(DateTime(timezone=True), nullable=True)
     tags = Column(JSONB, nullable=True, default=list)

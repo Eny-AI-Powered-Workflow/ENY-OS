@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -13,7 +13,8 @@ class CohortApproval(Base):
     __tablename__ = "cohort_approvals"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="RESTRICT"), nullable=False)
+    # Supabase owns auth.users outside this application's SQLAlchemy metadata.
+    user_id = Column(UUID(as_uuid=True), nullable=False)
     cohort_name = Column(String, nullable=False)
     source_filter = Column(String, nullable=False)
     contact_ids = Column(JSONB, nullable=False)
