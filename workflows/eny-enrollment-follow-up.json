@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "eny-enrollment-follow-up",
-        "responseMode": "onReceived",
+        "responseMode": "lastNode",
         "responseData": {
           "options": {
             "respondWithJson": true,

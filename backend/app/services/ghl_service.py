@@ -404,15 +404,40 @@ class GHLService:
     async def get_unscored_source_contacts(self, source_filter: str, limit: int) -> List[Dict[str, Any]]:
         """Return unscored contacts for an explicitly approved source cohort."""
         contacts, _ = await self.get_all_contacts()
+        normalized_filter = " ".join(source_filter.strip().lower().split())
         selected = []
         for contact in contacts:
-            if (contact.get("source") or "unknown").strip().lower() != source_filter.strip().lower():
+            source = " ".join(str(contact.get("source") or "unknown").strip().lower().split())
+            tags = {
+                " ".join(str(tag).strip().lower().split())
+                for tag in (contact.get("tags") or [])
+            }
+            source_matches = (
+                source == normalized_filter
+                or normalized_filter in source
+                or source in normalized_filter
+                or normalized_filter in tags
+            )
+            if not source_matches:
                 continue
             custom_fields = contact.get("customFields", [])
             if isinstance(custom_fields, dict):
                 custom_fields = [custom_fields]
-            field_ids = {field.get("id") for field in custom_fields if isinstance(field, dict)}
-            if settings.GHL_SALES_SCORE_FIELD_ID in field_ids:
+            field_values: Dict[str, Any] = {}
+            for field in custom_fields:
+                if not isinstance(field, dict):
+                    continue
+                value = field.get("value")
+                if field.get("id") is not None:
+                    field_values[str(field["id"])] = value
+                field_key = field.get("fieldKey") or field.get("key")
+                if field_key:
+                    field_values[str(field_key)] = value
+            score_value = field_values.get(settings.GHL_SALES_SCORE_FIELD_ID)
+            score_value = score_value if score_value is not None else field_values.get("contact.sales_score")
+            category_value = field_values.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
+            category_value = category_value if category_value is not None else field_values.get("contact.score_category")
+            if score_value not in (None, "") or category_value not in (None, ""):
                 continue
             selected.append({
                 "id": contact.get("id"),

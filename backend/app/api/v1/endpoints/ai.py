@@ -339,7 +339,17 @@ async def approve_cohort_batch(
 
     contacts = await ghl_service.get_unscored_source_contacts(request.source_filter, request.batch_size)
     if not contacts:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No unscored contacts matched this cohort")
+        inventory = await ghl_service.get_cohort_inventory()
+        available_sources = [group.get("source") for group in inventory.get("source_groups", [])]
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": "No unscored contacts matched this cohort",
+                "requested_source": request.source_filter,
+                "available_sources": available_sources,
+                "unscored_sample_count": len(inventory.get("unscored_sample", [])),
+            },
+        )
 
     approval = CohortApproval(
         user_id=current_user.id,
