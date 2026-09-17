@@ -74,12 +74,34 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $('Prepare Follow-up Tag').first().json;\n\nreturn [{ json: {\n  status: 'success',\n  action: 'enrollment_follow_up',\n  contact_id: request.contact_id,\n  result_id: request.result_id,\n  approval_id: request.approval_id,\n  assigned_user_id: request.assigned_user_id,\n  category: request.category,\n  follow_up_tag: 'eny-follow-up-queued',\n  ghl_updated: true,\n  queued_at: new Date().toISOString()\n} }];"
+        "method": "POST",
+        "url": "={{$env.GHL_BASE_URL || 'https://services.leadconnectorhq.com'}}/conversations/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{'Bearer ' + $env.GHL_PRIVATE_TOKEN}}" },
+            { "name": "Version", "value": "2021-04-15" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { type: 'Email', contactId: $('Validate Follow-up Payload').first().json.contact_id, emailTo: $('Load GHL Contact').first().json.email, emailFrom: $env.GHL_NOTIFICATION_FROM_EMAIL, subject: 'New hot lead ready for Enrollment follow-up', html: '<p>A new approved hot lead is ready for follow-up.</p><p><strong>Name:</strong> ' + ($('Load GHL Contact').first().json.name || 'Unknown lead') + '<br><strong>Source:</strong> ' + ($('Validate Follow-up Payload').first().json.source || 'Unknown') + '<br><strong>Score:</strong> ' + $('Validate Follow-up Payload').first().json.score + '<br><strong>Email:</strong> ' + ($('Load GHL Contact').first().json.email || 'Unavailable') + '<br><strong>Phone:</strong> ' + ($('Load GHL Contact').first().json.phone || 'Unavailable') + '</p><p>Open the ENY Enrollment queue to continue follow-up.</p>' } }}",
+        "options": {}
+      },
+      "name": "Notify Enrollment Inbox via GHL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Prepare Follow-up Tag').first().json;\n\nreturn [{ json: {\n  status: 'success',\n  action: 'enrollment_follow_up',\n  contact_id: request.contact_id,\n  result_id: request.result_id,\n  approval_id: request.approval_id,\n  assigned_user_id: request.assigned_user_id,\n  category: request.category,\n  follow_up_tag: 'eny-follow-up-queued',\n  notification_recipient: 'support@businessanalysisschool.com',\n  notification_sent: true,\n  ghl_updated: true,\n  queued_at: new Date().toISOString()\n} }];"
       },
       "name": "Return Success",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, 300]
+      "position": [1680, 300]
     }
   ],
   "connections": {
@@ -96,6 +118,9 @@
       "main": [[{ "node": "Add Follow-up Tag in GHL", "type": "main", "index": 0 }]]
     },
     "Add Follow-up Tag in GHL": {
+      "main": [[{ "node": "Notify Enrollment Inbox via GHL", "type": "main", "index": 0 }]]
+    },
+    "Notify Enrollment Inbox via GHL": {
       "main": [[{ "node": "Return Success", "type": "main", "index": 0 }]]
     }
   },
