@@ -15,6 +15,7 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.enrollment_audit import EnrollmentAudit
 from app.services.batch_execution_service import retry_batch_result
 from app.services.ghl_service import ghl_service
 from app.services.n8n_service import N8NService
@@ -182,6 +183,7 @@ async def get_batch_execution_results(
             .limit(limit)
             .all()
         )
+
         summary_rows = db.query(BatchExecutionResult).all()
         summary = {
             "total": len(summary_rows),
@@ -217,6 +219,64 @@ async def get_batch_execution_results(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch batch execution results: {str(e)}",
         )
+
+
+@router.get("/operations", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_operations(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Return the shared Enrollment follow-up queue and its recent audit trail."""
+    results = db.query(BatchExecutionResult).order_by(
+        BatchExecutionResult.created_at.desc()
+    ).limit(limit).all()
+    audits = db.query(EnrollmentAudit).order_by(
+        EnrollmentAudit.created_at.desc()
+    ).limit(limit).all()
+    summary = {
+        "total": len(results),
+        "new": len([row for row in results if getattr(row, "queue_status", "new") == "new"]),
+        "assigned": len([row for row in results if getattr(row, "queue_status", "new") == "assigned"]),
+        "contacted": len([row for row in results if getattr(row, "queue_status", "new") == "contacted"]),
+        "qualified": len([row for row in results if getattr(row, "queue_status", "new") == "qualified"]),
+        "closed": len([row for row in results if getattr(row, "queue_status", "new") == "closed"]),
+        "follow_up_failed": len([row for row in results if getattr(row, "follow_up_status", "not_started") == "failed"]),
+    }
+    return {
+        "summary": summary,
+        "results": [
+            {
+                "id": str(row.id),
+                "contact_id": row.contact_id,
+                "contact_name": row.contact_name,
+                "email": row.email,
+                "phone": row.phone,
+                "source": row.source,
+                "score": row.score,
+                "category": row.category,
+                "execution_status": row.status,
+                "queue_status": getattr(row, "queue_status", "new"),
+                "assigned_user_id": str(row.assigned_user_id) if getattr(row, "assigned_user_id", None) else None,
+                "follow_up_status": getattr(row, "follow_up_status", "not_started"),
+                "follow_up_at": _serialize_datetime(getattr(row, "follow_up_at", None)),
+                "error": row.error,
+                "retry_count": row.retry_count,
+                "created_at": _serialize_datetime(row.created_at),
+            }
+            for row in results
+        ],
+        "audit_events": [
+            {
+                "id": str(event.id),
+                "result_id": str(event.result_id) if event.result_id else None,
+                "event_type": event.event_type,
+                "details": event.details,
+                "created_at": _serialize_datetime(event.created_at),
+            }
+            for event in audits
+        ],
+    }
 
 
 @router.post("/batch-results/{result_id}/retry", dependencies=[Depends(require_permission("leads:write"))])
