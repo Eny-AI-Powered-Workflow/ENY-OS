@@ -42,4 +42,9 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    `N8N_PROXY_HOPS=1` and redeploy. Render terminates the public proxy and
    forwards `X-Forwarded-For`; this setting lets n8n and express-rate-limit
    trust that single proxy hop.
+
+   The Enrollment follow-up workflow reads its GHL configuration from n8n
+   environment variables. Also set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`,
+   `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, and
+   `GHL_NOTIFICATION_FROM_EMAIL` in the n8n service, then redeploy n8n.
     

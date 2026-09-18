@@ -35,7 +35,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Trigger Type**: Webhook
 - **Expected Input**: `contact_id`, `result_id`, `approval_id`, `assigned_user_id`, `source`, `score`, and `category`
 - **Output**: Success after the GHL contact is loaded and tagged with `eny-follow-up-queued`. The inbox email is best-effort: the response includes `notification_sent` and `notification_error` if delivery fails after the tag succeeds.
-- **Required n8n environment variables**: `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, `GHL_NOTIFICATION_FROM_EMAIL`
+- **Required n8n environment variables**: `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, `GHL_NOTIFICATION_FROM_EMAIL`
 - **Recommended webhook protection**: configure the Webhook node with a dedicated header secret and set the same value as backend `N8N_WEBHOOK_TOKEN`.
 
 ## Development Notes
