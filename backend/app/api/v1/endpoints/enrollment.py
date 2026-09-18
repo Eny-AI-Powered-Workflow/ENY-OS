@@ -127,6 +127,7 @@ async def get_enrollment_hot_leads(
     try:
         limit = _normalize_int(limit, 20)
         min_score = _normalize_int(min_score, 80)
+        current_user_id = str(current_user.id)
 
         rows = (
             db.query(BatchExecutionResult)
@@ -134,7 +135,7 @@ async def get_enrollment_hot_leads(
             .filter(BatchExecutionResult.score >= min_score)
             .filter(
                 (BatchExecutionResult.status.in_(["scored", "queued", "hot"]))
-                | (BatchExecutionResult.assigned_user_id == current_user.id)
+                | (BatchExecutionResult.assigned_user_id == current_user_id)
             )
             .order_by(BatchExecutionResult.created_at.desc())
             .limit(limit)
@@ -157,7 +158,11 @@ async def get_enrollment_hot_leads(
                 "approval_id": str(row.approval_id) if row.approval_id else None,
                 "status": getattr(row, "queue_status", "new"),
                 "assigned_user_id": str(row.assigned_user_id) if row.assigned_user_id else None,
-                "assigned_to_current_user": row.assigned_user_id == current_user.id,
+                "assigned_to_current_user": (
+                    str(row.assigned_user_id) == current_user_id
+                    if row.assigned_user_id
+                    else False
+                ),
                 "execution_status": row.status,
                 "created_at": _serialize_datetime(getattr(row, "created_at", None)),
             }
@@ -336,7 +341,8 @@ async def claim_hot_lead(
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if result.category != "hot" or result.queue_status == "closed":
         raise HTTPException(status_code=409, detail="Lead is not available for claiming")
-    if result.assigned_user_id and result.assigned_user_id != current_user.id:
+    current_user_id = str(current_user.id)
+    if result.assigned_user_id and str(result.assigned_user_id) != current_user_id:
         raise HTTPException(status_code=409, detail="Lead is already assigned to another Enrollment user")
     result.assigned_user_id = current_user.id
     result.queue_status = "assigned"
@@ -357,7 +363,7 @@ async def update_hot_lead_state(
     result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Hot lead not found")
-    if result.assigned_user_id != current_user.id:
+    if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before changing its state")
     previous_state = result.queue_status
     result.queue_status = request.state
@@ -379,7 +385,7 @@ async def follow_up_hot_lead(
     result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Hot lead not found")
-    if result.assigned_user_id != current_user.id:
+    if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before triggering follow-up")
     workflow = await N8NService().trigger_workflow("eny-enrollment-follow-up", {
         "contact_id": result.contact_id,

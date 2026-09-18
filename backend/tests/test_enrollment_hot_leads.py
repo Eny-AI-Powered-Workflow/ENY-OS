@@ -41,11 +41,40 @@ async def test_get_enrollment_hot_leads_uses_execution_results(monkeypatch):
     query = MagicMockQuery(rows)
     db = SimpleNamespace(query=lambda model: query)
 
-    result = await get_enrollment_hot_leads(limit=10, db=db, current_user=SimpleNamespace())
+    result = await get_enrollment_hot_leads(limit=10, db=db, current_user=SimpleNamespace(id="user-1"))
 
     assert result["total"] == 1
     assert result["leads"][0]["contact_id"] == "contact-1"
     assert result["leads"][0]["score"] == 92
+
+
+@pytest.mark.asyncio
+async def test_hot_leads_marks_uuid_owner_as_current_user():
+    rows = [
+        SimpleNamespace(
+            id="row-1",
+            contact_id="contact-1",
+            contact_name="Alice Example",
+            email="alice@example.com",
+            phone=None,
+            source="bootcamp",
+            score=92,
+            category="hot",
+            approval_id="approval-1",
+            status="scored",
+            queue_status="assigned",
+            assigned_user_id="user-1",
+            tags=["hot"],
+            created_at="2025-01-01T00:00:00Z",
+        ),
+    ]
+
+    query = MagicMockQuery(rows)
+    db = SimpleNamespace(query=lambda model: query)
+
+    result = await get_enrollment_hot_leads(limit=10, db=db, current_user=SimpleNamespace(id="user-1"))
+
+    assert result["leads"][0]["assigned_to_current_user"] is True
 
 
 @pytest.mark.asyncio
