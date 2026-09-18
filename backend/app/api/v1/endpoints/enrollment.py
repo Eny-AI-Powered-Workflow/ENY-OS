@@ -130,9 +130,12 @@ async def get_enrollment_hot_leads(
 
         rows = (
             db.query(BatchExecutionResult)
-            .filter(BatchExecutionResult.status.in_(["scored", "queued", "hot"]))
             .filter(BatchExecutionResult.category == "hot")
             .filter(BatchExecutionResult.score >= min_score)
+            .filter(
+                (BatchExecutionResult.status.in_(["scored", "queued", "hot"]))
+                | (BatchExecutionResult.assigned_user_id == current_user.id)
+            )
             .order_by(BatchExecutionResult.created_at.desc())
             .limit(limit)
             .all()
@@ -153,6 +156,8 @@ async def get_enrollment_hot_leads(
                 "category": row.category,
                 "approval_id": str(row.approval_id) if row.approval_id else None,
                 "status": getattr(row, "queue_status", "new"),
+                "assigned_user_id": str(row.assigned_user_id) if row.assigned_user_id else None,
+                "assigned_to_current_user": row.assigned_user_id == current_user.id,
                 "execution_status": row.status,
                 "created_at": _serialize_datetime(getattr(row, "created_at", None)),
             }
@@ -331,6 +336,8 @@ async def claim_hot_lead(
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if result.category != "hot" or result.queue_status == "closed":
         raise HTTPException(status_code=409, detail="Lead is not available for claiming")
+    if result.assigned_user_id and result.assigned_user_id != current_user.id:
+        raise HTTPException(status_code=409, detail="Lead is already assigned to another Enrollment user")
     result.assigned_user_id = current_user.id
     result.queue_status = "assigned"
     _audit(db, current_user, result.id, "hot_lead_claimed", {"contact_id": result.contact_id})

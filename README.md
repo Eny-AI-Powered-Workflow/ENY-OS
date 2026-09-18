@@ -37,4 +37,9 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    confirm the dashboard nav and `/dashboard/leads` behave differently by role.
 
 6. n8n (only needed from Phase 3 onward): `docker compose up n8n`
+
+   For a Render-hosted n8n service, add the environment variable
+   `N8N_PROXY_HOPS=1` and redeploy. Render terminates the public proxy and
+   forwards `X-Forwarded-For`; this setting lets n8n and express-rate-limit
+   trust that single proxy hop.
     

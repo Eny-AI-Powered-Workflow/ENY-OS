@@ -15,6 +15,7 @@ interface Lead {
   tags: string[];
   score?: number;
   status?: string;
+  assigned_to_current_user?: boolean;
 }
 
 function formatActionError(detail: unknown, action: string): string {
@@ -26,6 +27,16 @@ function formatActionError(detail: unknown, action: string): string {
       .join(' · ');
   }
   return `Unable to ${action} lead`;
+}
+
+function formatResponseError(status: number, detail: unknown, action: string): string {
+  if (status === 403 && typeof detail === 'string' && detail.includes('Permission denied')) {
+    return 'Your role does not have permission to contact leads. Ask an administrator to grant leads:write.';
+  }
+  if (status === 403 && typeof detail === 'string' && detail.includes('Claim the lead')) {
+    return 'Claim this lead first, then contact it from your assigned queue.';
+  }
+  return formatActionError(detail, action);
 }
 
 export default function HotLeadsCard() {
@@ -48,7 +59,7 @@ export default function HotLeadsCard() {
         credentials: 'include',
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(formatActionError(data.detail, action));
+      if (!res.ok) throw new Error(formatResponseError(res.status, data.detail, action));
       setActionMessage(action === 'claim' ? 'Lead assigned to you.' : (data.message || 'GHL follow-up tag added.'));
       await fetchLeads();
     } catch (err) {
@@ -246,10 +257,14 @@ export default function HotLeadsCard() {
                             <Check className="h-3 w-3" /> Claim
                           </button>
                         )}
-                        <button type="button" onClick={() => actOnLead(lead, 'follow-up')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950 disabled:opacity-60">
-                          Contact lead
-                          <ArrowRight className="h-3 w-3" />
-                        </button>
+                        {lead.assigned_to_current_user ? (
+                          <button type="button" onClick={() => actOnLead(lead, 'follow-up')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950 disabled:opacity-60">
+                            Contact lead
+                            <ArrowRight className="h-3 w-3" />
+                          </button>
+                        ) : lead.status === 'assigned' ? (
+                          <span className="text-[10px] font-medium text-slate-400">Assigned to another user</span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
