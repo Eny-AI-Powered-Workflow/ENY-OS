@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const lead = $input.first().json;\nconst required = ['contact_id', 'result_id', 'approval_id', 'assigned_user_id', 'category'];\nconst missing = required.filter((key) => !lead[key]);\n\nif (missing.length) {\n  throw new Error(`Invalid follow-up payload. Missing: ${missing.join(', ')}`);\n}\nif (String(lead.category).toLowerCase() !== 'hot') {\n  throw new Error('Only hot leads can enter the Enrollment follow-up workflow');\n}\n\nreturn [{ json: {\n  ...lead,\n  contact_id: String(lead.contact_id),\n  result_id: String(lead.result_id),\n  approval_id: String(lead.approval_id),\n  assigned_user_id: String(lead.assigned_user_id),\n  action: 'enrollment_follow_up',\n  requested_at: new Date().toISOString()\n} }];"
+        "jsCode": "const envelope = $input.first().json || {};\nconst rawBody = envelope.body ?? envelope;\nconst lead = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;\nconst required = ['contact_id', 'result_id', 'approval_id', 'assigned_user_id', 'category'];\nconst missing = required.filter((key) => !lead?.[key]);\n\nif (missing.length) {\n  throw new Error(`Invalid follow-up payload. Missing: ${missing.join(', ')}`);\n}\nif (String(lead.category).toLowerCase() !== 'hot') {\n  throw new Error('Only hot leads can enter the Enrollment follow-up workflow');\n}\n\nreturn [{ json: {\n  ...lead,\n  contact_id: String(lead.contact_id),\n  result_id: String(lead.result_id),\n  approval_id: String(lead.approval_id),\n  assigned_user_id: String(lead.assigned_user_id),\n  action: 'enrollment_follow_up',\n  requested_at: new Date().toISOString()\n} }];"
       },
       "name": "Validate Follow-up Payload",
       "type": "n8n-nodes-base.code",
