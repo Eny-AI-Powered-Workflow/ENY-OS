@@ -15,6 +15,7 @@ type Operation = {
   queue_status: string
   follow_up_status: string
   assigned_user_id: string | null
+  execution_status: string
   error: string | null
   retry_count: number
   created_at: string | null

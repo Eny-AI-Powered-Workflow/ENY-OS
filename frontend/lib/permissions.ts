@@ -27,6 +27,12 @@ export const MODULES: Module[] = [
     permissions: ['leads:read', 'leads:write', 'pipeline:read']
   },
   {
+    name: 'Enrollment Operations',
+    href: '/dashboard/enrollment-operations',
+    icon: 'ClipboardList',
+    permissions: ['leads:read']
+  },
+  {
     name: 'Student Success',
     href: '/dashboard/student-success',
     icon: 'GraduationCap',
