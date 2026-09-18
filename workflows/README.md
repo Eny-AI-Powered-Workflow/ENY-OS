@@ -34,7 +34,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Description**: Receives an approved, assigned hot lead and queues the configured Enrollment follow-up action.
 - **Trigger Type**: Webhook
 - **Expected Input**: `contact_id`, `result_id`, `approval_id`, `assigned_user_id`, `source`, `score`, and `category`
-- **Output**: Success only after the GHL contact is loaded, tagged with `eny-follow-up-queued`, and an email is sent to `support@businessanalysisschool.com`; HTTP/GHL failures terminate the workflow with an error.
+- **Output**: Success after the GHL contact is loaded and tagged with `eny-follow-up-queued`. The inbox email is best-effort: the response includes `notification_sent` and `notification_error` if delivery fails after the tag succeeds.
 - **Required n8n environment variables**: `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, `GHL_NOTIFICATION_FROM_EMAIL`
 - **Recommended webhook protection**: configure the Webhook node with a dedicated header secret and set the same value as backend `N8N_WEBHOOK_TOKEN`.
 

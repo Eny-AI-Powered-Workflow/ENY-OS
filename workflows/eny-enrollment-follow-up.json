@@ -92,11 +92,12 @@
       "name": "Notify Enrollment Inbox via GHL",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "continueOnFail": true,
       "position": [1440, 300]
     },
     {
       "parameters": {
-        "jsCode": "const request = $('Prepare Follow-up Tag').first().json;\n\nreturn [{ json: {\n  status: 'success',\n  action: 'enrollment_follow_up',\n  contact_id: request.contact_id,\n  result_id: request.result_id,\n  approval_id: request.approval_id,\n  assigned_user_id: request.assigned_user_id,\n  category: request.category,\n  follow_up_tag: 'eny-follow-up-queued',\n  notification_recipient: 'support@businessanalysisschool.com',\n  notification_sent: true,\n  ghl_updated: true,\n  queued_at: new Date().toISOString()\n} }];"
+        "jsCode": "const request = $('Prepare Follow-up Tag').first().json;\nconst notification = $('Notify Enrollment Inbox via GHL').first().json || {};\nconst notificationError = notification.error || notification.errorMessage || null;\n\nreturn [{ json: {\n  status: 'success',\n  action: 'enrollment_follow_up',\n  contact_id: request.contact_id,\n  result_id: request.result_id,\n  approval_id: request.approval_id,\n  assigned_user_id: request.assigned_user_id,\n  category: request.category,\n  follow_up_tag: 'eny-follow-up-queued',\n  notification_recipient: 'support@businessanalysisschool.com',\n  notification_sent: !notificationError,\n  notification_error: notificationError,\n  ghl_updated: true,\n  queued_at: new Date().toISOString()\n} }];"
       },
       "name": "Return Success",
       "type": "n8n-nodes-base.code",
