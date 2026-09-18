@@ -414,12 +414,22 @@ async def follow_up_hot_lead(
     _audit(db, current_user, result.id, "follow_up_triggered", {
         "contact_id": result.contact_id,
         "workflow": "eny-enrollment-follow-up",
+        "notification_sent": workflow.get("notification_sent"),
+        "notification_error": workflow.get("notification_error"),
     })
+    notification_sent = workflow.get("notification_sent")
+    notification_error = workflow.get("notification_error")
+    if notification_sent is True:
+        message = "GHL follow-up tag applied and enrollment email sent."
+    elif notification_error:
+        message = f"GHL follow-up tag applied, but enrollment email failed: {notification_error}"
+    else:
+        message = "GHL follow-up tag applied; email delivery status was not reported."
     return {
         "status": result.follow_up_status,
         "queue_status": result.queue_status,
         "workflow": workflow,
-        "message": "GHL follow-up tag applied; external email or SMS notification is not configured.",
+        "message": message,
     }
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("leads:read"))])
