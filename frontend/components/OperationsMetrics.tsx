@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { MetricCard } from '@/components/MetricCard';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function OperationsMetrics() {
@@ -58,67 +59,34 @@ export default function OperationsMetrics() {
   }, []);
 
   const statCards = [
-    { label: 'System Uptime', value: `${metrics.systemUptime}%`, icon: '⏱️' },
-    { label: 'Active Workflows', value: metrics.activeWorkflows.toString(), icon: '⚡' },
-    { label: 'Tasks Completed', value: metrics.tasksCompleted.toLocaleString(), icon: '✅' },
-    { label: 'Avg Response Time', value: `${metrics.avgResponseTime}ms`, icon: '🚀' },
+    { label: 'System Uptime', value: `${metrics.systemUptime}%`, icon: '⏱️', accent: 'emerald' as const },
+    { label: 'Active Workflows', value: metrics.activeWorkflows.toString(), icon: '⚡', accent: 'violet' as const },
+    { label: 'Tasks Completed', value: metrics.tasksCompleted.toLocaleString(), icon: '✅', accent: 'sky' as const },
+    { label: 'Avg Response Time', value: `${metrics.avgResponseTime}ms`, icon: '🚀', accent: 'amber' as const },
   ];
 
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((card) => (
-          <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">{card.label}</p>
-                <p className="text-2xl font-bold text-muted-foreground">Loading...</p>
-              </div>
-              <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-xl">{card.icon}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((card) => (
-          <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">{card.label}</p>
-                <p className="text-2xl font-bold text-destructive">Error loading</p>
-              </div>
-              <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-xl">{card.icon}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
-        <div key={card.label} className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">{card.label}</p>
-              <p className="text-2xl font-bold text-foreground">{card.value}</p>
-            </div>
-            <div className="w-12 h-12 bg-brass-500/10 rounded-full flex items-center justify-center">
-              <span className="text-brass-500 text-xl">{card.icon}</span>
-            </div>
-          </div>
-        </div>
+        <MetricCard
+          key={card.label}
+          title={card.label}
+          value={cardValue(card)}
+          helper={helper}
+          icon={card.icon}
+          accent={card.accent}
+        />
       ))}
     </div>
   );
+
+  if (loading) {
+    return renderCards(() => '—', 'Loading data');
+  }
+
+  if (error) {
+    return renderCards(() => 'Unavailable', 'Retry required');
+  }
+
+  return renderCards((card) => card.value, 'Live data');
 }

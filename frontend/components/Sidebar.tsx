@@ -14,7 +14,6 @@ import {
   LayoutDashboard,
   LogOut,
   Megaphone,
-  Menu,
   MessagesSquare,
   Monitor,
   PanelLeftClose,
@@ -57,13 +56,13 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`relative flex shrink-0 flex-col border-r border-white/10 bg-[#0b1020]/95 text-slate-50 shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)] transition-all duration-300 ${
+      className={`relative flex shrink-0 flex-col border-r border-slate-800/90 bg-slate-950/90 text-slate-100 shadow-[inset_-1px_0_0_rgba(148,163,184,0.15)] transition-all duration-300 ${
         collapsed ? 'w-24' : 'w-72'
       }`}
     >
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-4">
-        <div className={`flex items-center gap-3 overflow-hidden ${collapsed ? 'justify-center w-full' : ''}`}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 text-sm font-black text-white shadow-[0_0_25px_rgba(168,85,247,0.5)]">
+      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-4">
+        <div className={`flex items-center gap-3 overflow-hidden ${collapsed ? 'w-full justify-center' : ''}`}>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-violet-600 to-purple-700 text-sm font-black text-white shadow-[0_0_25px_rgba(168,85,247,0.35)]">
             ENY
           </div>
           {!collapsed && (
@@ -78,7 +77,7 @@ export function Sidebar() {
           type="button"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={() => setCollapsed((value) => !value)}
-          className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-white"
+          className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/80 text-slate-300 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-white"
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
@@ -96,8 +95,8 @@ export function Sidebar() {
               title={collapsed ? module.name : undefined}
               className={`group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                 isActive
-                  ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-[0_10px_25px_rgba(168,85,247,0.35)]'
-                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-[0_10px_25px_rgba(168,85,247,0.25)]'
+                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
               } ${collapsed ? 'justify-center px-0' : ''}`}
             >
               <Icon className="h-4 w-4 shrink-0" />
@@ -107,11 +106,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto border-t border-white/10 p-3">
+      <div className="mt-auto border-t border-slate-800 p-3">
         <button
           type="button"
           onClick={handleSignOut}
-          className={`mb-4 flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-white ${
+          className={`mb-4 flex w-full items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-white ${
             collapsed ? 'justify-center px-2' : ''
           }`}
         >
@@ -120,7 +119,7 @@ export function Sidebar() {
         </button>
 
         {!collapsed && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 shadow-inner shadow-slate-950/30">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 shadow-inner shadow-slate-950/30">
             <AccessBadge />
           </div>
         )}

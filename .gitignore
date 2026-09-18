@@ -34,3 +34,4 @@ supabase/*
 supabase/migrations/*
 !supabase/migrations/0008_enrollment_operations.sql
 Continuation.md
+Production-Safe Dashboard UI/UX Redesign.md
