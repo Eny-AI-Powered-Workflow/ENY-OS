@@ -1,33 +1,23 @@
 import EnrollmentMetrics from "@/components/EnrollmentMetrics";
 import EnrollmentLeads from "@/components/EnrollmentLeads";
 import EnrollmentPipeline from "@/components/EnrollmentPipeline";
-import HotLeadsCard from "@/components/HotLeadsCard";
-import BatchExecutionLedger from "@/components/BatchExecutionLedger";
-import SalesOperationsPanel from "@/components/SalesOperationsPanel";
 
 export default function EnrollmentDashboard() {
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col items-center text-center py-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2">
-          Sales & Enrollment
-        </h1>
-        <p className="text-xl text-muted-foreground max-w-xl">
-          Manage leads, track pipeline, and drive conversions
+    <div className="mx-auto max-w-7xl space-y-8">
+      <header className="border-b border-slate-200 pb-6">
+        <p className="text-[10px] uppercase tracking-[0.24em] text-violet-600">Sales workspace</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">All Leads</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+          A broad view of the live CRM inventory and enrollment pipeline. Use the Sales sub-tabs for focused queue work.
         </p>
-      </div>
+      </header>
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <EnrollmentMetrics />
       </div>
 
-        <SalesOperationsPanel />
-      <HotLeadsCard />
-      <BatchExecutionLedger />
-
-      {/* Leads and Pipeline */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <EnrollmentLeads />
         <EnrollmentPipeline />

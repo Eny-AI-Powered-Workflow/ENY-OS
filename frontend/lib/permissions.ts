@@ -10,6 +10,7 @@ export interface Module {
   href: string
   icon: string  // We'll use lucide icons
   permissions: string[] // Array of permission scopes required to access this module
+  children?: Module[]
 }
 
 // These are the modules from the brief, mapped to their primary roles and permissions
@@ -24,13 +25,13 @@ export const MODULES: Module[] = [
     name: 'Sales & Enrollment',
     href: '/dashboard/enrollment',
     icon: 'Users',
-    permissions: ['leads:read', 'leads:write', 'pipeline:read']
-  },
-  {
-    name: 'Enrollment Operations',
-    href: '/dashboard/enrollment-operations',
-    icon: 'ClipboardList',
-    permissions: ['leads:read']
+    permissions: ['leads:read', 'leads:write', 'pipeline:read'],
+    children: [
+      { name: 'All Leads', href: '/dashboard/enrollment', icon: 'LayoutDashboard', permissions: ['leads:read'] },
+      { name: 'Hot Leads', href: '/dashboard/enrollment/hot-leads', icon: 'Flame', permissions: ['leads:read'] },
+      { name: 'Approved Work', href: '/dashboard/enrollment/approved-work', icon: 'ListChecks', permissions: ['leads:read'] },
+      { name: 'Lead Operations', href: '/dashboard/enrollment/lead-operations', icon: 'Workflow', permissions: ['leads:read'] },
+    ]
   },
   {
     name: 'Student Success',

@@ -12,6 +12,7 @@ import {
   ClipboardList,
   GraduationCap,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Megaphone,
   MessagesSquare,
@@ -22,10 +23,15 @@ import {
   Settings,
   Sparkles,
   Users,
+  Workflow,
+  ChevronDown,
+  ChevronRight,
+  Flame,
 } from 'lucide-react'
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [expandedModules, setExpandedModules] = useState<string[]>(['Sales & Enrollment'])
   const { canAll } = usePermissions()
   const pathname = usePathname()
   const router = useRouter()
@@ -43,6 +49,9 @@ export function Sidebar() {
     BarChart3,
     LogOut,
     Sparkles,
+    Flame,
+    ListChecks,
+    Workflow,
   }
 
   const accessibleModules = MODULES.filter(
@@ -87,21 +96,56 @@ export function Sidebar() {
         {accessibleModules.map((module) => {
           const Icon = iconMap[module.icon] || LayoutDashboard
           const isActive = pathname === module.href || pathname.startsWith(`${module.href}/`)
+          const accessibleChildren = (module.children || []).filter(
+            (child) => child.permissions.length === 0 || canAll(child.permissions)
+          )
+          const isExpanded = expandedModules.includes(module.name) || isActive
 
           return (
-            <Link
-              key={module.name}
-              href={module.href}
-              title={collapsed ? module.name : undefined}
-              className={`group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-                isActive
-                  ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-[0_10px_25px_rgba(168,85,247,0.25)]'
-                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-              } ${collapsed ? 'justify-center px-0' : ''}`}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span className="ml-3 truncate">{module.name}</span>}
-            </Link>
+            <div key={module.name}>
+              <div className="flex items-center gap-1">
+                <Link
+                  href={module.href}
+                  title={collapsed ? module.name : undefined}
+                  className={`group flex min-w-0 flex-1 items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                    isActive
+                      ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-[0_10px_25px_rgba(168,85,247,0.25)]'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  } ${collapsed ? 'justify-center px-0' : ''}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && <span className="ml-3 truncate">{module.name}</span>}
+                </Link>
+                {!collapsed && accessibleChildren.length > 0 && (
+                  <button
+                    type="button"
+                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${module.name}`}
+                    onClick={() => setExpandedModules((current) => current.includes(module.name) ? current.filter((name) => name !== module.name) : [...current, module.name])}
+                    className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+                  >
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+              {!collapsed && isExpanded && accessibleChildren.length > 0 && (
+                <div className="ml-4 mt-1 space-y-1 border-l border-slate-800 pl-3">
+                  {accessibleChildren.map((child) => {
+                    const ChildIcon = iconMap[child.icon] || LayoutDashboard
+                    const childActive = pathname === child.href
+                    return (
+                      <Link
+                        key={child.name}
+                        href={child.href}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${childActive ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'}`}
+                      >
+                        <ChildIcon className="h-3.5 w-3.5" />
+                        <span className="truncate">{child.name}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )
         })}
       </nav>
