@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permission
@@ -25,6 +26,7 @@ from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
 from app.services.n8n_service import N8NService
+from app.services.embedding_service import embedding_service
 
 router = APIRouter()
 
@@ -69,6 +71,27 @@ class CohortApprovalRequest(BaseModel):
     batch_size: int = Field(25, ge=1, le=100)
 
 
+class KnowledgeIngestRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    department: str = Field(..., min_length=1, max_length=80)
+    content: str = Field(..., min_length=1, max_length=200000)
+    source: str = Field("ENY internal SOP", max_length=300)
+
+
+def _chunk_knowledge(content: str, chunk_size: int = 1800, overlap: int = 250) -> list[str]:
+    chunks: list[str] = []
+    start = 0
+    while start < len(content):
+        end = min(start + chunk_size, len(content))
+        chunk = content[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end == len(content):
+            break
+        start = end - overlap
+    return chunks
+
+
 def get_user_roles(current_user: Any, db: Session) -> list[str]:
     rows = (
         db.query(Role.name)
@@ -82,6 +105,46 @@ def get_user_roles(current_user: Any, db: Session) -> list[str]:
 def get_role_context(roles: list[str]) -> str:
     contexts = [ROLE_CONTEXTS.get(role, role.replace("_", " ")) for role in roles]
     return "; ".join(contexts)
+
+
+@router.post(
+    "/knowledge/ingest",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def ingest_knowledge_document(
+    request: KnowledgeIngestRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ingest an approved SOP into role-scoped semantic knowledge."""
+    if not embedding_service.enabled:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required to ingest vector knowledge")
+
+    chunks = _chunk_knowledge(request.content)
+    embeddings = [await embedding_service.embed(chunk) for chunk in chunks]
+    db.execute(
+        text("delete from knowledge_documents where title = :title and department = :department"),
+        {"title": request.title, "department": request.department},
+    )
+    for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        db.execute(
+            text("""
+                insert into knowledge_documents
+                    (title, department, content, source, metadata, embedding)
+                values
+                    (:title, :department, :content, :source, cast(:metadata as jsonb), cast(:embedding as extensions.vector))
+            """),
+            {
+                "title": request.title,
+                "department": request.department,
+                "content": chunk,
+                "source": request.source,
+                "metadata": json.dumps({"chunk_index": index, "chunk_count": len(chunks), "ingested_by": str(current_user.id)}),
+                "embedding": "[" + ",".join(str(value) for value in embedding) + "]",
+            },
+        )
+    db.commit()
+    return {"status": "ingested", "title": request.title, "department": request.department, "chunks": len(chunks)}
 
 
 def build_context_prompt(
@@ -159,7 +222,7 @@ async def stream_chat_response(
 
     role_context = get_role_context(roles)
     business_context = await ghl_service.get_ai_context(include_pipeline="ceo" in roles or "programs_manager" in roles)
-    knowledge_context = retrieve_knowledge(db, roles, request.prompt)
+    knowledge_context = await retrieve_knowledge(db, roles, request.prompt)
     conversation = get_or_create_conversation(str(current_user.id), request.conversation_id, db)
     previous_messages = get_recent_messages(conversation.id, db)
     history = "\n".join(f"{message.role}: {message.content}" for message in previous_messages)
@@ -225,7 +288,7 @@ async def chat_with_department_ai(
 
     include_pipeline = "ceo" in roles or "programs_manager" in roles
     business_context = await ghl_service.get_ai_context(include_pipeline=include_pipeline)
-    knowledge_context = retrieve_knowledge(db, roles, request.prompt)
+    knowledge_context = await retrieve_knowledge(db, roles, request.prompt)
     conversation = get_or_create_conversation(str(current_user.id), request.conversation_id, db)
     previous_messages = get_recent_messages(conversation.id, db)
     history = "\n".join(f"{message.role}: {message.content}" for message in previous_messages)

@@ -34,6 +34,7 @@ supabase/*
 supabase/migrations/*
 !supabase/migrations/0008_enrollment_operations.sql
 !supabase/migrations/0009_sales_operations_fields.sql
+!supabase/migrations/0010_knowledge_vectors.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md

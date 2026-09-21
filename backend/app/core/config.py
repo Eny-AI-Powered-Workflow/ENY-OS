@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")
     CLAUDE_MODEL: str = Field("claude-3-opus-20240229", env="CLAUDE_MODEL")
+    OPENAI_API_KEY: str = Field("", env="OPENAI_API_KEY")
+    EMBEDDING_MODEL: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
 
     # Optional APIs
     APOLLO_API_KEY: str = Field("", env="APOLLO_API_KEY")
