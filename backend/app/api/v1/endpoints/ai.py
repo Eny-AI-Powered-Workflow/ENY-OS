@@ -422,6 +422,7 @@ def _record_batch_result(
     category: str | None = None,
     error: str | None = None,
     retry_count: int = 0,
+    score_origin: str = "approved_batch",
 ):
     result = BatchExecutionResult(
         approval_id=approval.id,
@@ -438,6 +439,8 @@ def _record_batch_result(
         status=status,
         error=error,
         retry_count=retry_count,
+        score_origin=score_origin,
+        last_action_at=datetime.now(timezone.utc),
         tags=contact.get("tags") or [],
     )
     db.add(result)
@@ -532,6 +535,7 @@ async def execute_approved_batch(
                 status="already_scored",
                 score=int(existing_score),
                 category=_derive_score_category(int(existing_score)),
+                score_origin="existing_ghl_score",
             )
             results.append({
                 "contact_id": contact_id,
@@ -560,9 +564,11 @@ async def execute_approved_batch(
         }
         workflow_result = await n8n_service.trigger_workflow("eny-sales-score", workflow_payload)
         if workflow_result.get("status") == "success":
+            score_origin = "n8n"
             score_value = workflow_result.get("score", 0)
             scoring = {"score": score_value, "category": _derive_score_category(score_value), "reasoning": workflow_result.get("message", "Workflow-driven scoring"), "next_best_action": "Follow up with the lead", "recommended_tags": workflow_result.get("tags", [])}
         else:
+            score_origin = "deterministic_fallback"
             scoring = ClaudeService().deterministic_score_lead(lead_data)
             score_value = scoring.get("score", 50)
 
@@ -604,6 +610,7 @@ async def execute_approved_batch(
                 status="scored",
                 score=score_int,
                 category=category,
+                score_origin=score_origin,
             )
             result_row.queue_status = "new" if category == "hot" else "new"
             if category == "hot":

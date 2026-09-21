@@ -3,6 +3,7 @@ import EnrollmentLeads from "@/components/EnrollmentLeads";
 import EnrollmentPipeline from "@/components/EnrollmentPipeline";
 import HotLeadsCard from "@/components/HotLeadsCard";
 import BatchExecutionLedger from "@/components/BatchExecutionLedger";
+import SalesOperationsPanel from "@/components/SalesOperationsPanel";
 
 export default function EnrollmentDashboard() {
   return (
@@ -22,6 +23,7 @@ export default function EnrollmentDashboard() {
         <EnrollmentMetrics />
       </div>
 
+        <SalesOperationsPanel />
       <HotLeadsCard />
       <BatchExecutionLedger />
 

@@ -154,6 +154,7 @@ async def retry_batch_result(
     result.error = None
     result.score = score
     result.category = category
+    result.score_origin = "n8n" if workflow_result.get("status") == "success" else "deterministic_fallback"
     result.email = contact.get("email")
     result.phone = contact.get("phone")
     result.source = contact.get("source") or "unknown"

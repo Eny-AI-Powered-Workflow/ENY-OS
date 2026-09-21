@@ -234,13 +234,30 @@ async def get_batch_execution_results(
 @router.get("/operations", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_operations(
     limit: int = Query(100, ge=1, le=500),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    mine: bool = Query(False),
+    unassigned: bool = Query(False),
+    source: Optional[str] = Query(None),
+    min_score: Optional[int] = Query(None, ge=0, le=100),
+    max_score: Optional[int] = Query(None, ge=0, le=100),
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
     """Return the shared Enrollment follow-up queue and its recent audit trail."""
-    results = db.query(BatchExecutionResult).order_by(
-        BatchExecutionResult.created_at.desc()
-    ).limit(limit).all()
+    query = db.query(BatchExecutionResult)
+    if status_filter:
+        query = query.filter(BatchExecutionResult.queue_status == status_filter)
+    if mine:
+        query = query.filter(BatchExecutionResult.assigned_user_id == current_user.id)
+    if unassigned:
+        query = query.filter(BatchExecutionResult.assigned_user_id.is_(None))
+    if source:
+        query = query.filter(BatchExecutionResult.source == source)
+    if min_score is not None:
+        query = query.filter(BatchExecutionResult.score >= min_score)
+    if max_score is not None:
+        query = query.filter(BatchExecutionResult.score <= max_score)
+    results = query.order_by(BatchExecutionResult.created_at.desc()).limit(limit).all()
     audits = db.query(EnrollmentAudit).order_by(
         EnrollmentAudit.created_at.desc()
     ).limit(limit).all()
@@ -252,7 +269,37 @@ async def get_enrollment_operations(
         "qualified": len([row for row in results if getattr(row, "queue_status", "new") == "qualified"]),
         "closed": len([row for row in results if getattr(row, "queue_status", "new") == "closed"]),
         "follow_up_failed": len([row for row in results if getattr(row, "follow_up_status", "not_started") == "failed"]),
+        "new_hot": len([row for row in results if getattr(row, "queue_status", "new") == "new" and row.category == "hot"]),
+        "my_assigned": len([row for row in results if str(getattr(row, "assigned_user_id", "")) == str(current_user.id)]),
+        "uncontacted_assigned": len([row for row in results if getattr(row, "queue_status", "new") == "assigned"]),
+        "contacted_today": len([
+            row for row in results
+            if getattr(row, "queue_status", "") == "contacted"
+            and getattr(row, "follow_up_at", None)
+            and row.follow_up_at.date() == datetime.now(timezone.utc).date()
+        ]),
+        "workflow_failures": len([row for row in results if getattr(row, "error", None) or getattr(row, "follow_up_status", "") == "failed"]),
     }
+    response_times = [
+        (row.follow_up_at - row.created_at).total_seconds() / 60
+        for row in results
+        if getattr(row, "follow_up_at", None) and getattr(row, "created_at", None)
+    ]
+    summary["average_response_minutes"] = round(sum(response_times) / len(response_times)) if response_times else 0
+    def next_action(row: BatchExecutionResult) -> str:
+        if row.error or getattr(row, "follow_up_status", "") == "failed":
+            return "Review error and retry"
+        return {
+            "new": "Claim lead",
+            "assigned": "Contact lead",
+            "contacted": "Qualify lead",
+            "qualified": "Close lead",
+            "closed": "Complete",
+        }.get(getattr(row, "queue_status", "new"), "Review lead")
+
+    def retry_available(row: BatchExecutionResult) -> bool:
+        return row.status == "failed"
+
     return {
         "summary": summary,
         "results": [
@@ -272,6 +319,13 @@ async def get_enrollment_operations(
                 "follow_up_at": _serialize_datetime(getattr(row, "follow_up_at", None)),
                 "error": row.error,
                 "retry_count": row.retry_count,
+                "score_origin": getattr(row, "score_origin", "approved_batch"),
+                "notification_status": getattr(row, "notification_status", "not_attempted"),
+                "notification_error": getattr(row, "notification_error", None),
+                "last_action_at": _serialize_datetime(getattr(row, "last_action_at", None) or getattr(row, "updated_at", None) or row.created_at),
+                "retry_available": retry_available(row),
+                "next_action": next_action(row),
+                "ghl_contact_reference": row.contact_id,
                 "created_at": _serialize_datetime(row.created_at),
             }
             for row in results
@@ -346,6 +400,7 @@ async def claim_hot_lead(
         raise HTTPException(status_code=409, detail="Lead is already assigned to another Enrollment user")
     result.assigned_user_id = current_user.id
     result.queue_status = "assigned"
+    result.last_action_at = datetime.now(timezone.utc)
     _audit(db, current_user, result.id, "hot_lead_claimed", {"contact_id": result.contact_id})
     return {"status": result.queue_status, "result_id": str(result.id), "assigned_user_id": str(current_user.id)}
 
@@ -367,6 +422,7 @@ async def update_hot_lead_state(
         raise HTTPException(status_code=403, detail="Claim the lead before changing its state")
     previous_state = result.queue_status
     result.queue_status = request.state
+    result.last_action_at = datetime.now(timezone.utc)
     _audit(db, current_user, result.id, "hot_lead_state_changed", {
         "contact_id": result.contact_id,
         "from": previous_state,
@@ -411,6 +467,11 @@ async def follow_up_hot_lead(
     result.follow_up_status = "tagged"
     result.follow_up_at = datetime.now(timezone.utc)
     result.queue_status = "contacted"
+    result.last_action_at = result.follow_up_at
+    result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
+    result.notification_error = workflow.get("notification_error")
+    if result.notification_status == "sent":
+        result.notification_sent_at = result.follow_up_at
     _audit(db, current_user, result.id, "follow_up_triggered", {
         "contact_id": result.contact_id,
         "workflow": "eny-enrollment-follow-up",

@@ -33,6 +33,7 @@ supabase/*
 !supabase/migrations/
 supabase/migrations/*
 !supabase/migrations/0008_enrollment_operations.sql
+!supabase/migrations/0009_sales_operations_fields.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md
