@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabaseClient';
 export default function WriterMetrics() {
   const [metrics, setMetrics] = useState({
     totalDocuments: 0,
-    documentsThisMonth: 0,
+    documentsThisMonth: null as number | null,
     templatesAvailable: 0,
     agentExecutions: 0,
   });
@@ -60,12 +60,12 @@ export default function WriterMetrics() {
 
   const statCards = [
     { label: 'Total Documents', value: metrics.totalDocuments.toLocaleString(), icon: '✏️', accent: 'violet' as const },
-    { label: 'Documents This Month', value: metrics.documentsThisMonth.toLocaleString(), icon: '📅', accent: 'sky' as const },
+    { label: 'Documents This Month', value: metrics.documentsThisMonth === null ? null : metrics.documentsThisMonth.toLocaleString(), icon: '📅', accent: 'sky' as const },
     { label: 'Templates Available', value: metrics.templatesAvailable.toLocaleString(), icon: '📄', accent: 'amber' as const },
     { label: 'Agent Executions', value: metrics.agentExecutions.toLocaleString(), icon: '⚡', accent: 'emerald' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

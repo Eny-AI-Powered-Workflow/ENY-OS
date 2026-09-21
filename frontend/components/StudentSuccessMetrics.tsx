@@ -6,10 +6,10 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default function StudentSuccessMetrics() {
   const [metrics, setMetrics] = useState({
-    totalStudents: 0,
-    atRiskStudents: 0,
-    graduationRate: 0,
-    interventionsToday: 0,
+    totalStudents: null as number | null,
+    atRiskStudents: null as number | null,
+    graduationRate: null as number | null,
+    interventionsToday: null as number | null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,13 +59,13 @@ export default function StudentSuccessMetrics() {
   }, []);
 
   const statCards = [
-    { label: 'Total Students', value: metrics.totalStudents.toLocaleString(), icon: '🎓', accent: 'violet' as const },
-    { label: 'At Risk Students', value: metrics.atRiskStudents.toLocaleString(), icon: '⚠️', accent: 'rose' as const },
-    { label: 'Graduation Rate', value: `${metrics.graduationRate}%`, icon: '📈', accent: 'emerald' as const },
-    { label: 'Interventions Today', value: metrics.interventionsToday.toLocaleString(), icon: '⚡', accent: 'sky' as const },
+    { label: 'Total Students', value: metrics.totalStudents === null ? null : metrics.totalStudents.toLocaleString(), icon: '🎓', accent: 'violet' as const },
+    { label: 'At Risk Students', value: metrics.atRiskStudents === null ? null : metrics.atRiskStudents.toLocaleString(), icon: '⚠️', accent: 'rose' as const },
+    { label: 'Graduation Rate', value: metrics.graduationRate === null ? null : `${metrics.graduationRate}%`, icon: '📈', accent: 'emerald' as const },
+    { label: 'Interventions Today', value: metrics.interventionsToday === null ? null : metrics.interventionsToday.toLocaleString(), icon: '⚡', accent: 'sky' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

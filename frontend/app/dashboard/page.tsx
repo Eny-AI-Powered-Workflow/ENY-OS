@@ -1,12 +1,6 @@
 import Link from 'next/link'
 import HotLeadsCard from '@/components/HotLeadsCard'
-
-const stats = [
-  { label: 'Active users', value: '1,247', icon: '👥', accent: 'violet' },
-  { label: 'AI agents', value: '24', icon: '🤖', accent: 'sky' },
-  { label: 'Tasks completed', value: '3,482', icon: '✅', accent: 'emerald' },
-  { label: 'System uptime', value: '99.9%', icon: '⏱️', accent: 'amber' },
-]
+import DashboardLiveStats from '@/components/DashboardLiveStats'
 
 const modules = [
   { name: 'CEO Cockpit', href: '/dashboard/ceo', code: 'C' },
@@ -44,9 +38,7 @@ export default function DashboardPage() {
             </h1>
           </div>
 
-          <div className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100">
-            Live operations • 96 modules active
-          </div>
+          <div className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100">Connected workspaces</div>
         </div>
 
         <p className="mt-4 max-w-2xl text-base text-slate-300">
@@ -54,21 +46,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
-          <div key={stat.label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.25)] transition hover:-translate-y-0.5 hover:border-violet-400/40">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[0.68rem] font-medium uppercase tracking-[0.18em] text-slate-400">{stat.label}</p>
-                <p className="mt-3 text-2xl font-bold tracking-[-0.04em] text-white sm:text-[2rem]">{stat.value}</p>
-              </div>
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10 text-lg text-violet-200">
-                {stat.icon}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <DashboardLiveStats />
 
       <HotLeadsCard />
 
@@ -98,25 +76,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold tracking-[-0.04em] text-white">Recent activity</h2>
-        <div className="space-y-4">
-          {recentActivity.map((item) => (
-            <div key={item.title} className="flex items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.15)]">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10 text-xl text-violet-200">
-                {item.icon}
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-white">{item.title}</h3>
-                <p className="mt-1 text-sm text-slate-300">{item.description}</p>
-                <p className="mt-2 text-xs text-slate-400">
-                  {item.time} • <span className="text-violet-200">View details</span>
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

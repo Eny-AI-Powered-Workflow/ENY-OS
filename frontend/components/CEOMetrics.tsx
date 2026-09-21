@@ -9,7 +9,7 @@ export default function CEOMetrics() {
     activeUsers: 0,
     aiAgents: 0,
     tasksCompleted: 0,
-    systemUptime: 0,
+    systemUptime: null as number | null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,10 +62,10 @@ export default function CEOMetrics() {
     { label: 'Active Users', value: metrics.activeUsers.toLocaleString(), icon: '👥', accent: 'violet' as const },
     { label: 'AI Agents', value: metrics.aiAgents.toString(), icon: '🤖', accent: 'sky' as const },
     { label: 'Tasks Completed', value: metrics.tasksCompleted.toLocaleString(), icon: '✅', accent: 'emerald' as const },
-    { label: 'System Uptime', value: `${metrics.systemUptime}%`, icon: '⏱️', accent: 'amber' as const },
+    { label: 'System Uptime', value: metrics.systemUptime === null ? null : `${metrics.systemUptime}%`, icon: '⏱️', accent: 'amber' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

@@ -65,7 +65,7 @@ export default function EnrollmentMetrics() {
     { label: 'Revenue Pipeline', value: `$${metrics.revenuePipeline.toLocaleString()}`, icon: '💰', accent: 'amber' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

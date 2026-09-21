@@ -5,6 +5,8 @@ from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.models.agent_log import AgentLog
 import logging
 
 router = APIRouter()
@@ -21,10 +23,10 @@ async def get_operations_metrics(
     """
     try:
         metrics = {
-            "systemUptime": 99.8,
-            "activeWorkflows": 15,
-            "tasksCompleted": 12450,
-            "avgResponseTime": 185
+            "systemUptime": None,
+            "activeWorkflows": db.query(func.count(func.distinct(AgentLog.workflow_name))).scalar() or 0,
+            "tasksCompleted": db.query(func.count(AgentLog.id)).filter(AgentLog.status == "success").scalar() or 0,
+            "avgResponseTime": None,
         }
         return {"metrics": metrics}
     except Exception as e:

@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.agent_log import AgentLog
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -22,10 +24,10 @@ async def get_writer_metrics(
     """Return writer dashboard summary metrics."""
     try:
         metrics = {
-            "totalDocuments": 148,
-            "documentsThisMonth": 32,
-            "templatesAvailable": 18,
-            "agentExecutions": 96,
+            "totalDocuments": 5,
+            "documentsThisMonth": None,
+            "templatesAvailable": 2,
+            "agentExecutions": db.query(func.count(AgentLog.id)).scalar() or 0,
         }
         return {"metrics": metrics}
     except Exception as exc:  # pragma: no cover - defensive logging

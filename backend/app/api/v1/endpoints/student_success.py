@@ -21,10 +21,10 @@ async def get_student_success_metrics(
     """
     try:
         metrics = {
-            "totalStudents": 892,
-            "atRiskStudents": 67,
-            "graduationRate": 82.3,
-            "interventionsToday": 12
+            "totalStudents": None,
+            "atRiskStudents": None,
+            "graduationRate": None,
+            "interventionsToday": None,
         }
         return {"metrics": metrics}
     except Exception as e:

@@ -9,7 +9,7 @@ export default function MarketingMetrics() {
     totalLeads: 0,
     leadsThisMonth: 0,
     conversionRate: 0,
-    roi: 0,
+    roi: null as number | null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,10 +62,10 @@ export default function MarketingMetrics() {
     { label: 'Total Leads', value: metrics.totalLeads.toLocaleString(), icon: '📢', accent: 'violet' as const },
     { label: 'Leads This Month', value: metrics.leadsThisMonth.toLocaleString(), icon: '📅', accent: 'sky' as const },
     { label: 'Conversion Rate', value: `${metrics.conversionRate}%`, icon: '📈', accent: 'emerald' as const },
-    { label: 'ROI', value: `${metrics.roi.toFixed(1)}x`, icon: '💰', accent: 'amber' as const },
+    { label: 'ROI', value: metrics.roi === null ? null : `${metrics.roi.toFixed(1)}x`, icon: '💰', accent: 'amber' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

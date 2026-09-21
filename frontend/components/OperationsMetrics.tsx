@@ -6,10 +6,10 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default function OperationsMetrics() {
   const [metrics, setMetrics] = useState({
-    systemUptime: 0,
+    systemUptime: null as number | null,
     activeWorkflows: 0,
     tasksCompleted: 0,
-    avgResponseTime: 0,
+    avgResponseTime: null as number | null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,13 +59,13 @@ export default function OperationsMetrics() {
   }, []);
 
   const statCards = [
-    { label: 'System Uptime', value: `${metrics.systemUptime}%`, icon: '⏱️', accent: 'emerald' as const },
+    { label: 'System Uptime', value: metrics.systemUptime === null ? null : `${metrics.systemUptime}%`, icon: '⏱️', accent: 'emerald' as const },
     { label: 'Active Workflows', value: metrics.activeWorkflows.toString(), icon: '⚡', accent: 'violet' as const },
     { label: 'Tasks Completed', value: metrics.tasksCompleted.toLocaleString(), icon: '✅', accent: 'sky' as const },
-    { label: 'Avg Response Time', value: `${metrics.avgResponseTime}ms`, icon: '🚀', accent: 'amber' as const },
+    { label: 'Avg Response Time', value: metrics.avgResponseTime === null ? null : `${metrics.avgResponseTime}ms`, icon: '🚀', accent: 'amber' as const },
   ];
 
-  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string, helper: string) => (
+  const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard

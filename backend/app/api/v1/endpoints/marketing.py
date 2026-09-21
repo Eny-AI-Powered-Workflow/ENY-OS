@@ -5,6 +5,7 @@ from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
 from sqlalchemy.orm import Session
+from app.services.ghl_service import ghl_service
 import logging
 
 router = APIRouter()
@@ -20,11 +21,14 @@ async def get_marketing_metrics(
     Requires leads:read permission.
     """
     try:
+        contacts, _ = await ghl_service.get_all_contacts()
+        pipeline = await ghl_service.get_pipeline_data()
+        current_month = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m")
         metrics = {
-            "totalLeads": 3420,
-            "leadsThisMonth": 425,
-            "conversionRate": 12.8,
-            "roi": 3.4
+            "totalLeads": len(contacts),
+            "leadsThisMonth": sum(1 for contact in contacts if str(contact.get("dateAdded", "")).startswith(current_month)),
+            "conversionRate": round(float(pipeline.get("conversion_rate", 0)) * 100, 2),
+            "roi": None,
         }
         return {"metrics": metrics}
     except Exception as e:

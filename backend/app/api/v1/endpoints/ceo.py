@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.agent_log import AgentLog
+from app.models.user_role import UserRole
+from sqlalchemy import func
 
 import logging
 
@@ -24,10 +27,10 @@ async def get_ceo_metrics(
     """
     try:
         metrics = {
-            "activeUsers": 1247,
-            "aiAgents": 24,
-            "tasksCompleted": 3482,
-            "systemUptime": 99.9,
+            "activeUsers": db.query(func.count(func.distinct(UserRole.user_id))).scalar() or 0,
+            "aiAgents": db.query(func.count(func.distinct(AgentLog.workflow_name))).scalar() or 0,
+            "tasksCompleted": db.query(func.count(AgentLog.id)).filter(AgentLog.status == "success").scalar() or 0,
+            "systemUptime": None,
         }
         return {"metrics": metrics}
     except Exception as e:
