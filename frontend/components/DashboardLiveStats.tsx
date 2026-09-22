@@ -29,6 +29,12 @@ const formatCurrency = (value: number | null | undefined) => {
   }).format(value)
 }
 
+const formatLiveTimestamp = (date = new Date()) =>
+  new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+
 const initialStats: Stats = {
   primary: { label: 'Live leads', value: null, icon: '↗', accent: 'violet' },
   secondary: { label: 'Hot leads', value: null, icon: '⚡', accent: 'amber' },
@@ -37,10 +43,11 @@ const initialStats: Stats = {
 }
 
 export default function DashboardLiveStats() {
-  const { permissions, can } = usePermissions()
+  const { permissions } = usePermissions()
   const [stats, setStats] = useState(initialStats)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState<string>('')
 
   const hasEnrollmentAccess = useMemo(() => permissions.includes('leads:read'), [permissions])
   const hasPipelineAccess = useMemo(() => permissions.includes('pipeline:read'), [permissions])
@@ -79,6 +86,8 @@ export default function DashboardLiveStats() {
         const metrics = enrollment?.metrics || {}
         const executive = ceo?.metrics || {}
 
+        await new Promise((resolve) => setTimeout(resolve, 250))
+
         setStats({
           primary: {
             ...initialStats.primary,
@@ -97,6 +106,7 @@ export default function DashboardLiveStats() {
             value: typeof executive.tasksCompleted === 'number' ? formatNumber(executive.tasksCompleted) ?? '0' : null,
           },
         })
+        setUpdatedAt(formatLiveTimestamp())
       } catch {
         setError(true)
       } finally {
@@ -105,16 +115,16 @@ export default function DashboardLiveStats() {
     }
 
     void load()
-  }, [hasEnrollmentAccess, hasPipelineAccess, can])
+  }, [hasEnrollmentAccess, hasPipelineAccess])
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
       {Object.values(stats).map((stat) => (
         <MetricCard
           key={stat.label}
           title={stat.label}
           value={loading ? '—' : error ? null : stat.value}
-          helper={error ? 'Unavailable' : 'Live from connected services'}
+          helper={error ? 'Unavailable' : updatedAt ? `Updated ${updatedAt}` : 'Live from connected services'}
           icon={stat.icon}
           accent={stat.accent}
         />
