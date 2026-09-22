@@ -1,8 +1,22 @@
-# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/core/config.py
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from typing import List, Union
+from typing import List, Optional, Union
 import json
+
+
+def parse_origins(raw: str) -> List[str]:
+    """Accept either a comma-separated list or a JSON array of allowed origins."""
+    if not raw:
+        return []
+    value = raw.strip()
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(entry).strip() for entry in parsed if str(entry).strip()]
+    return [entry.strip() for entry in value.split(",") if entry.strip()]
 
 
 class Settings(BaseSettings):
@@ -12,6 +26,11 @@ class Settings(BaseSettings):
 
     # CORS Settings
     BACKEND_CORS_ORIGINS: str = "https://eny-os.vercel.app,https://eny-os.onrender.com"
+    # Documented alias (see backend/.env.example). Entries here are merged with
+    # BACKEND_CORS_ORIGINS instead of being silently ignored.
+    ALLOWED_ORIGINS: str = ""
+    # Optional regex for ephemeral preview deployments, e.g. r"https://eny-.*\.vercel\.app".
+    CORS_ORIGIN_REGEX: str = ""
 
     # Security Settings
     SUPABASE_URL: str = Field(..., env="SUPABASE_URL")
@@ -44,6 +63,16 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field("", env="OPENAI_API_KEY")
     EMBEDDING_MODEL: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
 
+    # OpenAI embeddings are rate limited per account. One HTTP request per chunk
+    # trips HTTP 429 quickly, so chunks are batched and retried with backoff.
+    EMBEDDING_BATCH_SIZE: int = Field(32, env="EMBEDDING_BATCH_SIZE")
+    EMBEDDING_MAX_RETRIES: int = Field(5, env="EMBEDDING_MAX_RETRIES")
+    EMBEDDING_RETRY_BASE_SECONDS: float = Field(1.0, env="EMBEDDING_RETRY_BASE_SECONDS")
+    EMBEDDING_RETRY_MAX_SECONDS: float = Field(20.0, env="EMBEDDING_RETRY_MAX_SECONDS")
+    EMBEDDING_TIMEOUT_SECONDS: float = Field(60.0, env="EMBEDDING_TIMEOUT_SECONDS")
+    # Upper bound on how many chunks a single SOP upload may produce.
+    KNOWLEDGE_MAX_CHUNKS: int = Field(400, env="KNOWLEDGE_MAX_CHUNKS")
+
     # Optional APIs
     APOLLO_API_KEY: str = Field("", env="APOLLO_API_KEY")
     PERPLEXITY_API_KEY: str = Field("", env="PERPLEXITY_API_KEY")
@@ -51,6 +80,20 @@ class Settings(BaseSettings):
     # Server Settings
     HOST: str = Field("0.0.0.0", env="HOST")
     PORT: int = Field(8000, env="PORT")
+
+    @property
+    def cors_origins(self) -> List[str]:
+        """Union of BACKEND_CORS_ORIGINS and the documented ALLOWED_ORIGINS alias."""
+        merged: List[str] = []
+        for origin in parse_origins(self.BACKEND_CORS_ORIGINS) + parse_origins(self.ALLOWED_ORIGINS):
+            if origin not in merged:
+                merged.append(origin)
+        return merged
+
+    @property
+    def cors_origin_regex(self) -> Optional[str]:
+        """Optional pattern for preview deployments; disabled when unset."""
+        return self.CORS_ORIGIN_REGEX.strip() or None
 
     class Config:
         case_sensitive = True

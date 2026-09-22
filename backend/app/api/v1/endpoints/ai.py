@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permission
@@ -26,7 +28,13 @@ from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
 from app.services.n8n_service import N8NService
-from app.services.embedding_service import embedding_service
+from app.services.embedding_service import (
+    EmbeddingError,
+    EmbeddingRateLimitError,
+    embedding_service,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -121,29 +129,70 @@ async def ingest_knowledge_document(
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required to ingest vector knowledge")
 
     chunks = _chunk_knowledge(request.content)
-    embeddings = [await embedding_service.embed(chunk) for chunk in chunks]
-    db.execute(
-        text("delete from knowledge_documents where title = :title and department = :department"),
-        {"title": request.title, "department": request.department},
-    )
-    for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        db.execute(
-            text("""
-                insert into knowledge_documents
-                    (title, department, content, source, metadata, embedding)
-                values
-                    (:title, :department, :content, :source, cast(:metadata as jsonb), cast(:embedding as extensions.vector))
-            """),
-            {
-                "title": request.title,
-                "department": request.department,
-                "content": chunk,
-                "source": request.source,
-                "metadata": json.dumps({"chunk_index": index, "chunk_count": len(chunks), "ingested_by": str(current_user.id)}),
-                "embedding": "[" + ",".join(str(value) for value in embedding) + "]",
-            },
+    if not chunks:
+        raise HTTPException(status_code=400, detail="The SOP content was empty after chunking")
+    if len(chunks) > settings.KNOWLEDGE_MAX_CHUNKS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"This SOP produces {len(chunks)} knowledge chunks, which exceeds the "
+                f"{settings.KNOWLEDGE_MAX_CHUNKS} chunk limit for a single upload. "
+                "Split it into smaller documents and publish them separately."
+            ),
         )
-    db.commit()
+
+    # Chunks are embedded in batches with retry/backoff. Issuing one HTTP request
+    # per chunk is what pushed production into OpenAI HTTP 429 on large SOPs.
+    try:
+        embeddings = await embedding_service.embed_many(chunks)
+    except EmbeddingRateLimitError as exc:
+        logger.warning("Knowledge ingest rate limited for %s: %s", request.title, exc)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "The embedding provider is rate limiting this account. The document was not "
+                "stored. Wait a minute and publish again."
+            ),
+            headers={"Retry-After": "30"},
+        ) from exc
+    except EmbeddingError as exc:
+        logger.exception("Knowledge ingest embedding failure for %s", request.title)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"The embedding provider is unavailable: {exc}",
+        ) from exc
+
+    try:
+        db.execute(
+            text("delete from knowledge_documents where title = :title and department = :department"),
+            {"title": request.title, "department": request.department},
+        )
+        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            db.execute(
+                text("""
+                    insert into knowledge_documents
+                        (title, department, content, source, metadata, embedding)
+                    values
+                        (:title, :department, :content, :source, cast(:metadata as jsonb), cast(:embedding as extensions.vector))
+                """),
+                {
+                    "title": request.title,
+                    "department": request.department,
+                    "content": chunk,
+                    "source": request.source,
+                    "metadata": json.dumps({"chunk_index": index, "chunk_count": len(chunks), "ingested_by": str(current_user.id)}),
+                    "embedding": "[" + ",".join(str(value) for value in embedding) + "]",
+                },
+            )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Knowledge ingest failed while storing chunks for %s", request.title)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The knowledge document could not be stored. No partial data was saved.",
+        ) from exc
+
     return {"status": "ingested", "title": request.title, "department": request.department, "chunks": len(chunks)}
 
 
