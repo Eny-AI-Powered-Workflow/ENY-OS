@@ -23,10 +23,18 @@ from app.services.n8n_service import N8NService
 router = APIRouter()
 logger = logging.getLogger(__name__)
 QUEUE_STATES = {"new", "assigned", "contacted", "qualified", "closed"}
+QUEUE_TRANSITIONS = {
+    "new": {"assigned"},
+    "assigned": {"contacted"},
+    "contacted": {"qualified", "closed"},
+    "qualified": {"closed"},
+    "closed": set(),
+}
 
 
 class QueueStateRequest(BaseModel):
     state: str = Field(..., min_length=1, max_length=30)
+    reason: Optional[str] = Field(None, max_length=500)
 
 
 def _audit(db: Session, current_user: Any, result_id: Any, event_type: str, details: dict[str, Any]) -> None:
@@ -421,12 +429,19 @@ async def update_hot_lead_state(
     if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before changing its state")
     previous_state = result.queue_status
+    if request.state not in QUEUE_TRANSITIONS.get(previous_state, set()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invalid queue transition: {previous_state} -> {request.state}",
+        )
     result.queue_status = request.state
     result.last_action_at = datetime.now(timezone.utc)
     _audit(db, current_user, result.id, "hot_lead_state_changed", {
         "contact_id": result.contact_id,
+        "actor_id": str(current_user.id),
         "from": previous_state,
         "to": request.state,
+        "reason": request.reason,
     })
     return {"status": result.queue_status, "result_id": str(result.id)}
 
