@@ -2,6 +2,7 @@ import WriterMetrics from "@/components/WriterMetrics";
 import DocumentList from "@/components/DocumentList";
 import AgentTemplates from "@/components/AgentTemplates";
 import SOPPublisher from "@/components/SOPPublisher";
+import SOPLibrary from "@/components/SOPLibrary";
 
 export default function WriterDashboard() {
   return (
@@ -22,6 +23,7 @@ export default function WriterDashboard() {
       </div>
 
       <SOPPublisher />
+      <SOPLibrary />
 
       {/* Documents and Templates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

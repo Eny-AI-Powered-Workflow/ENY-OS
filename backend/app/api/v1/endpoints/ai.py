@@ -5,7 +5,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -145,6 +145,61 @@ async def ingest_knowledge_document(
         )
     db.commit()
     return {"status": "ingested", "title": request.title, "department": request.department, "chunks": len(chunks)}
+
+
+@router.get(
+    "/knowledge/documents",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def list_knowledge_documents(
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return one library entry per uploaded SOP, grouped across vector chunks."""
+    rows = db.execute(text("""
+        select title, department, source, count(*)::int as chunks,
+               max(updated_at) as updated_at,
+               min(created_at) as created_at,
+               bool_or(is_active) as is_active
+        from knowledge_documents
+        group by title, department, source
+        order by max(updated_at) desc
+    """)).fetchall()
+    return {
+        "documents": [
+            {
+                "title": row.title,
+                "department": row.department,
+                "source": row.source,
+                "chunks": row.chunks,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                "is_active": row.is_active,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.delete(
+    "/knowledge/documents",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def delete_knowledge_document(
+    title: str = Query(..., min_length=1, max_length=200),
+    department: str = Query(..., min_length=1, max_length=80),
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete every chunk belonging to one uploaded SOP."""
+    deleted = db.execute(
+        text("delete from knowledge_documents where title = :title and department = :department"),
+        {"title": title, "department": department},
+    ).rowcount or 0
+    if not deleted:
+        raise HTTPException(status_code=404, detail="SOP not found")
+    db.commit()
+    return {"status": "deleted", "title": title, "department": department, "chunks": deleted}
 
 
 def build_context_prompt(
