@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Bot, CheckCircle2, ClipboardCheck, ExternalLink, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import { describeHttpError, describeRequestFailure } from '@/lib/api'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -79,6 +80,17 @@ function formatApiError(detail: unknown, fallback: string): string {
   return fallback
 }
 
+/** Parse a response body without throwing on empty, HTML or invalid payloads. */
+async function readApiPayload<T>(response: Response): Promise<T | null> {
+  try {
+    const raw = await response.text()
+    if (!raw) return null
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
 export default function AIDeskPage() {
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -96,14 +108,18 @@ export default function AIDeskPage() {
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.')
-    return fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-        ...(options.headers || {}),
-      },
-    })
+    try {
+      return await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+          ...(options.headers || {}),
+        },
+      })
+    } catch (error) {
+      throw new Error(describeRequestFailure(error, 'The AI desk could not reach the API.'))
+    }
   }
 
   const loadConversation = async (id: string) => {

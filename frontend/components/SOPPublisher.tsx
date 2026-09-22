@@ -4,6 +4,7 @@ import { ChangeEvent, useState } from 'react'
 import { FileText, Loader2, UploadCloud } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { usePermissions } from '@/lib/permissions'
+import { API_TIMEOUTS, describeHttpError, describeRequestFailure, fetchWithTimeout } from '@/lib/api'
 
 const departments = [
   ['enrollment', 'Sales & Enrollment'],
@@ -46,25 +47,38 @@ export default function SOPPublisher() {
       return
     }
     setPublishing(true)
-    setStatus(null)
+    setStatus('Embedding the SOP. Larger documents take longer, so keep this tab open.')
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/knowledge/ingest`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      const response = await fetchWithTimeout(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/ai/knowledge/ingest`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify({ title: title.trim(), department, source: source.trim() || 'ENY internal SOP', content }),
         },
-        credentials: 'include',
-        body: JSON.stringify({ title: title.trim(), department, source: source.trim() || 'ENY internal SOP', content }),
-      })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'SOP publishing failed')
+        API_TIMEOUTS.knowledgeIngest,
+      )
+
+      if (!response.ok) {
+        setStatus(await describeHttpError(response, 'SOP publishing failed.'))
+        return
+      }
+
+      const payload = await response.json().catch(() => null)
+      if (!payload || typeof payload.chunks !== 'number') {
+        setStatus('The SOP was sent but the response could not be read. Refresh the library to confirm it was published.')
+        return
+      }
       setStatus(`Published ${payload.chunks} knowledge chunk${payload.chunks === 1 ? '' : 's'} to ${department}.`)
       setContent('')
       setFileName(null)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'SOP publishing failed')
+      setStatus(describeRequestFailure(error, 'SOP publishing failed.', API_TIMEOUTS.knowledgeIngest))
     } finally {
       setPublishing(false)
     }
