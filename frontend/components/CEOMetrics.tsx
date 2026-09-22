@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { supabase } from '@/lib/supabaseClient';
 
+const formatLiveTimestamp = (date = new Date()) =>
+  new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+
 export default function CEOMetrics() {
   const [metrics, setMetrics] = useState({
     activeUsers: 0,
@@ -13,6 +19,7 @@ export default function CEOMetrics() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string>('');
 
   const fetchMetrics = async () => {
     try {
@@ -46,6 +53,7 @@ export default function CEOMetrics() {
         tasksCompleted: 0,
         systemUptime: 0,
       });
+      setUpdatedAt(formatLiveTimestamp());
     } catch (err: any) {
       console.error('Error fetching CEO metrics:', err);
       setError(err.message || 'An unknown error occurred');
@@ -88,5 +96,5 @@ export default function CEOMetrics() {
     return renderCards((card) => card.label === 'System Uptime' ? 'Unavailable' : '—', 'Retry required');
   }
 
-  return renderCards((card) => card.value, 'Live data');
+  return renderCards((card) => card.value, updatedAt ? `Updated ${updatedAt}` : 'Live from CEO services');
 }
