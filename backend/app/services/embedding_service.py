@@ -116,6 +116,12 @@ class EmbeddingService:
                 request=response.request,
                 response=response,
             )
+
+            # A live API must fail fast on OpenAI rate-limits. Retrying 429s here
+            # can block the request for long enough to degrade the user-facing endpoint.
+            if response.status_code == 429:
+                break
+
             if response.status_code not in RETRYABLE_HTTP_STATUSES or attempt == max_retries:
                 break
 

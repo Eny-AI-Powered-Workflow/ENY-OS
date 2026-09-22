@@ -69,25 +69,24 @@ async def test_embeddings_keep_input_order(configured_service, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_is_retried_then_succeeds(configured_service, monkeypatch):
+async def test_rate_limit_fails_fast_in_live_product(configured_service, monkeypatch):
     attempts = {"count": 0}
+    monkeypatch.setattr(settings, "EMBEDDING_MAX_RETRIES", 0)
 
     def handler(request: httpx.Request) -> httpx.Response:
         attempts["count"] += 1
-        if attempts["count"] == 1:
-            return httpx.Response(
-                429,
-                headers={"Retry-After": "0"},
-                json={"error": {"message": "Rate limit reached"}},
-            )
-        inputs = json.loads(request.content)["input"]
-        return _embedding_response(len(inputs))
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "0"},
+            json={"error": {"message": "Rate limit reached"}},
+        )
 
     monkeypatch.setattr(configured_service, "_client", _mock_client(handler))
-    vectors = await configured_service.embed_many(["retry me"])
 
-    assert attempts["count"] == 2
-    assert len(vectors) == 1
+    with pytest.raises(EmbeddingRateLimitError):
+        await configured_service.embed_many(["live product rate limit"])
+
+    assert attempts["count"] == 1, "429s should fail fast to avoid blocking the live API"
 
 
 @pytest.mark.asyncio

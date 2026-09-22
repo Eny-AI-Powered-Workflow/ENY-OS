@@ -63,10 +63,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field("", env="OPENAI_API_KEY")
     EMBEDDING_MODEL: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
 
-    # OpenAI embeddings are rate limited per account. One HTTP request per chunk
-    # trips HTTP 429 quickly, so chunks are batched and retried with backoff.
+    # OpenAI embeddings are rate limited per account. Large SOP uploads are
+    # batched to reduce pressure, but HTTP 429s must fail fast in a live product
+    # instead of blocking the request thread with a long retry loop.
     EMBEDDING_BATCH_SIZE: int = Field(32, env="EMBEDDING_BATCH_SIZE")
-    EMBEDDING_MAX_RETRIES: int = Field(5, env="EMBEDDING_MAX_RETRIES")
+    EMBEDDING_MAX_RETRIES: int = Field(0, env="EMBEDDING_MAX_RETRIES")
     EMBEDDING_RETRY_BASE_SECONDS: float = Field(1.0, env="EMBEDDING_RETRY_BASE_SECONDS")
     EMBEDDING_RETRY_MAX_SECONDS: float = Field(20.0, env="EMBEDDING_RETRY_MAX_SECONDS")
     EMBEDDING_TIMEOUT_SECONDS: float = Field(60.0, env="EMBEDDING_TIMEOUT_SECONDS")
