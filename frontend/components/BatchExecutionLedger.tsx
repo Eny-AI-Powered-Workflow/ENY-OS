@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, ShieldAlert } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -16,6 +16,10 @@ type BatchResult = {
   category: string | null;
   error: string | null;
   retry_count: number;
+  operating_decision: string;
+  failure_class: string | null;
+  recovery_owner_id: string | null;
+  recovery_status: string;
   created_at: string | null;
 };
 
@@ -25,6 +29,9 @@ type BatchSummary = {
   pending: number;
   failed: number;
   exhausted: number;
+  held?: number;
+  escalated?: number;
+  rerun_approved?: number;
 };
 
 export default function BatchExecutionLedger() {
@@ -32,6 +39,7 @@ export default function BatchExecutionLedger() {
   const [summary, setSummary] = useState<BatchSummary>({ total: 0, succeeded: 0, pending: 0, failed: 0, exhausted: 0 });
   const [loading, setLoading] = useState(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const getHeaders = async (): Promise<HeadersInit> => {
@@ -84,6 +92,29 @@ export default function BatchExecutionLedger() {
     }
   };
 
+  const decide = async (resultId: string, decision: 'rerun' | 'hold' | 'escalate') => {
+    const reason = window.prompt(`Reason for ${decision}:`);
+    if (!reason?.trim()) return;
+    setDecidingId(resultId);
+    setMessage(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/batch-results/${resultId}/decision`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ decision, reason: reason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Decision failed: ${res.status}`);
+      setMessage(`Recovery decision recorded: ${decision}.`);
+      await loadResults();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to record the recovery decision');
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
   return (
     <Card className="w-full border-slate-200/80 bg-white shadow-sm">
       <CardHeader className="border-b border-slate-100 pb-4">
@@ -102,6 +133,8 @@ export default function BatchExecutionLedger() {
             ['Pending', summary.pending, 'text-amber-700'],
             ['Failed', summary.failed, 'text-rose-700'],
             ['Exhausted', summary.exhausted, 'text-slate-700'],
+            ['Held', summary.held || 0, 'text-amber-700'],
+            ['Escalated', summary.escalated || 0, 'text-rose-700'],
           ].map(([label, value, color]) => (
             <div key={label} className="rounded-md bg-slate-50 px-2 py-1.5">
               <span className="block text-[10px] uppercase tracking-wide text-slate-400">{label}</span>
@@ -120,7 +153,8 @@ export default function BatchExecutionLedger() {
         ) : (
           <div className="divide-y divide-slate-100">
             {results.map((result) => {
-              const pendingRetry = result.status === 'failed' && Boolean(result.error);
+              const recoverable = ['failed', 'held', 'escalated'].includes(result.status);
+              const pendingRetry = result.status === 'failed' && result.operating_decision === 'rerun';
               return (
                 <div key={result.id} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
@@ -135,22 +169,17 @@ export default function BatchExecutionLedger() {
                         {result.status}
                       </span>
                       {result.score !== null && <span className="text-xs text-slate-500">Score {result.score}</span>}
+                      {recoverable && <span className="inline-flex items-center gap-1 text-xs text-slate-500"><ShieldAlert className="h-3.5 w-3.5" /> {result.failure_class || 'unknown'} · {result.operating_decision}</span>}
                     </div>
                     <p className="mt-1 truncate text-xs text-slate-500">{result.cohort_name} · {result.email || result.contact_id}</p>
                     {result.error && <p className="mt-1 text-xs text-rose-600">{result.error}</p>}
                   </div>
-                  {pendingRetry && (
-                    <button
-                      type="button"
-                      onClick={() => retry(result.id)}
-                      disabled={retryingId === result.id}
-                      title="Retry this approved contact"
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {retryingId === result.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                      {retryingId === result.id ? 'Retrying...' : 'Retry'}
-                    </button>
-                  )}
+                  {recoverable && <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {pendingRetry && <button type="button" onClick={() => retry(result.id)} disabled={retryingId === result.id} title="Run the approved retry" className="inline-flex items-center justify-center gap-2 rounded-md border border-cyan-200 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-60">{retryingId === result.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}{retryingId === result.id ? 'Running...' : 'Run retry'}</button>}
+                    {result.operating_decision !== 'rerun' && <button type="button" onClick={() => void decide(result.id, 'rerun')} disabled={decidingId === result.id} title="Approve this result for rerun" className="rounded-md border border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">Approve rerun</button>}
+                    {result.operating_decision !== 'hold' && <button type="button" onClick={() => void decide(result.id, 'hold')} disabled={decidingId === result.id} title="Place this result on hold" className="rounded-md border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-60">Hold</button>}
+                    {result.operating_decision !== 'escalate' && <button type="button" onClick={() => void decide(result.id, 'escalate')} disabled={decidingId === result.id} title="Escalate this result" className="rounded-md border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60">Escalate</button>}
+                  </div>}
                 </div>
               );
             })}

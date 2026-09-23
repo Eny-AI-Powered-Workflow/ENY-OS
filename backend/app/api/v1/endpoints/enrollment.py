@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
@@ -42,6 +42,19 @@ SLA_RULES = {
 class QueueStateRequest(BaseModel):
     state: str = Field(..., min_length=1, max_length=30)
     reason: Optional[str] = Field(None, max_length=500)
+
+
+class BatchDecisionRequest(BaseModel):
+    decision: Literal["rerun", "hold", "escalate"]
+    reason: str = Field(..., min_length=3, max_length=500)
+    failure_class: Optional[Literal[
+        "crm_contact_missing",
+        "crm_write",
+        "workflow",
+        "rate_limit",
+        "data_quality",
+        "unknown",
+    ]] = None
 
 
 def _audit(db: Session, current_user: Any, result_id: Any, event_type: str, details: dict[str, Any]) -> None:
@@ -230,6 +243,9 @@ async def get_batch_execution_results(
             "pending": len([row for row in summary_rows if row.status in {"pending", "queued"}]),
             "failed": len([row for row in summary_rows if row.status == "failed"]),
             "exhausted": len([row for row in summary_rows if row.status == "exhausted"]),
+            "held": len([row for row in summary_rows if row.status == "held"]),
+            "escalated": len([row for row in summary_rows if row.status == "escalated"]),
+            "rerun_approved": len([row for row in summary_rows if getattr(row, "operating_decision", "hold") == "rerun"]),
         }
 
         results = [
@@ -247,6 +263,10 @@ async def get_batch_execution_results(
                 "status": row.status,
                 "error": row.error,
                 "retry_count": row.retry_count,
+                "operating_decision": getattr(row, "operating_decision", "hold"),
+                "failure_class": getattr(row, "failure_class", None),
+                "recovery_owner_id": str(row.recovery_owner_id) if getattr(row, "recovery_owner_id", None) else None,
+                "recovery_status": getattr(row, "recovery_status", "unassigned"),
                 "created_at": _serialize_datetime(getattr(row, "created_at", None)),
             }
             for row in rows
@@ -449,6 +469,10 @@ async def get_enrollment_operations(
                 "notification_error": getattr(row, "notification_error", None),
                 "last_action_at": _serialize_datetime(getattr(row, "last_action_at", None) or getattr(row, "updated_at", None) or row.created_at),
                 "retry_available": retry_available(row),
+                "operating_decision": getattr(row, "operating_decision", "hold"),
+                "failure_class": getattr(row, "failure_class", None),
+                "recovery_owner_id": str(row.recovery_owner_id) if getattr(row, "recovery_owner_id", None) else None,
+                "recovery_status": getattr(row, "recovery_status", "unassigned"),
                 "next_action": next_action(row),
                 "ghl_contact_reference": row.contact_id,
                 "created_at": _serialize_datetime(row.created_at),
@@ -465,6 +489,71 @@ async def get_enrollment_operations(
             }
             for event in audits
         ],
+    }
+
+
+@router.patch("/batch-results/{result_id}/decision", dependencies=[Depends(require_permission("leads:write"))])
+async def decide_batch_result(
+    result_id: UUID,
+    request: BatchDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Record the operator decision for a failed result without executing external work."""
+    result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch result not found")
+
+    approval = db.query(CohortApproval).filter(
+        CohortApproval.id == result.approval_id,
+        CohortApproval.user_id == current_user.id,
+    ).first()
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if result.status not in {"failed", "missing_in_ghl", "held", "escalated", "exhausted"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed batch results can receive a recovery decision")
+    if request.decision == "rerun" and result.status == "exhausted":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Maximum retry attempts reached; escalate this result")
+
+    pending_retry = db.query(BatchRetry).filter(
+        BatchRetry.result_id == result.id,
+        BatchRetry.status.in_(["retry_pending", "held", "escalated"]),
+    ).order_by(BatchRetry.created_at.desc()).first()
+    if request.decision == "rerun" and not pending_retry:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No retry record is available for this result")
+
+    result.operating_decision = request.decision
+    result.failure_class = request.failure_class or getattr(result, "failure_class", None) or "unknown"
+    result.recovery_owner_id = current_user.id
+    result.recovery_status = "assigned" if request.decision == "rerun" else request.decision
+    result.last_action_at = datetime.now(timezone.utc)
+    if request.decision == "hold":
+        result.status = "held"
+    elif request.decision == "escalate":
+        result.status = "escalated"
+    if pending_retry:
+        pending_retry.operating_decision = request.decision
+        pending_retry.failure_class = result.failure_class
+        pending_retry.recovery_owner_id = current_user.id
+        pending_retry.status = "retry_pending" if request.decision == "rerun" else request.decision
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=result.id,
+        event_type="batch_recovery_decision",
+        details={
+            "decision": request.decision,
+            "failure_class": result.failure_class,
+            "reason": request.reason,
+            "recovery_owner_id": str(current_user.id),
+        },
+    ))
+    db.commit()
+    return {
+        "status": result.status,
+        "result_id": str(result.id),
+        "decision": result.operating_decision,
+        "failure_class": result.failure_class,
+        "recovery_owner_id": str(result.recovery_owner_id),
     }
 
 
@@ -487,6 +576,12 @@ async def retry_enrollment_batch_result(
     ).first()
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if getattr(approval, "decision", "approved") != "approved":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The parent approval is not approved for recovery")
+    if getattr(result, "operating_decision", "hold") != "rerun":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Record an explicit rerun decision before retrying")
+    if result.status != "failed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed results can be retried")
     if str(result.contact_id) not in {str(contact_id) for contact_id in (approval.contact_ids or [])}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Contact is outside the original approved batch")
 
@@ -499,6 +594,8 @@ async def retry_enrollment_batch_result(
             status_code=status.HTTP_409_CONFLICT,
             detail="This batch result is not waiting for retry",
         )
+    if getattr(pending_retry, "operating_decision", "hold") != "rerun":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The retry is not approved to run")
     if pending_retry.next_attempt_at and pending_retry.next_attempt_at > datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

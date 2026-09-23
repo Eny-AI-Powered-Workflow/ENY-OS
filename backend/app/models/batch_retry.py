@@ -17,4 +17,7 @@ class BatchRetry(Base):
     error_message = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="retry_pending")
     next_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    failure_class = Column(String, nullable=True)
+    recovery_owner_id = Column(UUID(as_uuid=True), nullable=True)
+    operating_decision = Column(String, nullable=False, default="hold")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

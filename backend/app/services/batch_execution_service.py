@@ -31,6 +31,8 @@ async def retry_batch_result(
     if int(result.retry_count or 0) >= settings.BATCH_MAX_RETRIES:
         result.status = "exhausted"
         result.error = "Maximum retry attempts reached"
+        result.operating_decision = "escalate"
+        result.recovery_status = "escalated"
         db.commit()
         return {
             "status": "exhausted",
@@ -56,12 +58,17 @@ async def retry_batch_result(
         result.status = "failed"
         result.error = error
         result.retry_count = attempt_number
+        result.failure_class = "crm_contact_missing"
+        result.operating_decision = "hold"
+        result.recovery_status = "unassigned"
         db.add(BatchRetry(
             result_id=result.id,
             attempt_number=attempt_number,
             error_message=error,
             status="retry_pending" if attempt_number < settings.BATCH_MAX_RETRIES else "exhausted",
             next_attempt_at=next_attempt_at if attempt_number < settings.BATCH_MAX_RETRIES else None,
+            failure_class="crm_contact_missing",
+            operating_decision="hold",
         ))
         if attempt_number >= settings.BATCH_MAX_RETRIES:
             result.status = "exhausted"
@@ -132,12 +139,17 @@ async def retry_batch_result(
         error = "GHL update failed"
         result.status = "failed"
         result.error = error
+        result.failure_class = "crm_write"
+        result.operating_decision = "hold"
+        result.recovery_status = "unassigned"
         db.add(BatchRetry(
             result_id=result.id,
             attempt_number=attempt_number,
             error_message=error,
             status="retry_pending" if attempt_number < settings.BATCH_MAX_RETRIES else "exhausted",
             next_attempt_at=next_attempt_at if attempt_number < settings.BATCH_MAX_RETRIES else None,
+            failure_class="crm_write",
+            operating_decision="hold",
         ))
         if attempt_number >= settings.BATCH_MAX_RETRIES:
             result.status = "exhausted"
@@ -155,6 +167,8 @@ async def retry_batch_result(
     result.score = score
     result.category = category
     result.score_origin = "n8n" if workflow_result.get("status") == "success" else "deterministic_fallback"
+    result.operating_decision = "complete"
+    result.recovery_status = "resolved"
     result.email = contact.get("email")
     result.phone = contact.get("phone")
     result.source = contact.get("source") or "unknown"
@@ -166,6 +180,7 @@ async def retry_batch_result(
         attempt_number=attempt_number,
         error_message="Retry completed successfully",
         status="succeeded",
+        operating_decision="rerun",
     ))
     if getattr(approval, "user_id", None):
         db.add(EnrollmentAudit(

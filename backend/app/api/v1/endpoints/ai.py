@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -77,6 +77,11 @@ class CohortApprovalRequest(BaseModel):
     cohort_name: str = Field(..., min_length=1, max_length=120)
     source_filter: str = Field(..., min_length=1, max_length=200)
     batch_size: int = Field(25, ge=1, le=100)
+
+
+class CohortDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected", "held", "escalated"]
+    reason: str = Field(..., min_length=3, max_length=500)
 
 
 class KnowledgeIngestRequest(BaseModel):
@@ -555,6 +560,9 @@ async def approve_cohort_batch(
         source_filter=request.source_filter,
         contact_ids=[contact["id"] for contact in contacts if contact.get("id")],
         batch_size=len(contacts),
+        decision="approved",
+        decided_by=current_user.id,
+        decided_at=datetime.now(timezone.utc),
     )
     db.add(approval)
     db.commit()
@@ -566,6 +574,40 @@ async def approve_cohort_batch(
         "cohort_name": approval.cohort_name,
         "source_filter": approval.source_filter,
         "contacts": contacts,
+    }
+
+
+@router.patch(
+    "/cohort-batch/{approval_id}/decision",
+    dependencies=[Depends(require_permission("ai:chat"))],
+)
+async def decide_cohort_batch(
+    approval_id: UUID,
+    request: CohortDecisionRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Record an approval decision without executing or changing GHL contacts."""
+    approval = db.query(CohortApproval).filter(
+        CohortApproval.id == approval_id,
+        CohortApproval.user_id == current_user.id,
+    ).first()
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if approval.status not in {"approved_for_scoring", "held", "rejected", "escalated"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This approval is already executing or complete")
+
+    approval.decision = request.decision
+    approval.decision_reason = request.reason
+    approval.decided_by = current_user.id
+    approval.decided_at = datetime.now(timezone.utc)
+    approval.status = "approved_for_scoring" if request.decision == "approved" else request.decision
+    db.commit()
+    return {
+        "approval_id": str(approval.id),
+        "status": approval.status,
+        "decision": approval.decision,
+        "reason": approval.decision_reason,
     }
 
 
@@ -590,6 +632,10 @@ def _record_batch_result(
     error: str | None = None,
     retry_count: int = 0,
     score_origin: str = "approved_batch",
+    failure_class: str | None = None,
+    operating_decision: str = "complete",
+    recovery_owner_id: Any = None,
+    recovery_status: str = "unassigned",
 ):
     result = BatchExecutionResult(
         approval_id=approval.id,
@@ -608,6 +654,10 @@ def _record_batch_result(
         retry_count=retry_count,
         score_origin=score_origin,
         last_action_at=datetime.now(timezone.utc),
+        failure_class=failure_class,
+        operating_decision=operating_decision,
+        recovery_owner_id=recovery_owner_id,
+        recovery_status=recovery_status,
         tags=contact.get("tags") or [],
     )
     db.add(result)
@@ -633,6 +683,15 @@ async def execute_approved_batch(
     ).first()
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
+    if getattr(approval, "decision", "approved") != "approved" or approval.status not in {
+        "approved_for_scoring",
+        "completed_with_failures",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This approval is not executable under the current operating policy",
+        )
+    approval.status = "executing"
 
     contacts, _ = await ghl_service.get_all_contacts()
     contact_map = {str(contact.get("id")): contact for contact in contacts if contact.get("id")}
@@ -653,6 +712,8 @@ async def execute_approved_batch(
                 missing_contact,
                 status="missing_in_ghl",
                 error="Contact not found in GHL",
+                failure_class="crm_contact_missing",
+                operating_decision="hold",
             )
             results.append({"contact_id": contact_id, "status": "missing_in_ghl", "error": "Contact not found in GHL"})
             failed_count += 1
@@ -813,6 +874,8 @@ async def execute_approved_batch(
                 category=category,
                 error="GHL update failed",
                 retry_count=1,
+                failure_class="crm_write",
+                operating_decision="hold",
             )
             db.add(BatchRetry(
                 result_id=result_row.id,
@@ -820,6 +883,8 @@ async def execute_approved_batch(
                 error_message="GHL update failed",
                 status="retry_pending",
                 next_attempt_at=datetime.now(timezone.utc),
+                failure_class="crm_write",
+                operating_decision="hold",
             ))
             db.add(EnrollmentAudit(
                 user_id=approval.user_id,

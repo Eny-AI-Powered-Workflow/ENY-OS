@@ -20,4 +20,8 @@ class CohortApproval(Base):
     contact_ids = Column(JSONB, nullable=False)
     batch_size = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default="approved_for_scoring")
+    decision = Column(String, nullable=False, default="approved")
+    decision_reason = Column(String, nullable=True)
+    decided_by = Column(UUID(as_uuid=True), nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
