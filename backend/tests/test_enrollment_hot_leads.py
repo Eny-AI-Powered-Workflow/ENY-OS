@@ -174,6 +174,10 @@ async def test_get_enrollment_operations_reports_live_operational_health():
     assert result["summary"]["data_quality_alerts"] >= 1
     assert result["health"]["queue_health"] in {"healthy", "warning", "degraded"}
     assert result["health"]["crm_status"] in {"connected", "not_configured", "degraded"}
+    assert result["sla"]["rules"]["assigned_contact_minutes"] == 60
+    assert result["sla"]["alerts"][0]["code"] == "ownerless_hot_leads"
+    assert result["reporting"]["response_compliance_percent"] == 0
+    assert result["rollout"]["status"] == "needs_attention"
 
 
 class MagicMockQuery:

@@ -30,6 +30,13 @@ QUEUE_TRANSITIONS = {
     "qualified": {"closed"},
     "closed": set(),
 }
+SLA_RULES = {
+    "new_owner_minutes": 15,
+    "assigned_contact_minutes": 60,
+    "contacted_follow_up_hours": 24,
+    "workflow_retry_minutes": 30,
+    "data_quality_hours": 24,
+}
 
 
 class QueueStateRequest(BaseModel):
@@ -331,6 +338,39 @@ async def get_enrollment_operations(
     ]
     summary["average_response_minutes"] = round(sum(response_times) / len(response_times)) if response_times else 0
 
+    def alert(severity: str, code: str, message: str, count: int, action: str) -> dict[str, Any] | None:
+        if count == 0:
+            return None
+        return {
+            "severity": severity,
+            "code": code,
+            "message": message,
+            "count": count,
+            "action": action,
+        }
+
+    ownerless_count = summary["ownerless_leads"]
+    stale_count = summary["stale_leads"]
+    quality_count = summary["data_quality_alerts"]
+    failure_count = summary["workflow_failures"]
+    alerts = [
+        alert("critical", "ownerless_hot_leads", "Hot leads have no owner.", ownerless_count, "Claim or assign each lead."),
+        alert("warning", "stale_queue_work", "Queue work has exceeded its response window.", stale_count, "Review stale leads and record the next action."),
+        alert("warning", "data_quality", "Leads are missing a usable contact channel.", quality_count, "Correct the contact record in GHL."),
+        alert("critical", "workflow_failures", "Scoring or follow-up workflows need attention.", failure_count, "Review the error and retry when safe."),
+    ]
+
+    tracked_response_rows = [
+        row for row in results
+        if getattr(row, "follow_up_at", None) and getattr(row, "created_at", None)
+    ]
+    compliant_response_rows = [
+        row for row in tracked_response_rows
+        if 0 <= (row.follow_up_at - row.created_at).total_seconds() / 60
+        <= SLA_RULES["assigned_contact_minutes"]
+    ]
+    response_compliance = round((len(compliant_response_rows) / len(tracked_response_rows)) * 100) if tracked_response_rows else 0
+
     queue_health = "healthy"
     if crm_status != "connected":
         queue_health = "degraded"
@@ -338,6 +378,24 @@ async def get_enrollment_operations(
         queue_health = "warning"
     if summary["workflow_failures"] > 0 and summary["stale_leads"] > 0:
         queue_health = "degraded"
+
+    reporting = {
+        "window": "current queue",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "response_compliance_percent": response_compliance,
+        "average_response_minutes": summary["average_response_minutes"],
+        "closed_leads": summary["closed"],
+        "workflow_success_percent": round(
+            ((summary["total"] - failure_count) / summary["total"]) * 100
+        ) if summary["total"] else 100,
+    }
+    rollout = {
+        "status": "ready" if queue_health == "healthy" else "needs_attention",
+        "team": "Sales & Enrollment",
+        "sop_route": "/dashboard/writer",
+        "training_focus": "Claim leads, meet response SLAs, record next action, and resolve alerts.",
+        "open_alerts": len([item for item in alerts if item]),
+    }
 
     def next_action(row: BatchExecutionResult) -> str:
         if row.error or getattr(row, "follow_up_status", "") == "failed":
@@ -363,6 +421,12 @@ async def get_enrollment_operations(
             "stale_leads": summary["stale_leads"],
             "data_quality_alerts": summary["data_quality_alerts"],
         },
+        "sla": {
+            "rules": SLA_RULES,
+            "alerts": [item for item in alerts if item],
+        },
+        "reporting": reporting,
+        "rollout": rollout,
         "results": [
             {
                 "id": str(row.id),

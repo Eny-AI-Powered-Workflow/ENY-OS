@@ -27,6 +27,31 @@ type Operation = {
 
 type Payload = {
   summary: Record<string, number>
+  health?: {
+    queue_health?: string
+    crm_status?: string
+  }
+  sla?: {
+    rules?: Record<string, number>
+    alerts?: Array<{
+      severity: string
+      code: string
+      message: string
+      count: number
+      action: string
+    }>
+  }
+  reporting?: {
+    response_compliance_percent?: number
+    workflow_success_percent?: number
+    closed_leads?: number
+    average_response_minutes?: number
+  }
+  rollout?: {
+    status?: string
+    training_focus?: string
+    open_alerts?: number
+  }
   results: Operation[]
 }
 
@@ -76,6 +101,8 @@ export default function SalesOperationsPanel() {
 
   const sources = Array.from(new Set(data.results.map((row) => row.source).filter(Boolean))) as string[]
   const summary = data.summary
+  const alerts = data.sla?.alerts || []
+  const reporting = data.reporting || {}
   const cards = [
     ['New hot leads', summary.new_hot || 0, 'text-amber-700'],
     ['My assigned leads', summary.my_assigned || 0, 'text-cyan-700'],
@@ -100,6 +127,33 @@ export default function SalesOperationsPanel() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {cards.map(([label, value, color]) => <div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-xl font-bold ${color}`}>{value}</p></div>)}
+      </div>
+
+      <div className="grid gap-3 border-y border-slate-100 py-4 md:grid-cols-4">
+        {[
+          ['SLA compliance', `${reporting.response_compliance_percent ?? 0}%`, 'text-cyan-700'],
+          ['Workflow success', `${reporting.workflow_success_percent ?? 0}%`, 'text-emerald-700'],
+          ['Closed leads', reporting.closed_leads ?? 0, 'text-slate-700'],
+          ['Rollout status', data.rollout?.status === 'ready' ? 'Ready' : 'Needs attention', data.rollout?.status === 'ready' ? 'text-emerald-700' : 'text-amber-700'],
+        ].map(([label, value, color]) => <div key={label} className="rounded-xl border border-slate-100 bg-white p-3"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-lg font-bold ${color}`}>{value}</p></div>)}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">SLA alerting</p><h3 className="mt-1 text-sm font-semibold text-slate-900">Action queue</h3></div>
+            <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${data.health?.queue_health === 'healthy' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{data.health?.queue_health || 'unknown'}</span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {alerts.length ? alerts.map((item) => <div key={item.code} className="flex items-start gap-3 rounded-lg border border-white bg-white p-3"><AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${item.severity === 'critical' ? 'text-rose-600' : 'text-amber-600'}`} /><div className="min-w-0"><p className="text-xs font-semibold text-slate-800">{item.message} <span className="text-slate-400">({item.count})</span></p><p className="mt-1 text-xs text-slate-500">{item.action}</p></div></div>) : <p className="text-xs text-slate-500">No active SLA alerts in the current queue.</p>}
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Team adoption</p>
+          <h3 className="mt-1 text-sm font-semibold text-slate-900">Rollout focus</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-600">{data.rollout?.training_focus || 'Use the queue controls to manage the next action.'}</p>
+          <p className="mt-3 text-xs text-slate-400">CRM: {data.health?.crm_status || 'unknown'} · Open alerts: {data.rollout?.open_alerts ?? alerts.length}</p>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-y border-slate-100 py-3">
