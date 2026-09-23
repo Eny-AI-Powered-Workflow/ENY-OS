@@ -1,8 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from app.api.v1.endpoints.enrollment import get_enrollment_hot_leads, get_batch_execution_results
+from app.api.v1.endpoints.enrollment import get_enrollment_hot_leads, get_batch_execution_results, get_enrollment_operations
+from app.models.batch_execution_result import BatchExecutionResult
+from app.models.enrollment_audit import EnrollmentAudit
 
 
 @pytest.mark.asyncio
@@ -108,6 +111,69 @@ async def test_get_batch_execution_results_returns_recent_ledger():
     assert result["total"] == 1
     assert result["results"][0]["contact_id"] == "contact-1"
     assert result["results"][0]["status"] == "scored"
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_operations_reports_live_operational_health():
+    stale_time = datetime.now(timezone.utc) - timedelta(days=3)
+    rows = [
+        SimpleNamespace(
+            id="row-1",
+            contact_id="contact-1",
+            contact_name="Alice Example",
+            email=None,
+            phone=None,
+            source="bootcamp",
+            score=92,
+            category="hot",
+            approval_id="approval-1",
+            status="scored",
+            queue_status="assigned",
+            assigned_user_id=None,
+            follow_up_status="not_started",
+            error=None,
+            retry_count=0,
+            created_at=stale_time,
+            updated_at=stale_time,
+            follow_up_at=None,
+        ),
+        SimpleNamespace(
+            id="row-2",
+            contact_id="contact-2",
+            contact_name="Bob Example",
+            email="bob@example.com",
+            phone="555-0002",
+            source="free_training",
+            score=84,
+            category="hot",
+            approval_id="approval-2",
+            status="scored",
+            queue_status="contacted",
+            assigned_user_id="user-1",
+            follow_up_status="tagged",
+            error=None,
+            retry_count=0,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            updated_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            follow_up_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        ),
+    ]
+
+    def query(model):
+        if model is BatchExecutionResult:
+            return MagicMockQuery(rows)
+        if model is EnrollmentAudit:
+            return MagicMockQuery([])
+        return MagicMockQuery([])
+
+    db = SimpleNamespace(query=query)
+    result = await get_enrollment_operations(limit=10, db=db, current_user=SimpleNamespace(id="user-1"))
+
+    assert result["summary"]["ownerless_leads"] >= 1
+    assert result["summary"]["stale_leads"] >= 1
+    assert result["summary"]["data_quality_alerts"] >= 1
+    assert result["health"]["queue_health"] in {"healthy", "warning", "degraded"}
+    assert result["health"]["crm_status"] in {"connected", "not_configured", "degraded"}
 
 
 class MagicMockQuery:

@@ -63,6 +63,20 @@ def _serialize_datetime(value: Any) -> Optional[str]:
         return value.isoformat()
     return str(value)
 
+
+def _hours_since(value: Any) -> float:
+    if value is None:
+        return float("inf")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return float("inf")
+        value = parsed
+    if not hasattr(value, "tzinfo") or value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - value.astimezone(timezone.utc)).total_seconds() / 3600.0
+
 @router.get("/metrics", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_metrics(
     db: Session = Depends(get_db),
@@ -269,6 +283,14 @@ async def get_enrollment_operations(
     audits = db.query(EnrollmentAudit).order_by(
         EnrollmentAudit.created_at.desc()
     ).limit(limit).all()
+
+    try:
+        contacts, inventory = await ghl_service.get_all_contacts()
+        crm_status = inventory.get("status", "connected") if isinstance(inventory, dict) else "connected"
+    except Exception:
+        contacts = []
+        crm_status = "degraded"
+
     summary = {
         "total": len(results),
         "new": len([row for row in results if getattr(row, "queue_status", "new") == "new"]),
@@ -280,6 +302,20 @@ async def get_enrollment_operations(
         "new_hot": len([row for row in results if getattr(row, "queue_status", "new") == "new" and row.category == "hot"]),
         "my_assigned": len([row for row in results if str(getattr(row, "assigned_user_id", "")) == str(current_user.id)]),
         "uncontacted_assigned": len([row for row in results if getattr(row, "queue_status", "new") == "assigned"]),
+        "ownerless_leads": len([
+            row for row in results
+            if row.category == "hot" and getattr(row, "assigned_user_id", None) is None
+        ]),
+        "stale_leads": len([
+            row for row in results
+            if getattr(row, "queue_status", "new") in {"new", "assigned", "contacted"}
+            and _hours_since(getattr(row, "last_action_at", None) or getattr(row, "updated_at", None) or getattr(row, "created_at", None)) > 24
+        ]),
+        "data_quality_alerts": len([
+            row for row in results
+            if (not getattr(row, "email", None) and not getattr(row, "phone", None))
+            or (not getattr(row, "contact_name", None) and not getattr(row, "email", None))
+        ]),
         "contacted_today": len([
             row for row in results
             if getattr(row, "queue_status", "") == "contacted"
@@ -294,6 +330,15 @@ async def get_enrollment_operations(
         if getattr(row, "follow_up_at", None) and getattr(row, "created_at", None)
     ]
     summary["average_response_minutes"] = round(sum(response_times) / len(response_times)) if response_times else 0
+
+    queue_health = "healthy"
+    if crm_status != "connected":
+        queue_health = "degraded"
+    elif summary["ownerless_leads"] > 0 or summary["stale_leads"] > 0 or summary["data_quality_alerts"] > 0:
+        queue_health = "warning"
+    if summary["workflow_failures"] > 0 and summary["stale_leads"] > 0:
+        queue_health = "degraded"
+
     def next_action(row: BatchExecutionResult) -> str:
         if row.error or getattr(row, "follow_up_status", "") == "failed":
             return "Review error and retry"
@@ -310,6 +355,14 @@ async def get_enrollment_operations(
 
     return {
         "summary": summary,
+        "health": {
+            "queue_health": queue_health,
+            "crm_status": crm_status,
+            "contacts_checked": len(contacts),
+            "ownerless_leads": summary["ownerless_leads"],
+            "stale_leads": summary["stale_leads"],
+            "data_quality_alerts": summary["data_quality_alerts"],
+        },
         "results": [
             {
                 "id": str(row.id),
