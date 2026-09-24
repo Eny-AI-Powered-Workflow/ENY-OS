@@ -17,6 +17,9 @@ type Briefing = {
   playbooks: Array<{ name: string; status: string; requires_approval: boolean }>
   coordination?: { calendar?: { status?: string; items?: unknown[] }; tasks?: { status?: string; items?: unknown[] }; conflicts?: unknown[] }
   research?: Array<{ id: string; title: string; source_url: string; confidence: string; status: string; summary: string }>
+  actions?: Array<{ id: string; title: string; action_type: string; status: string; priority: string; due_at: string | null }>
+  action_history?: Array<{ id: string; event_type: string; details: Record<string, unknown>; created_at: string | null }>
+  reporting?: { tasks_completed_on_time?: { percent?: number }; research_quality?: { approved?: number; total?: number }; escalations?: { open?: number }; workflow_failures?: number; sop_adherence?: { percent?: number } }
 }
 
 export default function ExecutiveAssistantBriefing() {
@@ -34,13 +37,22 @@ export default function ExecutiveAssistantBriefing() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load executive briefing')
-      const [coordinationResponse, researchResponse] = await Promise.all([
+      const [coordinationResponse, researchResponse, actionsResponse, reportingResponse] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/coordination`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/research`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/actions`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/reporting`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
       ])
       const coordination = coordinationResponse.ok ? await coordinationResponse.json() : null
       const research = researchResponse.ok ? (await researchResponse.json()).briefs || [] : []
-      setData({ ...payload, coordination, research })
+      const actions = actionsResponse.ok ? (await actionsResponse.json()).actions || [] : []
+      const reporting = reportingResponse.ok ? await reportingResponse.json() : null
+      let action_history = []
+      if (actions[0]) {
+        const historyResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/actions/${actions[0].id}/history`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' })
+        action_history = historyResponse.ok ? (await historyResponse.json()).events || [] : []
+      }
+      setData({ ...payload, coordination, research, actions, action_history, reporting })
       setError(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load executive briefing')
@@ -58,6 +70,17 @@ export default function ExecutiveAssistantBriefing() {
   if (loading && !data) return <div className="rounded-[24px] border border-slate-800 bg-slate-950 p-8 text-sm text-slate-400">Preparing the executive briefing...</div>
   if (error && !data) return <div className="rounded-[24px] border border-rose-500/30 bg-rose-950/30 p-6 text-sm text-rose-200">{error}</div>
   if (!data) return null
+
+  const updateAction = async (actionId: string, status: 'in_progress' | 'completed') => {
+    const { data: { session } } = await supabase.auth.getSession()
+    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/actions/${actionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+      credentials: 'include',
+      body: JSON.stringify({ status, note: `Updated from Executive Assistant workspace to ${status}.` }),
+    })
+    await load()
+  }
 
   return (
     <div className="space-y-5">
@@ -83,6 +106,11 @@ export default function ExecutiveAssistantBriefing() {
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-amber-600" /><h2 className="font-semibold text-slate-900">Research briefs awaiting review</h2></div><div className="mt-4 space-y-2">{data.research?.length ? data.research.map((brief) => <div key={brief.id} className="rounded-xl bg-slate-50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-800">{brief.title}</p><span className="text-xs font-medium text-amber-700">{brief.status} · {brief.confidence}</span></div><p className="mt-1 text-xs text-slate-500">{brief.summary}</p><a className="mt-2 block truncate text-xs text-cyan-700 hover:underline" href={brief.source_url} target="_blank" rel="noreferrer">{brief.source_url}</a></div>) : <p className="text-sm text-slate-500">No research briefs have been submitted.</p>}</div></section>
+
+      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Action ledger</p><h2 className="mt-1 font-semibold text-slate-900">EA actions</h2></div><span className="text-xs text-slate-500">Status is audited</span></div><div className="mt-4 space-y-2">{data.actions?.length ? data.actions.slice(0, 8).map((action) => <div key={action.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="font-semibold text-slate-800">{action.title}</p><p className="mt-1 text-slate-500">{action.action_type} · {action.priority} · {action.status}{action.due_at ? ` · due ${new Date(action.due_at).toLocaleString()}` : ''}</p></div><div className="flex gap-2">{action.status === 'open' && <button type="button" onClick={() => void updateAction(action.id, 'in_progress')} className="rounded-lg border border-cyan-200 px-2 py-1 font-semibold text-cyan-700">Start</button>}{action.status !== 'completed' && <button type="button" onClick={() => void updateAction(action.id, 'completed')} className="rounded-lg border border-emerald-200 px-2 py-1 font-semibold text-emerald-700">Complete</button>}</div></div>) : <p className="text-sm text-slate-500">No EA actions have been created.</p>}</div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5"><p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Reporting and audit</p><div className="mt-3 grid grid-cols-2 gap-3 text-xs"><div><span className="text-slate-500">On-time tasks</span><strong className="float-right text-slate-900">{data.reporting?.tasks_completed_on_time?.percent ?? 0}%</strong></div><div><span className="text-slate-500">Research approved</span><strong className="float-right text-slate-900">{data.reporting?.research_quality?.approved ?? 0}/{data.reporting?.research_quality?.total ?? 0}</strong></div><div><span className="text-slate-500">Escalations</span><strong className="float-right text-rose-700">{data.reporting?.escalations?.open ?? 0}</strong></div><div><span className="text-slate-500">SOP adherence</span><strong className="float-right text-emerald-700">{data.reporting?.sop_adherence?.percent ?? 0}%</strong></div></div><div className="mt-4 border-t border-slate-100 pt-3"><p className="text-xs font-semibold text-slate-700">Recent action history</p>{data.action_history?.slice(0, 3).map((event) => <p key={event.id} className="mt-2 text-[11px] text-slate-500">{event.event_type} · {event.created_at ? new Date(event.created_at).toLocaleString() : 'unknown time'}</p>)}</div></section>
+      </div>
     </div>
   )
 }

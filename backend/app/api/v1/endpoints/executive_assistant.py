@@ -15,6 +15,7 @@ from app.models.agent_log import AgentLog
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.operational_alert import OperationalAlert
 from app.models.ea_research_brief import EAResearchBrief
+from app.models.ea_action import EAActionEvent, EAActionItem
 from app.services.ghl_service import ghl_service
 from app.services.ea_coordination_service import ea_coordination_service
 from app.services.n8n_service import N8NService
@@ -45,6 +46,19 @@ class ResearchBriefRequest(BaseModel):
 
 class ResearchReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]
+    note: str = Field(..., min_length=3, max_length=1000)
+
+
+class EAActionRequest(BaseModel):
+    title: str = Field(..., min_length=3, max_length=300)
+    action_type: Literal["briefing", "task", "meeting_preparation", "follow_up", "weekly_review"] = "task"
+    priority: Literal["low", "normal", "high", "critical"] = "normal"
+    due_at: datetime | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class EAActionStatusRequest(BaseModel):
+    status: Literal["open", "in_progress", "blocked", "completed", "cancelled"]
     note: str = Field(..., min_length=3, max_length=1000)
 
 
@@ -264,3 +278,132 @@ async def trigger_ea_automation(
     if normalized not in EA_WORKFLOWS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EA workflow is not registered")
     return await N8NService().trigger_workflow(normalized, {**data, "requested_by": str(current_user.id), "requires_approval": True})
+
+
+@router.get("/actions", dependencies=[Depends(require_permission("assistant:briefing:read"))])
+async def list_ea_actions(
+    status_filter: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    query = db.query(EAActionItem)
+    if status_filter:
+        query = query.filter(EAActionItem.status == status_filter)
+    actions = query.order_by(EAActionItem.due_at.asc().nullslast(), EAActionItem.created_at.desc()).limit(200).all()
+    return {"actions": [
+        {
+            "id": str(action.id),
+            "title": action.title,
+            "action_type": action.action_type,
+            "status": action.status,
+            "priority": action.priority,
+            "due_at": _timestamp(action.due_at),
+            "completed_at": _timestamp(action.completed_at),
+            "source": action.source,
+            "details": action.details,
+        }
+        for action in actions
+    ]}
+
+
+@router.post("/actions", dependencies=[Depends(require_permission("assistant:briefing:write"))])
+async def create_ea_action(
+    request: EAActionRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    action = EAActionItem(
+        title=request.title,
+        action_type=request.action_type,
+        priority=request.priority,
+        due_at=request.due_at,
+        details=request.details,
+        created_by=current_user.id,
+        owner_id=current_user.id,
+    )
+    db.add(action)
+    db.flush()
+    db.add(EAActionEvent(
+        action_id=action.id,
+        actor_id=current_user.id,
+        event_type="created",
+        details={"title": action.title, "action_type": action.action_type},
+    ))
+    db.commit()
+    return {"id": str(action.id), "status": action.status}
+
+
+@router.patch("/actions/{action_id}", dependencies=[Depends(require_permission("assistant:briefing:write"))])
+async def update_ea_action(
+    action_id: str,
+    request: EAActionStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    action = db.query(EAActionItem).filter(EAActionItem.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EA action not found")
+    previous_status = action.status
+    action.status = request.status
+    action.completed_at = datetime.now(timezone.utc) if request.status == "completed" else None
+    db.add(EAActionEvent(
+        action_id=action.id,
+        actor_id=current_user.id,
+        event_type="status_changed",
+        details={"from": previous_status, "to": request.status, "note": request.note},
+    ))
+    db.commit()
+    return {"id": str(action.id), "status": action.status, "completed_at": _timestamp(action.completed_at)}
+
+
+@router.get("/actions/{action_id}/history", dependencies=[Depends(require_permission("assistant:briefing:read"))])
+async def get_ea_action_history(
+    action_id: str,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    events = db.query(EAActionEvent).filter(EAActionEvent.action_id == action_id).order_by(EAActionEvent.created_at.desc()).all()
+    return {"events": [
+        {"id": str(event.id), "event_type": event.event_type, "details": event.details, "created_at": _timestamp(event.created_at)}
+        for event in events
+    ]}
+
+
+@router.get("/reporting", dependencies=[Depends(require_permission("assistant:briefing:read"))])
+async def get_ea_reporting(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    actions = db.query(EAActionItem).all()
+    action_events = db.query(EAActionEvent).all()
+    research = db.query(EAResearchBrief).all()
+    workflow_logs = db.query(AgentLog).filter(AgentLog.workflow_name.like("eny-ea-%")).all()
+    now = datetime.now(timezone.utc)
+    completed = [action for action in actions if action.status == "completed"]
+    timed_tasks = [action for action in actions if action.action_type == "task" and action.due_at]
+    on_time = [action for action in timed_tasks if action.completed_at and action.completed_at <= action.due_at]
+    briefing_actions = [action for action in actions if action.action_type == "briefing"]
+    meeting_actions = [action for action in actions if action.action_type == "meeting_preparation"]
+    required_sops = {"Daily executive briefing", "Meeting preparation", "Opportunity research", "Executive follow-up"}
+    try:
+        sop_rows = db.execute(text("select distinct title from knowledge_documents where department = :department and is_active = true"), {"department": "executive_assistant"}).fetchall()
+        published_sops = {row.title for row in sop_rows}
+    except Exception:
+        published_sops = set()
+    return {
+        "generated_at": now.isoformat(),
+        "briefing_completion": {"completed": len([action for action in briefing_actions if action.status == "completed"]), "total": len(briefing_actions)},
+        "tasks_completed_on_time": {"on_time": len(on_time), "with_due_date": len(timed_tasks), "percent": round(len(on_time) / len(timed_tasks) * 100) if timed_tasks else 0},
+        "meeting_preparation": {"completed": len([action for action in meeting_actions if action.status == "completed"]), "total": len(meeting_actions)},
+        "research_quality": {
+            "total": len(research),
+            "approved": len([brief for brief in research if brief.status == "approved"]),
+            "high_confidence": len([brief for brief in research if brief.confidence == "high"]),
+            "source_backed": len([brief for brief in research if brief.source_url]),
+        },
+        "escalations": {"open": db.query(OperationalAlert).filter(OperationalAlert.status == "open").count(), "acknowledged": db.query(OperationalAlert).filter(OperationalAlert.status == "acknowledged").count()},
+        "workflow_failures": len([log for log in workflow_logs if log.status == "error"]),
+        "weekly_review": {"completed": len([action for action in actions if action.action_type == "weekly_review" and action.status == "completed"]), "total": len([action for action in actions if action.action_type == "weekly_review"])},
+        "sop_adherence": {"required": sorted(required_sops), "published": sorted(required_sops.intersection(published_sops)), "missing": sorted(required_sops - published_sops), "percent": round(len(required_sops.intersection(published_sops)) / len(required_sops) * 100)},
+        "audit_events": len(action_events),
+    }
