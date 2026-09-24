@@ -64,7 +64,7 @@ async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):
     payload = service.update_contact.await_args.args[1]
     assert "eny-score-hot" in payload["tags"]
     assert "eny-status-contacted" in payload["tags"]
-    assert "eny-owner-owner-1" in payload["tags"]
+    assert payload["assignedTo"] == "owner-1"
     assert {field["value"] for field in payload["customFields"]} >= {92, "hot", "contacted"}
     service.add_contact_note.assert_awaited_once_with("contact-1", "Follow-up completed")
 

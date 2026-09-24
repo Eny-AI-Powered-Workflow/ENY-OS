@@ -62,6 +62,7 @@ type Payload = {
   results: Operation[]
   quality?: { quality_status?: string; duplicate_groups?: unknown[]; contacts_checked?: number }
   adoption?: { policy?: { ownership?: string[]; follow_up?: string[]; escalation?: string[]; weekly_review?: string[] }; weekly_review?: { results_created?: number; audit_events?: number; open_escalations?: number; stale_active_work?: number } }
+  performance?: { conversion_funnel?: Record<string, number>; hot_lead_aging?: Record<string, number>; blocked_queue?: Record<string, number>; exceptions?: Record<string, number> }
 }
 
 const statuses = ['all', 'new', 'assigned', 'contacted', 'qualified', 'closed']
@@ -93,13 +94,15 @@ export default function SalesOperationsPanel() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load Sales operations')
-      const [qualityResponse, adoptionResponse] = await Promise.all([
+      const [qualityResponse, adoptionResponse, performanceResponse] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/quality`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/adoption-policy`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/reporting`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
       ])
       const quality = qualityResponse.ok ? await qualityResponse.json() : null
       const adoption = adoptionResponse.ok ? await adoptionResponse.json() : null
-      setData({ ...payload, quality: quality?.quality, adoption })
+      const performance = performanceResponse.ok ? await performanceResponse.json() : null
+      setData({ ...payload, quality: quality?.quality, adoption, performance })
       setError(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load Sales operations')
@@ -216,6 +219,16 @@ export default function SalesOperationsPanel() {
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Weekly review</p>
           <p className="mt-2 text-xs leading-5 text-slate-600">{data.adoption?.policy?.weekly_review?.[0] || 'Review the queue and open alerts every week.'}</p>
           <p className="mt-2 text-xs text-slate-500">{data.adoption?.weekly_review?.audit_events ?? 0} audit events · {data.adoption?.weekly_review?.open_escalations ?? 0} escalations · {data.adoption?.weekly_review?.stale_active_work ?? 0} stale active</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Performance review</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+          <div><span className="text-slate-500">Funnel closed</span><strong className="float-right text-slate-900">{data.performance?.conversion_funnel?.closed ?? 0}</strong></div>
+          <div><span className="text-slate-500">Hot &gt; 3 days</span><strong className="float-right text-rose-700">{data.performance?.hot_lead_aging?.over_3_days ?? 0}</strong></div>
+          <div><span className="text-slate-500">Blocked</span><strong className="float-right text-amber-700">{(data.performance?.blocked_queue?.held ?? 0) + (data.performance?.blocked_queue?.escalated ?? 0)}</strong></div>
+          <div><span className="text-slate-500">Exceptions</span><strong className="float-right text-slate-900">{(data.performance?.exceptions?.reassignments ?? 0) + (data.performance?.exceptions?.failed_events ?? 0)}</strong></div>
         </div>
       </div>
 

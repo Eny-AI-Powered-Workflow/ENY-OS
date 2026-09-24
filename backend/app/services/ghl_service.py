@@ -222,7 +222,6 @@ class GHLService:
         if not self.private_token or not self.location_id:
             logger.warning("GHL credentials not configured - cannot update contact")
             return False
-
         try:
             async with httpx.AsyncClient() as client:
                 params = {}
@@ -240,6 +239,46 @@ class GHLService:
         except Exception as e:
             logger.error(f"Error updating contact {contact_id} in GHL: {e}")
             return False
+
+    async def get_contact_opportunity_context(self, contact_id: str) -> Dict[str, Any]:
+        """Resolve the contact's opportunity stage from its own pipeline metadata."""
+        if not self.private_token or not self.location_id:
+            return {"status": "not_configured", "opportunities": [], "pipelines": {}}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/opportunities/search",
+                    params={"location_id": self.location_id, "contact_id": contact_id, "status": "all", "limit": 100},
+                    headers={**self.headers, "Version": "v3"},
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                opportunities = response.json().get("opportunities", [])
+                pipelines_response = await client.get(
+                    f"{self.base_url}/opportunities/pipelines",
+                    params={"locationId": self.location_id},
+                    headers={**self.headers, "Version": "v3"},
+                    timeout=30.0,
+                )
+                pipelines_response.raise_for_status()
+                pipelines = pipelines_response.json().get("pipelines", [])
+            pipeline_map = {str(item.get("id")): item for item in pipelines}
+            resolved = []
+            for opportunity in opportunities:
+                pipeline = pipeline_map.get(str(opportunity.get("pipelineId")), {})
+                stages = {str(stage.get("id")): stage.get("name") for stage in pipeline.get("stages", [])}
+                resolved.append({
+                    "id": opportunity.get("id"),
+                    "pipeline_id": opportunity.get("pipelineId"),
+                    "pipeline_name": pipeline.get("name"),
+                    "stage_id": opportunity.get("pipelineStageId"),
+                    "stage_name": stages.get(str(opportunity.get("pipelineStageId"))) or opportunity.get("pipelineStageName"),
+                    "status": opportunity.get("status"),
+                })
+            return {"status": "connected", "opportunities": resolved, "pipelines": pipeline_map}
+        except Exception as exc:
+            logger.error(f"Error resolving GHL opportunity context for {contact_id}: {exc}")
+            return {"status": "error", "opportunities": [], "pipelines": {}, "error": "Opportunity context unavailable"}
 
     async def add_contact_note(self, contact_id: str, body: str) -> bool:
         """Record an operational outcome as a note on the GHL contact."""
@@ -269,12 +308,11 @@ class GHLService:
         score: int | None = None,
         category: str | None = None,
         owner_id: str | None = None,
-        lifecycle_stage: str | None = None,
         note: str | None = None,
     ) -> Dict[str, Any]:
         """Write one auditable Enrollment outcome to GHL.
 
-        Score/category tags, queue status, and the app owner reference are written
+        Score/category tags, queue status, and native assignedTo ownership are written
         together. The optional note is recorded separately because GHL exposes
         notes through its contact notes endpoint rather than contact update.
         """
@@ -283,10 +321,6 @@ class GHLService:
             tags.extend(["eny-enrollment", f"eny-score-{category}"])
         if queue_status:
             tags.append(f"eny-status-{queue_status}")
-        if owner_id:
-            tags.append(f"eny-owner-{owner_id}")
-        if lifecycle_stage:
-            tags.append(f"eny-lifecycle-{lifecycle_stage}")
 
         custom_fields: list[dict[str, Any]] = []
         if score is not None and settings.GHL_SALES_SCORE_FIELD_ID:
@@ -295,10 +329,6 @@ class GHLService:
             custom_fields.append({"id": settings.GHL_SCORE_CATEGORY_FIELD_ID, "value": category})
         if queue_status and settings.GHL_ENROLLMENT_STATUS_FIELD_ID:
             custom_fields.append({"id": settings.GHL_ENROLLMENT_STATUS_FIELD_ID, "value": queue_status})
-        if owner_id and settings.GHL_ENROLLMENT_OWNER_FIELD_ID:
-            custom_fields.append({"id": settings.GHL_ENROLLMENT_OWNER_FIELD_ID, "value": owner_id})
-        if lifecycle_stage and settings.GHL_ENROLLMENT_LIFECYCLE_FIELD_ID:
-            custom_fields.append({"id": settings.GHL_ENROLLMENT_LIFECYCLE_FIELD_ID, "value": lifecycle_stage})
 
         payload: Dict[str, Any] = {}
         if custom_fields:
@@ -308,14 +338,19 @@ class GHLService:
             if not contact:
                 return {"success": False, "contact_updated": False, "note_recorded": False, "error": "Contact not found in GHL"}
             payload["tags"] = list(dict.fromkeys((contact.get("tags") or []) + tags))
+        if owner_id:
+            payload["assignedTo"] = owner_id
         contact_updated = await self.update_contact(contact_id, payload) if payload else True
         note_recorded = await self.add_contact_note(contact_id, note) if note else True
+        opportunity_context = await self.get_contact_opportunity_context(contact_id)
         return {
             "success": contact_updated and note_recorded,
             "contact_updated": contact_updated,
             "note_recorded": note_recorded,
             "tags": tags,
             "fields_written": [field["id"] for field in custom_fields],
+            "assigned_to": owner_id,
+            "opportunity_context": opportunity_context,
             "error": None if contact_updated and note_recorded else "GHL write-back incomplete",
         }
 
@@ -597,8 +632,13 @@ class GHLService:
         contacts, _ = await self.get_all_contacts()
         normalized_search = search.strip().lower()
         leads: List[Dict[str, Any]] = []
+        seen_identity_keys: set[str] = set()
 
-        for contact in contacts:
+        for raw_contact in contacts:
+            contact = self.normalize_contact(raw_contact)
+            if contact["identity_key"] in seen_identity_keys:
+                continue
+            seen_identity_keys.add(contact["identity_key"])
             first_name = contact.get("firstName") or ""
             last_name = contact.get("lastName") or ""
             name = contact.get("name") or " ".join(part for part in [first_name, last_name] if part)

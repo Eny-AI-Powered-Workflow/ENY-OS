@@ -779,7 +779,6 @@ async def update_follow_up_lifecycle(
         str(result.contact_id),
         queue_status=result.queue_status,
         owner_id=str(current_user.id),
-        lifecycle_stage=request.stage,
         note=f"ENY Enrollment lifecycle changed to {request.stage}: {request.reason}",
     )
     if not writeback.get("success"):
@@ -947,7 +946,6 @@ async def follow_up_hot_lead(
         str(result.contact_id),
         queue_status="contacted",
         owner_id=str(current_user.id),
-        lifecycle_stage="queued",
         note="ENY Enrollment follow-up completed and contact status synchronized.",
     )
     if not writeback.get("success"):
@@ -1054,5 +1052,82 @@ async def get_enrollment_adoption_policy(
             "closed_or_enrolled": len([row for row in rows if getattr(row, "queue_status", "") == "closed" or getattr(row, "lifecycle_stage", "") == "enrolled"]),
             "open_escalations": len([row for row in rows if getattr(row, "status", "") == "escalated"]),
             "stale_active_work": len([row for row in rows if getattr(row, "queue_status", "new") in {"new", "assigned", "contacted"} and _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) > 24]),
+        },
+    }
+
+
+@router.get("/reporting", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_reporting(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Return performance reporting for the Sales & Enrollment operating review."""
+    rows = db.query(BatchExecutionResult).all()
+    audits = db.query(EnrollmentAudit).all()
+    source_rows: dict[str, list[Any]] = {}
+    for row in rows:
+        source_rows.setdefault(getattr(row, "source", None) or "unknown", []).append(row)
+
+    def count_state(items: list[Any], states: set[str]) -> int:
+        return len([row for row in items if getattr(row, "queue_status", "new") in states])
+
+    hot_rows = [row for row in rows if getattr(row, "category", "") == "hot"]
+    hot_aging = {
+        "under_1_day": len([row for row in hot_rows if _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) < 24]),
+        "one_to_three_days": len([row for row in hot_rows if 24 <= _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) < 72]),
+        "over_3_days": len([row for row in hot_rows if _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) >= 72]),
+    }
+    lifecycle_counts: dict[str, int] = {}
+    for row in rows:
+        stage = getattr(row, "lifecycle_stage", "not_started")
+        lifecycle_counts[stage] = lifecycle_counts.get(stage, 0) + 1
+    audit_types = [str(getattr(event, "event_type", "")) for event in audits]
+    pipeline = await ghl_service.get_pipeline_data()
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "leads_by_source": {
+            source: {
+                "total": len(items),
+                "hot": len([row for row in items if getattr(row, "category", "") == "hot"]),
+                "contacted": count_state(items, {"contacted", "qualified", "closed"}),
+                "qualified": count_state(items, {"qualified", "closed"}),
+                "closed": count_state(items, {"closed"}),
+                "conversion_percent": round(count_state(items, {"closed"}) / len(items) * 100) if items else 0,
+            }
+            for source, items in sorted(source_rows.items())
+        },
+        "conversion_funnel": {
+            "new": count_state(rows, {"new"}),
+            "assigned": count_state(rows, {"assigned", "contacted", "qualified", "closed"}),
+            "contacted": count_state(rows, {"contacted", "qualified", "closed"}),
+            "qualified": count_state(rows, {"qualified", "closed"}),
+            "closed": count_state(rows, {"closed"}),
+            "enrolled": lifecycle_counts.get("enrolled", 0),
+        },
+        "hot_lead_aging": hot_aging,
+        "follow_up_completion": {
+            "queued": lifecycle_counts.get("queued", 0),
+            "outreach_sent": lifecycle_counts.get("outreach_sent", 0),
+            "responded": lifecycle_counts.get("responded", 0),
+            "booked": lifecycle_counts.get("booked", 0),
+            "completed_or_outcome": lifecycle_counts.get("enrolled", 0) + lifecycle_counts.get("lost", 0),
+            "failed": lifecycle_counts.get("failed", 0),
+        },
+        "blocked_queue": {
+            "held": len([row for row in rows if getattr(row, "status", "") == "held"]),
+            "escalated": len([row for row in rows if getattr(row, "status", "") == "escalated"]),
+            "workflow_failures": len([row for row in rows if getattr(row, "error", None) or getattr(row, "follow_up_status", "") == "failed"]),
+            "data_quality": len([row for row in rows if not getattr(row, "email", None) and not getattr(row, "phone", None)]),
+        },
+        "exceptions": {
+            "reassignments": len([event for event in audit_types if "assign" in event or "claim" in event]),
+            "recovery_decisions": len([event for event in audit_types if "recovery" in event or "retry" in event]),
+            "lifecycle_changes": len([event for event in audit_types if "lifecycle" in event]),
+            "failed_events": len([event for event in audit_types if "failed" in event or "error" in event]),
+        },
+        "ghl_pipeline": {
+            "conversion_rate": round(float(pipeline.get("conversion_rate", 0)) * 100, 2),
+            "revenue_forecast": pipeline.get("revenue_forecast", 0),
+            "stages": pipeline.get("stages", []),
         },
     }
