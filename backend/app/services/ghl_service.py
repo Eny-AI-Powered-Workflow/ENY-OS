@@ -193,6 +193,79 @@ class GHLService:
             logger.error(f"Error updating contact {contact_id} in GHL: {e}")
             return False
 
+    async def add_contact_note(self, contact_id: str, body: str) -> bool:
+        """Record an operational outcome as a note on the GHL contact."""
+        if not self.private_token or not self.location_id:
+            logger.warning("GHL credentials not configured - cannot add contact note")
+            return False
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/contacts/{contact_id}/notes",
+                    params={"locationId": self.location_id},
+                    json={"body": body},
+                    headers=self.headers,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return True
+        except Exception as exc:
+            logger.error(f"Error adding note to GHL contact {contact_id}: {exc}")
+            return False
+
+    async def sync_enrollment_outcome(
+        self,
+        contact_id: str,
+        *,
+        queue_status: str | None = None,
+        score: int | None = None,
+        category: str | None = None,
+        owner_id: str | None = None,
+        note: str | None = None,
+    ) -> Dict[str, Any]:
+        """Write one auditable Enrollment outcome to GHL.
+
+        Score/category tags, queue status, and the app owner reference are written
+        together. The optional note is recorded separately because GHL exposes
+        notes through its contact notes endpoint rather than contact update.
+        """
+        tags: list[str] = []
+        if category:
+            tags.extend(["eny-enrollment", f"eny-score-{category}"])
+        if queue_status:
+            tags.append(f"eny-status-{queue_status}")
+        if owner_id:
+            tags.append(f"eny-owner-{owner_id}")
+
+        custom_fields: list[dict[str, Any]] = []
+        if score is not None and settings.GHL_SALES_SCORE_FIELD_ID:
+            custom_fields.append({"id": settings.GHL_SALES_SCORE_FIELD_ID, "value": score})
+        if category and settings.GHL_SCORE_CATEGORY_FIELD_ID:
+            custom_fields.append({"id": settings.GHL_SCORE_CATEGORY_FIELD_ID, "value": category})
+        if queue_status and settings.GHL_ENROLLMENT_STATUS_FIELD_ID:
+            custom_fields.append({"id": settings.GHL_ENROLLMENT_STATUS_FIELD_ID, "value": queue_status})
+        if owner_id and settings.GHL_ENROLLMENT_OWNER_FIELD_ID:
+            custom_fields.append({"id": settings.GHL_ENROLLMENT_OWNER_FIELD_ID, "value": owner_id})
+
+        payload: Dict[str, Any] = {}
+        if custom_fields:
+            payload["customFields"] = custom_fields
+        if tags:
+            contact = await self.get_contact(contact_id)
+            if not contact:
+                return {"success": False, "contact_updated": False, "note_recorded": False, "error": "Contact not found in GHL"}
+            payload["tags"] = list(dict.fromkeys((contact.get("tags") or []) + tags))
+        contact_updated = await self.update_contact(contact_id, payload) if payload else True
+        note_recorded = await self.add_contact_note(contact_id, note) if note else True
+        return {
+            "success": contact_updated and note_recorded,
+            "contact_updated": contact_updated,
+            "note_recorded": note_recorded,
+            "tags": tags,
+            "fields_written": [field["id"] for field in custom_fields],
+            "error": None if contact_updated and note_recorded else "GHL write-back incomplete",
+        }
+
     async def get_pipeline_data(self) -> Dict[str, Any]:
         """
         Get pipeline/opportunities data from GHL.

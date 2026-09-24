@@ -703,6 +703,17 @@ async def claim_hot_lead(
     current_user_id = str(current_user.id)
     if result.assigned_user_id and str(result.assigned_user_id) != current_user_id:
         raise HTTPException(status_code=409, detail="Lead is already assigned to another Enrollment user")
+    writeback = await ghl_service.sync_enrollment_outcome(
+        str(result.contact_id),
+        queue_status="assigned",
+        owner_id=current_user_id,
+        note=f"ENY Enrollment lead assigned to owner {current_user_id}.",
+    )
+    if not writeback.get("success"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Lead was not assigned because GHL write-back failed",
+            "writeback": writeback,
+        })
     previous_state = _transition_queue_state(result, "assigned", current_user.id, "Claimed for active enrollment follow-up")
     result.assigned_user_id = current_user.id
     _audit(db, current_user, result.id, "hot_lead_claimed", {
@@ -710,6 +721,7 @@ async def claim_hot_lead(
         "from": previous_state,
         "to": result.queue_status,
         "reason": "Claimed for active enrollment follow-up",
+        "ghl_writeback": writeback,
     })
     return {"status": result.queue_status, "result_id": str(result.id), "assigned_user_id": str(current_user.id)}
 
@@ -729,15 +741,30 @@ async def update_hot_lead_state(
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before changing its state")
-    previous_state = _transition_queue_state(result, request.state, current_user.id, request.reason)
+    previous_state = result.queue_status
+    if request.state not in QUEUE_STATES or request.state not in QUEUE_TRANSITIONS.get(previous_state, set()):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Invalid queue transition: {previous_state} -> {request.state}")
+    writeback = await ghl_service.sync_enrollment_outcome(
+        str(result.contact_id),
+        queue_status=request.state,
+        owner_id=str(current_user.id),
+        note=f"ENY Enrollment queue status changed to {request.state}: {request.reason}",
+    )
+    if not writeback.get("success"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Queue state was not changed because GHL write-back failed",
+            "writeback": writeback,
+        })
+    _transition_queue_state(result, request.state, current_user.id, request.reason)
     _audit(db, current_user, result.id, "hot_lead_state_changed", {
         "contact_id": result.contact_id,
         "actor_id": str(current_user.id),
         "from": previous_state,
         "to": request.state,
         "reason": request.reason,
+        "ghl_writeback": writeback,
     })
-    return {"status": result.queue_status, "result_id": str(result.id)}
+    return {"status": result.queue_status, "result_id": str(result.id), "ghl_writeback": writeback}
 
 
 @router.post("/hot-leads/{result_id}/follow-up", dependencies=[Depends(require_permission("leads:write"))])
@@ -778,6 +805,20 @@ async def follow_up_hot_lead(
         )
     result.follow_up_status = "tagged"
     result.follow_up_at = datetime.now(timezone.utc)
+    writeback = await ghl_service.sync_enrollment_outcome(
+        str(result.contact_id),
+        queue_status="contacted",
+        owner_id=str(current_user.id),
+        note="ENY Enrollment follow-up completed and contact status synchronized.",
+    )
+    if not writeback.get("success"):
+        result.follow_up_status = "failed"
+        result.notification_error = writeback.get("error")
+        db.commit()
+        raise HTTPException(status_code=502, detail={
+            "message": "Follow-up workflow completed but GHL write-back failed",
+            "writeback": writeback,
+        })
     _transition_queue_state(result, "contacted", current_user.id, "Follow-up workflow completed")
     result.last_action_at = result.follow_up_at
     result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
@@ -791,6 +832,7 @@ async def follow_up_hot_lead(
         "to": result.queue_status,
         "notification_sent": workflow.get("notification_sent"),
         "notification_error": workflow.get("notification_error"),
+        "ghl_writeback": writeback,
     })
     notification_sent = workflow.get("notification_sent")
     notification_error = workflow.get("notification_error")
@@ -804,6 +846,7 @@ async def follow_up_hot_lead(
         "status": result.follow_up_status,
         "queue_status": result.queue_status,
         "workflow": workflow,
+        "ghl_writeback": writeback,
         "message": message,
     }
 

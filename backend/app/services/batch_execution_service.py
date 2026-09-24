@@ -123,22 +123,21 @@ async def retry_batch_result(
         score = 50
     category = scoring.get("category") or derive_score_category(score)
     tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch", category]))
-    write_ok = await ghl_service.update_contact(
+    writeback = await ghl_service.sync_enrollment_outcome(
         str(result.contact_id),
-        {
-            "customFields": [
-                {"id": settings.GHL_SALES_SCORE_FIELD_ID, "value": score},
-                {"id": settings.GHL_SCORE_CATEGORY_FIELD_ID, "value": category},
-            ],
-            "tags": tags,
-        },
+        queue_status=result.queue_status or "new",
+        score=score,
+        category=category,
+        note=f"ENY Enrollment scoring completed: {category} ({score}/100).",
     )
+    write_ok = bool(writeback.get("success"))
 
     result.retry_count = attempt_number
     if not write_ok:
         error = "GHL update failed"
         result.status = "failed"
         result.error = error
+        result.notification_error = writeback.get("error")
         result.failure_class = "crm_write"
         result.operating_decision = "hold"
         result.recovery_status = "unassigned"
@@ -183,11 +182,11 @@ async def retry_batch_result(
         operating_decision="rerun",
     ))
     if getattr(approval, "user_id", None):
-        db.add(EnrollmentAudit(
+            db.add(EnrollmentAudit(
             user_id=approval.user_id,
             result_id=result.id,
             event_type="retry_succeeded",
-            details={"contact_id": result.contact_id, "attempt_number": attempt_number},
+                details={"contact_id": result.contact_id, "attempt_number": attempt_number, "writeback": writeback},
         ))
     db.commit()
 
@@ -213,4 +212,5 @@ async def retry_batch_result(
         "category": category,
         "retry_count": attempt_number,
         "enrollment_notification": notification,
+        "ghl_writeback": writeback,
     }

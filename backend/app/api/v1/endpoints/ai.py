@@ -807,15 +807,15 @@ async def execute_approved_batch(
 
         category = scoring.get("category") or _derive_score_category(score_int)
         combined_tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch", category]))
-        update_payload = {
-            "customFields": [
-                {"id": settings.GHL_SALES_SCORE_FIELD_ID, "value": score_int},
-                {"id": settings.GHL_SCORE_CATEGORY_FIELD_ID, "value": category},
-            ],
-            "tags": combined_tags,
-        }
 
-        write_ok = await ghl_service.update_contact(str(contact_id), update_payload)
+        writeback = await ghl_service.sync_enrollment_outcome(
+            str(contact_id),
+            queue_status="new",
+            score=score_int,
+            category=category,
+            note=f"ENY Enrollment scoring completed: {category} ({score_int}/100).",
+        )
+        write_ok = bool(writeback.get("success"))
         if write_ok:
             processed_count += 1
             enrollment_notification = None
@@ -841,6 +841,12 @@ async def execute_approved_batch(
                 score_origin=score_origin,
             )
             result_row.queue_status = "new" if category == "hot" else "new"
+            db.add(EnrollmentAudit(
+                user_id=approval.user_id,
+                result_id=result_row.id,
+                event_type="ghl_writeback_succeeded",
+                details={"contact_id": contact_id, "outcome": "scored", "writeback": writeback},
+            ))
             if category == "hot":
                 db.add(BatchRetry(
                     result_id=result_row.id,
@@ -862,6 +868,7 @@ async def execute_approved_batch(
                 "reasoning": scoring.get("reasoning", ""),
                 "next_best_action": scoring.get("next_best_action", ""),
                 "enrollment_notification": enrollment_notification,
+                "ghl_writeback": writeback,
             })
         else:
             failed_count += 1
@@ -890,7 +897,7 @@ async def execute_approved_batch(
                 user_id=approval.user_id,
                 result_id=result_row.id,
                 event_type="batch_result_failed",
-                details={"contact_id": contact_id, "error": "GHL update failed"},
+                details={"contact_id": contact_id, "error": "GHL update failed", "writeback": writeback},
             ))
             results.append({
                 "contact_id": contact_id,
@@ -898,6 +905,7 @@ async def execute_approved_batch(
                 "score": score_int,
                 "category": category,
                 "error": "GHL update failed",
+                "ghl_writeback": writeback,
             })
 
     if failed_count and processed_count == 0:
