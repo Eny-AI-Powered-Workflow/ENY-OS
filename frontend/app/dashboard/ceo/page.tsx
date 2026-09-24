@@ -3,6 +3,7 @@ import CEOMetrics from "@/components/CEOMetrics";
 import CEOAgentStatus from "@/components/CEOAgentStatus";
 import SOPLibrary from "@/components/SOPLibrary";
 import SalesOperationsPanel from "@/components/SalesOperationsPanel";
+import ExecutiveAssistantBriefing from "@/components/ExecutiveAssistantBriefing";
 
 export default function CEODashboard() {
   return (
@@ -29,6 +30,8 @@ export default function CEODashboard() {
       </div>
 
         <SalesOperationsPanel />
+
+      <ExecutiveAssistantBriefing />
 
       <SOPLibrary />
     </div>
