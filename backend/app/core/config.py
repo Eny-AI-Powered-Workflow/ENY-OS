@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     N8N_WEBHOOK_TOKEN: str = Field("", env="N8N_WEBHOOK_TOKEN")
     N8N_MOCK_MODE: bool = Field(False, env="N8N_MOCK_MODE")
 
+    EA_CALENDAR_BASE_URL: str = Field("", env="EA_CALENDAR_BASE_URL")
+    EA_CALENDAR_TOKEN: str = Field("", env="EA_CALENDAR_TOKEN")
+    EA_CALENDAR_PATH: str = Field("events", env="EA_CALENDAR_PATH")
+    EA_TASKS_BASE_URL: str = Field("", env="EA_TASKS_BASE_URL")
+    EA_TASKS_TOKEN: str = Field("", env="EA_TASKS_TOKEN")
+    EA_TASKS_PATH: str = Field("tasks", env="EA_TASKS_PATH")
+
     ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")
     CLAUDE_MODEL: str = Field("claude-3-opus-20240229", env="CLAUDE_MODEL")
     OPENAI_API_KEY: str = Field("", env="OPENAI_API_KEY")

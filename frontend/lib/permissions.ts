@@ -112,11 +112,11 @@ export function usePermissions() {
   // Calculate permissions from userRoles
   // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
   const rolePermissions = {
-    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write'],
+    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     programs_manager: ['students:read', 'students:write', 'pipeline:read', 'ai:chat'],
     customer_success: ['students:read', 'students:write', 'ai:chat'],
     business_support: ['ai:chat'],
-    executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write'],
+    executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
     developer: ['agents:trigger', 'agents:configure', 'ai:chat']
   }

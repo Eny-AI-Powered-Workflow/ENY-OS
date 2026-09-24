@@ -51,7 +51,16 @@ class N8NService:
         normalized_name = (workflow_name or "").strip().lower()
         webhook_url = f"{self.base_url}/webhook/{normalized_name}"
 
-        allowed = {"eny-sales-score", "eny-enrollment-hot-leads", "eny-enrollment-follow-up"}
+        allowed = {
+            "eny-sales-score",
+            "eny-enrollment-hot-leads",
+            "eny-enrollment-follow-up",
+            "eny-ea-daily-briefing",
+            "eny-ea-meeting-preparation",
+            "eny-ea-task-reminders",
+            "eny-ea-opportunity-research",
+            "eny-ea-follow-up-reminders",
+        }
         if normalized_name not in allowed:
             return {
                 "status": "error",
@@ -88,6 +97,13 @@ class N8NService:
                     "workflow": normalized_name,
                     "message": "Enrollment follow-up queued",
                     "queued": True,
+                }
+            if normalized_name.startswith("eny-ea-"):
+                return {
+                    "status": "success",
+                    "workflow": normalized_name,
+                    "message": "EA automation queued in mock mode",
+                    "requires_approval": bool(data.get("requires_approval", True)),
                 }
             return {
                 "status": "success",

@@ -1,9 +1,10 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/executive_assistant.py
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,10 @@ from app.db.session import get_db
 from app.models.agent_log import AgentLog
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.operational_alert import OperationalAlert
+from app.models.ea_research_brief import EAResearchBrief
 from app.services.ghl_service import ghl_service
+from app.services.ea_coordination_service import ea_coordination_service
+from app.services.n8n_service import N8NService
 
 router = APIRouter()
 
@@ -23,6 +27,25 @@ EA_PLAYBOOKS = [
     {"name": "Opportunity research", "status": "planned", "requires_approval": True},
     {"name": "Executive follow-up", "status": "planned", "requires_approval": True},
 ]
+EA_WORKFLOWS = {
+    "eny-ea-daily-briefing",
+    "eny-ea-meeting-preparation",
+    "eny-ea-task-reminders",
+    "eny-ea-opportunity-research",
+    "eny-ea-follow-up-reminders",
+}
+
+
+class ResearchBriefRequest(BaseModel):
+    title: str = Field(..., min_length=3, max_length=200)
+    source_url: str = Field(..., min_length=8, max_length=2000)
+    summary: str = Field(..., min_length=10, max_length=10000)
+    confidence: Literal["high", "medium", "low", "unverified"] = "unverified"
+
+
+class ResearchReviewRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    note: str = Field(..., min_length=3, max_length=1000)
 
 
 def _timestamp(value: Any) -> str | None:
@@ -143,3 +166,101 @@ async def get_executive_briefing(
         },
         "playbooks": EA_PLAYBOOKS,
     }
+
+
+@router.get("/coordination", dependencies=[Depends(require_permission("assistant:briefing:read"))])
+async def get_ea_coordination(
+    current_user: Any = Depends(get_current_user),
+):
+    """Read calendar and task providers through backend adapters only."""
+    calendar = await ea_coordination_service.get_calendar()
+    tasks = await ea_coordination_service.get_tasks()
+    events = calendar.get("items", [])
+    conflicts = []
+    for index, event in enumerate(events):
+        for other in events[index + 1:]:
+            if event.get("start") and event.get("start") == other.get("start"):
+                conflicts.append({"first": event, "second": other})
+    return {
+        "calendar": calendar,
+        "tasks": tasks,
+        "conflicts": conflicts,
+        "source": "backend_provider_adapters",
+        "external_actions": "disabled",
+    }
+
+
+@router.get("/research", dependencies=[Depends(require_permission("assistant:briefing:read"))])
+async def list_research_briefs(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    briefs = db.query(EAResearchBrief).order_by(EAResearchBrief.created_at.desc()).limit(100).all()
+    return {"briefs": [
+        {
+            "id": str(brief.id),
+            "title": brief.title,
+            "source_url": brief.source_url,
+            "summary": brief.summary,
+            "confidence": brief.confidence,
+            "status": brief.status,
+            "requires_approval": brief.requires_approval,
+            "created_at": _timestamp(brief.created_at),
+            "reviewed_at": _timestamp(brief.reviewed_at),
+            "review_note": brief.review_note,
+        }
+        for brief in briefs
+    ]}
+
+
+@router.post("/research", dependencies=[Depends(require_permission("assistant:research:write"))])
+async def create_research_brief(
+    request: ResearchBriefRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Store a source-backed research brief as draft; no external outreach is performed."""
+    brief = EAResearchBrief(
+        title=request.title,
+        source_url=request.source_url,
+        summary=request.summary,
+        confidence=request.confidence,
+        status="draft",
+        requires_approval=True,
+        created_by=current_user.id,
+    )
+    db.add(brief)
+    db.commit()
+    db.refresh(brief)
+    return {"id": str(brief.id), "status": brief.status, "requires_approval": brief.requires_approval}
+
+
+@router.patch("/research/{brief_id}/review", dependencies=[Depends(require_permission("assistant:research:write"))])
+async def review_research_brief(
+    brief_id: str,
+    request: ResearchReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    brief = db.query(EAResearchBrief).filter(EAResearchBrief.id == brief_id).first()
+    if not brief:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research brief not found")
+    brief.status = request.decision
+    brief.review_note = request.note
+    brief.reviewed_by = current_user.id
+    brief.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"id": str(brief.id), "status": brief.status, "review_note": brief.review_note}
+
+
+@router.post("/automation/{workflow_name}", dependencies=[Depends(require_permission("assistant:automation:trigger"))])
+async def trigger_ea_automation(
+    workflow_name: str,
+    data: dict[str, Any],
+    current_user: Any = Depends(get_current_user),
+):
+    """Trigger only registered EA workflows through the FastAPI permission gateway."""
+    normalized = workflow_name.strip().lower()
+    if normalized not in EA_WORKFLOWS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EA workflow is not registered")
+    return await N8NService().trigger_workflow(normalized, {**data, "requested_by": str(current_user.id), "requires_approval": True})
