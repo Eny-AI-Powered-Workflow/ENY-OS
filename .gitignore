@@ -38,6 +38,7 @@ supabase/migrations/*
 !supabase/migrations/0011_knowledge_document_chunks.sql
 !supabase/migrations/0012_batch_operating_policy.sql
 !supabase/migrations/0013_enrollment_follow_up_lifecycle.sql
+!supabase/migrations/0014_operational_alerts.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md

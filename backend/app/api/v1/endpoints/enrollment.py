@@ -16,6 +16,7 @@ from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.operational_alert import OperationalAlert
 from app.services.batch_execution_service import retry_batch_result
 from app.services.ghl_service import ghl_service
 from app.services.n8n_service import N8NService
@@ -123,6 +124,28 @@ def _audit(db: Session, current_user: Any, result_id: Any, event_type: str, deta
         details=details,
     ))
     db.commit()
+
+
+def _create_operational_alert(
+    db: Session,
+    *,
+    alert_type: str,
+    source: str,
+    message: str,
+    result_id: Any = None,
+    details: dict[str, Any] | None = None,
+    severity: str = "critical",
+) -> OperationalAlert:
+    alert = OperationalAlert(
+        alert_type=alert_type,
+        source=source,
+        message=message,
+        result_id=result_id,
+        details=details or {},
+        severity=severity,
+    )
+    db.add(alert)
+    return alert
 
 
 def _normalize_int(value: Any, default: int) -> int:
@@ -930,6 +953,14 @@ async def follow_up_hot_lead(
     })
     if workflow.get("status") != "success":
         result.follow_up_status = "failed"
+        _create_operational_alert(
+            db,
+            alert_type="n8n_webhook_failure",
+            source="eny-enrollment-follow-up",
+            message="Enrollment follow-up webhook failed or was unreachable.",
+            result_id=result.id,
+            details={"contact_id": result.contact_id, "workflow": workflow},
+        )
         db.commit()
         raise HTTPException(
             status_code=502,
@@ -951,6 +982,14 @@ async def follow_up_hot_lead(
     if not writeback.get("success"):
         result.follow_up_status = "failed"
         result.notification_error = writeback.get("error")
+        _create_operational_alert(
+            db,
+            alert_type="ghl_writeback_failure",
+            source="ghl",
+            message="Follow-up completed in n8n but GHL write-back failed.",
+            result_id=result.id,
+            details={"contact_id": result.contact_id, "writeback": writeback},
+        )
         db.commit()
         raise HTTPException(status_code=502, detail={
             "message": "Follow-up workflow completed but GHL write-back failed",
@@ -1131,3 +1170,64 @@ async def get_enrollment_reporting(
             "stages": pipeline.get("stages", []),
         },
     }
+
+
+@router.get("/alerts", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_alerts(
+    limit: int = Query(50, ge=1, le=200),
+    include_acknowledged: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Return persistent hard-failure alerts for the Sales & Enrollment team."""
+    query = db.query(OperationalAlert).filter(OperationalAlert.team == "sales_enrollment")
+    if not include_acknowledged:
+        query = query.filter(OperationalAlert.status == "open")
+    alerts = query.order_by(OperationalAlert.created_at.desc()).limit(limit).all()
+    return {
+        "alerts": [
+            {
+                "id": str(alert.id),
+                "type": alert.alert_type,
+                "severity": alert.severity,
+                "source": alert.source,
+                "message": alert.message,
+                "result_id": str(alert.result_id) if alert.result_id else None,
+                "status": alert.status,
+                "details": alert.details,
+                "created_at": _serialize_datetime(alert.created_at),
+                "acknowledged_at": _serialize_datetime(alert.acknowledged_at),
+            }
+            for alert in alerts
+        ],
+        "open_count": db.query(OperationalAlert).filter(
+            OperationalAlert.team == "sales_enrollment",
+            OperationalAlert.status == "open",
+        ).count(),
+    }
+
+
+@router.patch("/alerts/{alert_id}/acknowledge", dependencies=[Depends(require_permission("leads:write"))])
+async def acknowledge_enrollment_alert(
+    alert_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Acknowledge a hard failure after an owner has accepted the operational action."""
+    alert = db.query(OperationalAlert).filter(
+        OperationalAlert.id == alert_id,
+        OperationalAlert.team == "sales_enrollment",
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operational alert not found")
+    alert.status = "acknowledged"
+    alert.acknowledged_at = datetime.now(timezone.utc)
+    alert.acknowledged_by = current_user.id
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=alert.result_id,
+        event_type="operational_alert_acknowledged",
+        details={"alert_id": str(alert.id), "alert_type": alert.alert_type, "source": alert.source},
+    ))
+    db.commit()
+    return {"id": str(alert.id), "status": alert.status, "acknowledged_at": _serialize_datetime(alert.acknowledged_at)}

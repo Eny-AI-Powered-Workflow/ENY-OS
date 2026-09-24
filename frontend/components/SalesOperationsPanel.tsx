@@ -63,6 +63,7 @@ type Payload = {
   quality?: { quality_status?: string; duplicate_groups?: unknown[]; contacts_checked?: number }
   adoption?: { policy?: { ownership?: string[]; follow_up?: string[]; escalation?: string[]; weekly_review?: string[] }; weekly_review?: { results_created?: number; audit_events?: number; open_escalations?: number; stale_active_work?: number } }
   performance?: { conversion_funnel?: Record<string, number>; hot_lead_aging?: Record<string, number>; blocked_queue?: Record<string, number>; exceptions?: Record<string, number> }
+  persistentAlerts?: Array<{ id: string; type: string; severity: string; source: string; message: string; status: string; created_at: string | null }>
 }
 
 const statuses = ['all', 'new', 'assigned', 'contacted', 'qualified', 'closed']
@@ -94,15 +95,17 @@ export default function SalesOperationsPanel() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load Sales operations')
-      const [qualityResponse, adoptionResponse, performanceResponse] = await Promise.all([
+      const [qualityResponse, adoptionResponse, performanceResponse, alertsResponse] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/quality`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/adoption-policy`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/reporting`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/alerts`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
       ])
       const quality = qualityResponse.ok ? await qualityResponse.json() : null
       const adoption = adoptionResponse.ok ? await adoptionResponse.json() : null
       const performance = performanceResponse.ok ? await performanceResponse.json() : null
-      setData({ ...payload, quality: quality?.quality, adoption, performance })
+      const persistentAlerts = alertsResponse.ok ? (await alertsResponse.json()).alerts || [] : []
+      setData({ ...payload, quality: quality?.quality, adoption, performance, persistentAlerts })
       setError(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load Sales operations')
@@ -221,6 +224,8 @@ export default function SalesOperationsPanel() {
           <p className="mt-2 text-xs text-slate-500">{data.adoption?.weekly_review?.audit_events ?? 0} audit events · {data.adoption?.weekly_review?.open_escalations ?? 0} escalations · {data.adoption?.weekly_review?.stale_active_work ?? 0} stale active</p>
         </div>
       </div>
+
+      {data.persistentAlerts?.length ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-rose-600">Hard failure alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex items-start justify-between gap-3 text-xs"><span className="text-rose-800">{alert.message}</span><span className="shrink-0 font-semibold uppercase text-rose-600">{alert.source}</span></div>)}</div></div> : null}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Performance review</p>

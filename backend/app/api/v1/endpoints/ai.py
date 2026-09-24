@@ -24,6 +24,7 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.operational_alert import OperationalAlert
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
@@ -841,6 +842,23 @@ async def execute_approved_batch(
                 score_origin=score_origin,
             )
             result_row.queue_status = "new" if category == "hot" else "new"
+            if category == "hot" and enrollment_notification and enrollment_notification.get("status") != "success":
+                db.add(OperationalAlert(
+                    alert_type="hot_lead_notification_failure",
+                    source="n8n",
+                    message="Hot lead scoring succeeded but Enrollment notification failed.",
+                    result_id=result_row.id,
+                    details={"contact_id": contact_id, "workflow": enrollment_notification},
+                ))
+            if score_origin == "deterministic_fallback":
+                db.add(OperationalAlert(
+                    alert_type="scoring_workflow_failure",
+                    source="n8n",
+                    message="ENY-SALES-SCORE failed; deterministic fallback scoring was used.",
+                    result_id=result_row.id,
+                    details={"contact_id": contact_id, "workflow": workflow_result},
+                    severity="warning",
+                ))
             db.add(EnrollmentAudit(
                 user_id=approval.user_id,
                 result_id=result_row.id,
@@ -898,6 +916,13 @@ async def execute_approved_batch(
                 result_id=result_row.id,
                 event_type="batch_result_failed",
                 details={"contact_id": contact_id, "error": "GHL update failed", "writeback": writeback},
+            ))
+            db.add(OperationalAlert(
+                alert_type="scoring_writeback_failure",
+                source="ghl",
+                message="Lead scoring completed but the GHL write-back failed.",
+                result_id=result_row.id,
+                details={"contact_id": contact_id, "writeback": writeback},
             ))
             results.append({
                 "contact_id": contact_id,
