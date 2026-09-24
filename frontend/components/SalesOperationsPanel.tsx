@@ -60,6 +60,8 @@ type Payload = {
     open_alerts?: number
   }
   results: Operation[]
+  quality?: { quality_status?: string; duplicate_groups?: unknown[]; contacts_checked?: number }
+  adoption?: { policy?: { ownership?: string[]; follow_up?: string[]; escalation?: string[]; weekly_review?: string[] }; weekly_review?: { results_created?: number; audit_events?: number; open_escalations?: number; stale_active_work?: number } }
 }
 
 const statuses = ['all', 'new', 'assigned', 'contacted', 'qualified', 'closed']
@@ -91,7 +93,13 @@ export default function SalesOperationsPanel() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load Sales operations')
-      setData(payload)
+      const [qualityResponse, adoptionResponse] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/quality`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/adoption-policy`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+      ])
+      const quality = qualityResponse.ok ? await qualityResponse.json() : null
+      const adoption = adoptionResponse.ok ? await adoptionResponse.json() : null
+      setData({ ...payload, quality: quality?.quality, adoption })
       setError(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load Sales operations')
@@ -196,6 +204,18 @@ export default function SalesOperationsPanel() {
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {Object.entries(monitoring.conversion_by_source || {}).map(([sourceName, sourceData]) => <div key={sourceName} className="rounded-lg bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold text-slate-800">{sourceName}</span><span className="text-xs font-bold text-emerald-700">{sourceData.conversion_percent}%</span></div><p className="mt-1 text-[11px] text-slate-500">{sourceData.total} total · {sourceData.contacted} contacted · {sourceData.closed} closed</p></div>)}
           {!Object.keys(monitoring.conversion_by_source || {}).length && <p className="text-xs text-slate-500">No source data available.</p>}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">CRM quality</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${data.quality?.quality_status === 'healthy' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{data.quality?.quality_status || 'not checked'}</span><span className="text-xs text-slate-500">{data.quality?.contacts_checked ?? 0} contacts checked</span><span className="text-xs text-slate-500">{data.quality?.duplicate_groups?.length ?? 0} duplicate groups</span></div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Weekly review</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">{data.adoption?.policy?.weekly_review?.[0] || 'Review the queue and open alerts every week.'}</p>
+          <p className="mt-2 text-xs text-slate-500">{data.adoption?.weekly_review?.audit_events ?? 0} audit events · {data.adoption?.weekly_review?.open_escalations ?? 0} escalations · {data.adoption?.weekly_review?.stale_active_work ?? 0} stale active</p>
         </div>
       </div>
 

@@ -37,6 +37,26 @@ SLA_RULES = {
     "workflow_retry_minutes": 30,
     "data_quality_hours": 24,
 }
+OPERATING_POLICY = {
+    "ownership": [
+        "Every hot lead is claimed before outreach.",
+        "The assigned owner remains accountable until closed, enrolled, or escalated.",
+        "Unassigned hot leads are reviewed within 15 minutes.",
+    ],
+    "follow_up": [
+        "Run the approved follow-up workflow only from an assigned lead.",
+        "Record response, next step, booking, and outcome in the lifecycle.",
+        "Do not skip lifecycle stages without an auditable reason.",
+    ],
+    "escalation": [
+        "Escalate stale work, failed write-back, and exhausted retries.",
+        "A recovery decision is required before rerun.",
+    ],
+    "weekly_review": [
+        "Review intake, no-contact aging, source conversion, owner workload, and closed outcomes.",
+        "Assign an owner and due date to every open alert.",
+    ],
+}
 LIFECYCLE_STAGES = {
     "not_started",
     "queued",
@@ -997,3 +1017,42 @@ async def get_enrollment_pipeline(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch pipeline: {str(e)}"
         )
+
+
+@router.get("/quality", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_quality(
+    current_user: Any = Depends(get_current_user),
+):
+    """Return read-only GHL normalization and deduplication findings."""
+    contacts, inventory = await ghl_service.get_all_contacts()
+    return {
+        "quality": ghl_service.build_contact_quality_report(contacts),
+        "crm": inventory,
+    }
+
+
+@router.get("/adoption-policy", dependencies=[Depends(require_permission("leads:read"))])
+async def get_enrollment_adoption_policy(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Return the shared Sales & Enrollment process policy and weekly review data."""
+    since = datetime.now(timezone.utc) - timedelta(days=7)
+    rows = db.query(BatchExecutionResult).filter(BatchExecutionResult.created_at >= since).all()
+    audits = db.query(EnrollmentAudit).filter(EnrollmentAudit.created_at >= since).all()
+    lifecycle_counts: dict[str, int] = {}
+    for row in rows:
+        stage = getattr(row, "lifecycle_stage", "not_started")
+        lifecycle_counts[stage] = lifecycle_counts.get(stage, 0) + 1
+    return {
+        "policy": OPERATING_POLICY,
+        "review_window": {"days": 7, "since": since.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat()},
+        "weekly_review": {
+            "results_created": len(rows),
+            "audit_events": len(audits),
+            "lifecycle_counts": lifecycle_counts,
+            "closed_or_enrolled": len([row for row in rows if getattr(row, "queue_status", "") == "closed" or getattr(row, "lifecycle_stage", "") == "enrolled"]),
+            "open_escalations": len([row for row in rows if getattr(row, "status", "") == "escalated"]),
+            "stale_active_work": len([row for row in rows if getattr(row, "queue_status", "new") in {"new", "assigned", "contacted"} and _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) > 24]),
+        },
+    }

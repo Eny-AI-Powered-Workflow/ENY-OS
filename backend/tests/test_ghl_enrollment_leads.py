@@ -67,3 +67,17 @@ async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):
     assert "eny-owner-owner-1" in payload["tags"]
     assert {field["value"] for field in payload["customFields"]} >= {92, "hot", "contacted"}
     service.add_contact_note.assert_awaited_once_with("contact-1", "Follow-up completed")
+
+
+def test_contact_quality_report_normalizes_and_detects_duplicate_identity():
+    report = GHLService.build_contact_quality_report([
+        {"id": "contact-1", "firstName": " Alice ", "lastName": "Example", "email": "ALICE@example.com", "phone": "(555) 000-1", "source": " Bootcamp "},
+        {"id": "contact-2", "firstName": "Alice", "lastName": "Example", "email": "alice@example.com", "phone": "5550001", "source": "bootcamp"},
+        {"id": "contact-3", "firstName": "Unknown", "lastName": "", "source": ""},
+    ])
+
+    assert report["contacts_checked"] == 3
+    assert report["duplicate_groups"][0]["count"] == 2
+    assert report["missing_contact_channel"] == 1
+    assert report["missing_source"] == 1
+    assert report["quality_status"] == "needs_review"

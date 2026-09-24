@@ -8,6 +8,7 @@ It never stores lead/contact data locally - all reads/writes go directly to GHL.
 import os
 import httpx
 import logging
+import re
 from typing import Dict, Any, List, Optional
 
 from app.core.config import settings
@@ -98,6 +99,7 @@ class GHLService:
                 "pages": pages,
                 "max_pages_reached": pages >= settings.GHL_CONTACT_MAX_PAGES,
             }
+
         except Exception as exc:
             logger.error(f"Error fetching paginated contacts from GHL: {exc}")
             return contacts, {
@@ -105,6 +107,52 @@ class GHLService:
                 "pages": pages,
                 "error": "Contact inventory unavailable",
             }
+
+    @staticmethod
+    def normalize_contact(contact: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize identity, source, and contact channels without mutating GHL data."""
+        first_name = " ".join(str(contact.get("firstName") or "").split())
+        last_name = " ".join(str(contact.get("lastName") or "").split())
+        name = " ".join(str(contact.get("name") or "").split()) or " ".join(part for part in [first_name, last_name] if part)
+        email = str(contact.get("email") or "").strip().lower()
+        phone = re.sub(r"\D", "", str(contact.get("phone") or ""))
+        source = " ".join(str(contact.get("source") or "unknown").strip().lower().split())
+        identity_key = f"email:{email}" if email else f"phone:{phone}" if phone else f"name:{name.lower()}|source:{source}"
+        return {
+            **contact,
+            "firstName": first_name,
+            "lastName": last_name,
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "source": source,
+            "identity_key": identity_key,
+        }
+
+    @classmethod
+    def build_contact_quality_report(cls, contacts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Return duplicate, normalization, and missing-channel findings for review."""
+        normalized = [cls.normalize_contact(contact) for contact in contacts]
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for contact in normalized:
+            groups.setdefault(contact["identity_key"], []).append(contact)
+        duplicate_groups = [
+            {"identity_key": key, "contact_ids": [str(item.get("id")) for item in items], "count": len(items)}
+            for key, items in groups.items()
+            if key and not key.startswith("name:unknown") and len(items) > 1
+        ]
+        missing_channels = [str(contact.get("id")) for contact in normalized if not contact.get("email") and not contact.get("phone")]
+        missing_sources = [str(contact.get("id")) for contact in normalized if contact.get("source") == "unknown"]
+        return {
+            "contacts_checked": len(normalized),
+            "duplicate_groups": duplicate_groups,
+            "duplicate_contacts": sum(group["count"] for group in duplicate_groups),
+            "missing_contact_channel": len(missing_channels),
+            "missing_source": len(missing_sources),
+            "missing_contact_channel_ids": missing_channels[:100],
+            "missing_source_ids": missing_sources[:100],
+            "quality_status": "healthy" if not duplicate_groups and not missing_channels and not missing_sources else "needs_review",
+        }
 
     async def get_contact(self, contact_id: str) -> Optional[Dict[str, Any]]:
         """Get a single contact by ID from GHL."""
