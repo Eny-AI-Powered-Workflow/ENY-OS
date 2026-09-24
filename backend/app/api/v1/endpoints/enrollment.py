@@ -1,5 +1,5 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/enrollment.py
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional, Literal
@@ -41,7 +41,7 @@ SLA_RULES = {
 
 class QueueStateRequest(BaseModel):
     state: str = Field(..., min_length=1, max_length=30)
-    reason: Optional[str] = Field(None, max_length=500)
+    reason: str = Field(..., min_length=3, max_length=500)
 
 
 class BatchDecisionRequest(BaseModel):
@@ -96,6 +96,25 @@ def _hours_since(value: Any) -> float:
     if not hasattr(value, "tzinfo") or value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - value.astimezone(timezone.utc)).total_seconds() / 3600.0
+
+
+def _transition_queue_state(
+    result: BatchExecutionResult,
+    target_state: str,
+    actor_id: Any,
+    reason: str,
+) -> str:
+    previous_state = getattr(result, "queue_status", "new")
+    if target_state not in QUEUE_STATES:
+        raise HTTPException(status_code=422, detail=f"Invalid queue state: {target_state}")
+    if target_state not in QUEUE_TRANSITIONS.get(previous_state, set()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invalid queue transition: {previous_state} -> {target_state}",
+        )
+    result.queue_status = target_state
+    result.last_action_at = datetime.now(timezone.utc)
+    return previous_state
 
 @router.get("/metrics", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_metrics(
@@ -307,6 +326,7 @@ async def get_enrollment_operations(
     if max_score is not None:
         query = query.filter(BatchExecutionResult.score <= max_score)
     results = query.order_by(BatchExecutionResult.created_at.desc()).limit(limit).all()
+    monitoring_rows = db.query(BatchExecutionResult).all()
     audits = db.query(EnrollmentAudit).order_by(
         EnrollmentAudit.created_at.desc()
     ).limit(limit).all()
@@ -357,6 +377,68 @@ async def get_enrollment_operations(
         if getattr(row, "follow_up_at", None) and getattr(row, "created_at", None)
     ]
     summary["average_response_minutes"] = round(sum(response_times) / len(response_times)) if response_times else 0
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    yesterday = today - timedelta(days=1)
+    intake_today = len([
+        row for row in monitoring_rows
+        if getattr(row, "created_at", None) and row.created_at.date() == today
+    ])
+    intake_yesterday = len([
+        row for row in monitoring_rows
+        if getattr(row, "created_at", None) and row.created_at.date() == yesterday
+    ])
+    no_contact_rows = [
+        row for row in monitoring_rows
+        if getattr(row, "queue_status", "new") in {"new", "assigned"}
+        and not getattr(row, "follow_up_at", None)
+    ]
+    no_contact_aging = {
+        "under_1_hour": len([row for row in no_contact_rows if _hours_since(getattr(row, "created_at", None)) < 1]),
+        "one_to_four_hours": len([row for row in no_contact_rows if 1 <= _hours_since(getattr(row, "created_at", None)) < 4]),
+        "four_to_twenty_four_hours": len([row for row in no_contact_rows if 4 <= _hours_since(getattr(row, "created_at", None)) < 24]),
+        "over_24_hours": len([row for row in no_contact_rows if _hours_since(getattr(row, "created_at", None)) >= 24]),
+    }
+    source_groups: dict[str, list[Any]] = {}
+    for row in monitoring_rows:
+        source_groups.setdefault(getattr(row, "source", None) or "unknown", []).append(row)
+    conversion_by_source = {
+        source_name: {
+            "total": len(source_rows),
+            "contacted": len([row for row in source_rows if getattr(row, "queue_status", "new") in {"contacted", "qualified", "closed"}]),
+            "qualified": len([row for row in source_rows if getattr(row, "queue_status", "new") in {"qualified", "closed"}]),
+            "closed": len([row for row in source_rows if getattr(row, "queue_status", "new") == "closed"]),
+            "conversion_percent": round(
+                len([row for row in source_rows if getattr(row, "queue_status", "new") == "closed"]) / len(source_rows) * 100
+            ) if source_rows else 0,
+        }
+        for source_name, source_rows in sorted(source_groups.items())
+    }
+    owner_groups: dict[str, list[Any]] = {}
+    for row in monitoring_rows:
+        owner_groups.setdefault(str(getattr(row, "assigned_user_id", None) or "unassigned"), []).append(row)
+    owner_workload = [
+        {
+            "owner_id": owner_id,
+            "total": len(owner_rows),
+            "active": len([row for row in owner_rows if getattr(row, "queue_status", "new") != "closed"]),
+            "stale": len([row for row in owner_rows if getattr(row, "queue_status", "new") in {"new", "assigned", "contacted"} and _hours_since(getattr(row, "last_action_at", None) or getattr(row, "created_at", None)) > 24]),
+        }
+        for owner_id, owner_rows in sorted(owner_groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    ]
+    monitoring = {
+        "generated_at": now.isoformat(),
+        "lead_intake": {
+            "today": intake_today,
+            "yesterday": intake_yesterday,
+            "change_percent": round((intake_today - intake_yesterday) / intake_yesterday * 100) if intake_yesterday else None,
+        },
+        "stale_leads": summary["stale_leads"],
+        "no_contact_aging": no_contact_aging,
+        "conversion_by_source": conversion_by_source,
+        "owner_workload": owner_workload,
+    }
 
     def alert(severity: str, code: str, message: str, count: int, action: str) -> dict[str, Any] | None:
         if count == 0:
@@ -446,6 +528,7 @@ async def get_enrollment_operations(
             "alerts": [item for item in alerts if item],
         },
         "reporting": reporting,
+        "monitoring": monitoring,
         "rollout": rollout,
         "results": [
             {
@@ -620,10 +703,14 @@ async def claim_hot_lead(
     current_user_id = str(current_user.id)
     if result.assigned_user_id and str(result.assigned_user_id) != current_user_id:
         raise HTTPException(status_code=409, detail="Lead is already assigned to another Enrollment user")
+    previous_state = _transition_queue_state(result, "assigned", current_user.id, "Claimed for active enrollment follow-up")
     result.assigned_user_id = current_user.id
-    result.queue_status = "assigned"
-    result.last_action_at = datetime.now(timezone.utc)
-    _audit(db, current_user, result.id, "hot_lead_claimed", {"contact_id": result.contact_id})
+    _audit(db, current_user, result.id, "hot_lead_claimed", {
+        "contact_id": result.contact_id,
+        "from": previous_state,
+        "to": result.queue_status,
+        "reason": "Claimed for active enrollment follow-up",
+    })
     return {"status": result.queue_status, "result_id": str(result.id), "assigned_user_id": str(current_user.id)}
 
 
@@ -642,14 +729,7 @@ async def update_hot_lead_state(
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before changing its state")
-    previous_state = result.queue_status
-    if request.state not in QUEUE_TRANSITIONS.get(previous_state, set()):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Invalid queue transition: {previous_state} -> {request.state}",
-        )
-    result.queue_status = request.state
-    result.last_action_at = datetime.now(timezone.utc)
+    previous_state = _transition_queue_state(result, request.state, current_user.id, request.reason)
     _audit(db, current_user, result.id, "hot_lead_state_changed", {
         "contact_id": result.contact_id,
         "actor_id": str(current_user.id),
@@ -672,6 +752,9 @@ async def follow_up_hot_lead(
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before triggering follow-up")
+    previous_state = result.queue_status
+    if previous_state != "assigned":
+        raise HTTPException(status_code=409, detail="Follow-up requires an assigned lead")
     workflow = await N8NService().trigger_workflow("eny-enrollment-follow-up", {
         "contact_id": result.contact_id,
         "result_id": str(result.id),
@@ -695,7 +778,7 @@ async def follow_up_hot_lead(
         )
     result.follow_up_status = "tagged"
     result.follow_up_at = datetime.now(timezone.utc)
-    result.queue_status = "contacted"
+    _transition_queue_state(result, "contacted", current_user.id, "Follow-up workflow completed")
     result.last_action_at = result.follow_up_at
     result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
     result.notification_error = workflow.get("notification_error")
@@ -704,6 +787,8 @@ async def follow_up_hot_lead(
     _audit(db, current_user, result.id, "follow_up_triggered", {
         "contact_id": result.contact_id,
         "workflow": "eny-enrollment-follow-up",
+        "from": previous_state,
+        "to": result.queue_status,
         "notification_sent": workflow.get("notification_sent"),
         "notification_error": workflow.get("notification_error"),
     })

@@ -5,6 +5,7 @@ import pytest
 
 from app.api.v1.endpoints.enrollment import (
     BatchDecisionRequest,
+    _transition_queue_state,
     decide_batch_result,
     get_enrollment_hot_leads,
     get_batch_execution_results,
@@ -182,6 +183,14 @@ async def test_get_enrollment_operations_reports_live_operational_health():
     assert result["summary"]["data_quality_alerts"] >= 1
     assert result["health"]["queue_health"] in {"healthy", "warning", "degraded"}
     assert result["health"]["crm_status"] in {"connected", "not_configured", "degraded"}
+    assert result["monitoring"]["lead_intake"]["today"] == 1
+    assert result["monitoring"]["no_contact_aging"]["over_24_hours"] == 1
+    assert result["monitoring"]["conversion_by_source"]["free_training"]["closed"] == 0
+    assert result["monitoring"]["owner_workload"][0]["owner_id"] in {"user-1", "unassigned"}
+    assert result["sla"]["rules"]["assigned_contact_minutes"] == 60
+    assert result["sla"]["alerts"][0]["code"] == "ownerless_hot_leads"
+    assert result["reporting"]["response_compliance_percent"] == 0
+    assert result["rollout"]["status"] == "needs_attention"
 
 
 @pytest.mark.asyncio
@@ -245,10 +254,17 @@ async def test_decide_batch_result_holds_failed_work_without_execution():
     assert response["decision"] == "hold"
     assert result_row.failure_class == "crm_write"
     assert retry_row.status == "hold"
-    assert result["sla"]["rules"]["assigned_contact_minutes"] == 60
-    assert result["sla"]["alerts"][0]["code"] == "ownerless_hot_leads"
-    assert result["reporting"]["response_compliance_percent"] == 0
-    assert result["rollout"]["status"] == "needs_attention"
+
+
+def test_queue_transition_helper_rejects_skipped_states():
+    result = SimpleNamespace(queue_status="assigned", last_action_at=None)
+
+    with pytest.raises(Exception, match="Invalid queue transition"):
+        _transition_queue_state(result, "closed", "user-1", "Skipped qualification")
+
+    previous = _transition_queue_state(result, "contacted", "user-1", "Contact completed")
+    assert previous == "assigned"
+    assert result.queue_status == "contacted"
 
 
 class MagicMockQuery:

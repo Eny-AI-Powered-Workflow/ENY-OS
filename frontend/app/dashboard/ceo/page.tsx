@@ -2,6 +2,7 @@ import CEOHeatmap from "@/components/CEOHeatmap";
 import CEOMetrics from "@/components/CEOMetrics";
 import CEOAgentStatus from "@/components/CEOAgentStatus";
 import SOPLibrary from "@/components/SOPLibrary";
+import SalesOperationsPanel from "@/components/SalesOperationsPanel";
 
 export default function CEODashboard() {
   return (
@@ -26,6 +27,8 @@ export default function CEODashboard() {
         <CEOHeatmap />
         <CEOAgentStatus />
       </div>
+
+        <SalesOperationsPanel />
 
       <SOPLibrary />
     </div>

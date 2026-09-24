@@ -47,6 +47,13 @@ type Payload = {
     closed_leads?: number
     average_response_minutes?: number
   }
+  monitoring?: {
+    lead_intake?: { today?: number; yesterday?: number; change_percent?: number | null }
+    stale_leads?: number
+    no_contact_aging?: Record<string, number>
+    conversion_by_source?: Record<string, { total: number; contacted: number; qualified: number; closed: number; conversion_percent: number }>
+    owner_workload?: Array<{ owner_id: string; total: number; active: number; stale: number }>
+  }
   rollout?: {
     status?: string
     training_focus?: string
@@ -103,6 +110,9 @@ export default function SalesOperationsPanel() {
   const summary = data.summary
   const alerts = data.sla?.alerts || []
   const reporting = data.reporting || {}
+  const monitoring = data.monitoring || {}
+  const intake = monitoring.lead_intake || {}
+  const aging = monitoring.no_contact_aging || {}
   const cards = [
     ['New hot leads', summary.new_hot || 0, 'text-amber-700'],
     ['My assigned leads', summary.my_assigned || 0, 'text-cyan-700'],
@@ -153,6 +163,39 @@ export default function SalesOperationsPanel() {
           <h3 className="mt-1 text-sm font-semibold text-slate-900">Rollout focus</h3>
           <p className="mt-3 text-sm leading-6 text-slate-600">{data.rollout?.training_focus || 'Use the queue controls to manage the next action.'}</p>
           <p className="mt-3 text-xs text-slate-400">CRM: {data.health?.crm_status || 'unknown'} · Open alerts: {data.rollout?.open_alerts ?? alerts.length}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Daily intake</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{intake.today ?? 0}</p>
+          <p className="mt-1 text-xs text-slate-500">New leads today · yesterday {intake.yesterday ?? 0}{intake.change_percent !== null && intake.change_percent !== undefined ? ` · ${intake.change_percent}% change` : ''}</p>
+          <p className="mt-4 text-xs font-semibold text-rose-700">Stale leads: {monitoring.stale_leads ?? 0}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">No-contact aging</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+            <span>&lt; 1h <strong className="float-right text-slate-900">{aging.under_1_hour ?? 0}</strong></span>
+            <span>1-4h <strong className="float-right text-slate-900">{aging.one_to_four_hours ?? 0}</strong></span>
+            <span>4-24h <strong className="float-right text-amber-700">{aging.four_to_twenty_four_hours ?? 0}</strong></span>
+            <span>&gt; 24h <strong className="float-right text-rose-700">{aging.over_24_hours ?? 0}</strong></span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Owner workload</p>
+          <div className="mt-3 space-y-2 text-xs">
+            {(monitoring.owner_workload || []).slice(0, 4).map((owner) => <div key={owner.owner_id} className="flex items-center justify-between gap-3 text-slate-600"><span className="truncate">{owner.owner_id === 'unassigned' ? 'Unassigned' : `${owner.owner_id.slice(0, 8)}...`}</span><span className="font-semibold text-slate-900">{owner.active} active <span className={owner.stale ? 'text-rose-700' : 'text-slate-400'}>({owner.stale} stale)</span></span></div>)}
+            {!monitoring.owner_workload?.length && <span className="text-slate-500">No assigned workload.</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Conversion by source</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {Object.entries(monitoring.conversion_by_source || {}).map(([sourceName, sourceData]) => <div key={sourceName} className="rounded-lg bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold text-slate-800">{sourceName}</span><span className="text-xs font-bold text-emerald-700">{sourceData.conversion_percent}%</span></div><p className="mt-1 text-[11px] text-slate-500">{sourceData.total} total · {sourceData.contacted} contacted · {sourceData.closed} closed</p></div>)}
+          {!Object.keys(monitoring.conversion_by_source || {}).length && <p className="text-xs text-slate-500">No source data available.</p>}
         </div>
       </div>
 
