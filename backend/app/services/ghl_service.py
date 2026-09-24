@@ -221,6 +221,7 @@ class GHLService:
         score: int | None = None,
         category: str | None = None,
         owner_id: str | None = None,
+        lifecycle_stage: str | None = None,
         note: str | None = None,
     ) -> Dict[str, Any]:
         """Write one auditable Enrollment outcome to GHL.
@@ -236,6 +237,8 @@ class GHLService:
             tags.append(f"eny-status-{queue_status}")
         if owner_id:
             tags.append(f"eny-owner-{owner_id}")
+        if lifecycle_stage:
+            tags.append(f"eny-lifecycle-{lifecycle_stage}")
 
         custom_fields: list[dict[str, Any]] = []
         if score is not None and settings.GHL_SALES_SCORE_FIELD_ID:
@@ -246,6 +249,8 @@ class GHLService:
             custom_fields.append({"id": settings.GHL_ENROLLMENT_STATUS_FIELD_ID, "value": queue_status})
         if owner_id and settings.GHL_ENROLLMENT_OWNER_FIELD_ID:
             custom_fields.append({"id": settings.GHL_ENROLLMENT_OWNER_FIELD_ID, "value": owner_id})
+        if lifecycle_stage and settings.GHL_ENROLLMENT_LIFECYCLE_FIELD_ID:
+            custom_fields.append({"id": settings.GHL_ENROLLMENT_LIFECYCLE_FIELD_ID, "value": lifecycle_stage})
 
         payload: Dict[str, Any] = {}
         if custom_fields:

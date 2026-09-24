@@ -16,6 +16,8 @@ interface Lead {
   score?: number;
   status?: string;
   assigned_to_current_user?: boolean;
+  lifecycle_stage?: string;
+  next_step?: string | null;
 }
 
 function formatActionError(detail: unknown, action: string): string {
@@ -64,6 +66,34 @@ export default function HotLeadsCard() {
       await fetchLeads();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Lead action failed');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const updateLifecycle = async (lead: Lead, stage: 'outreach_sent' | 'responded' | 'next_step' | 'booked' | 'enrolled' | 'lost') => {
+    if (!lead.result_id) return;
+    const reason = window.prompt(`Reason for ${stage.replace('_', ' ')}:`);
+    if (!reason?.trim()) return;
+    setActingId(lead.result_id);
+    setActionMessage(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads/${lead.result_id}/lifecycle`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ stage, reason: reason.trim(), next_step: stage === 'next_step' ? reason.trim() : undefined, enrollment_outcome: stage === 'enrolled' || stage === 'lost' ? stage : undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(formatActionError(data.detail, `update lifecycle to ${stage}`));
+      setActionMessage(`Lifecycle updated to ${stage.replace('_', ' ')}.`);
+      await fetchLeads();
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : 'Lifecycle update failed');
     } finally {
       setActingId(null);
     }
@@ -251,6 +281,8 @@ export default function HotLeadsCard() {
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Next step</p>
+                      <p className="mt-2 text-xs font-medium text-cyan-200">{lead.lifecycle_stage?.replaceAll('_', ' ') || 'not started'}</p>
+                      {lead.next_step && <p className="mt-1 text-xs text-slate-400">{lead.next_step}</p>}
                       <div className="mt-2 flex flex-wrap gap-2">
                         {lead.status !== 'assigned' && lead.status !== 'contacted' && (
                           <button type="button" onClick={() => actOnLead(lead, 'claim')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">
@@ -265,6 +297,11 @@ export default function HotLeadsCard() {
                         ) : lead.status === 'assigned' ? (
                           <span className="text-[10px] font-medium text-slate-400">Assigned to another user</span>
                         ) : null}
+                        {lead.assigned_to_current_user && lead.lifecycle_stage === 'queued' && <button type="button" onClick={() => void updateLifecycle(lead, 'outreach_sent')} disabled={actingId === lead.result_id} className="rounded-full border border-sky-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-sky-200 disabled:opacity-60">Mark outreach sent</button>}
+                        {lead.assigned_to_current_user && ['queued', 'outreach_sent'].includes(lead.lifecycle_stage || '') && <button type="button" onClick={() => void updateLifecycle(lead, 'responded')} disabled={actingId === lead.result_id} className="rounded-full border border-emerald-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-60">Mark responded</button>}
+                        {lead.assigned_to_current_user && lead.lifecycle_stage === 'responded' && <button type="button" onClick={() => void updateLifecycle(lead, 'next_step')} disabled={actingId === lead.result_id} className="rounded-full border border-cyan-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-cyan-200 disabled:opacity-60">Set next step</button>}
+                        {lead.assigned_to_current_user && ['responded', 'next_step'].includes(lead.lifecycle_stage || '') && <button type="button" onClick={() => void updateLifecycle(lead, 'booked')} disabled={actingId === lead.result_id} className="rounded-full border border-violet-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-violet-200 disabled:opacity-60">Mark booked</button>}
+                        {lead.assigned_to_current_user && lead.lifecycle_stage === 'booked' && <button type="button" onClick={() => void updateLifecycle(lead, 'enrolled')} disabled={actingId === lead.result_id} className="rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">Mark enrolled</button>}
                       </div>
                     </div>
                   </div>

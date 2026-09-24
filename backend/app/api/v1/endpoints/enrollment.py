@@ -37,6 +37,28 @@ SLA_RULES = {
     "workflow_retry_minutes": 30,
     "data_quality_hours": 24,
 }
+LIFECYCLE_STAGES = {
+    "not_started",
+    "queued",
+    "outreach_sent",
+    "responded",
+    "next_step",
+    "booked",
+    "enrolled",
+    "lost",
+    "failed",
+}
+LIFECYCLE_TRANSITIONS = {
+    "not_started": {"queued", "failed"},
+    "queued": {"outreach_sent", "responded", "failed"},
+    "outreach_sent": {"responded", "failed"},
+    "responded": {"next_step", "booked", "lost"},
+    "next_step": {"booked", "lost"},
+    "booked": {"enrolled", "lost"},
+    "enrolled": set(),
+    "lost": set(),
+    "failed": {"queued", "lost"},
+}
 
 
 class QueueStateRequest(BaseModel):
@@ -55,6 +77,22 @@ class BatchDecisionRequest(BaseModel):
         "data_quality",
         "unknown",
     ]] = None
+
+
+class FollowUpLifecycleRequest(BaseModel):
+    stage: Literal[
+        "queued",
+        "outreach_sent",
+        "responded",
+        "next_step",
+        "booked",
+        "enrolled",
+        "lost",
+        "failed",
+    ]
+    reason: str = Field(..., min_length=3, max_length=500)
+    next_step: Optional[str] = Field(None, max_length=500)
+    enrollment_outcome: Optional[str] = Field(None, max_length=200)
 
 
 def _audit(db: Session, current_user: Any, result_id: Any, event_type: str, details: dict[str, Any]) -> None:
@@ -218,6 +256,8 @@ async def get_enrollment_hot_leads(
                 "category": row.category,
                 "approval_id": str(row.approval_id) if row.approval_id else None,
                 "status": getattr(row, "queue_status", "new"),
+                "lifecycle_stage": getattr(row, "lifecycle_stage", "not_started"),
+                "next_step": getattr(row, "next_step", None),
                 "assigned_user_id": str(row.assigned_user_id) if row.assigned_user_id else None,
                 "assigned_to_current_user": (
                     str(row.assigned_user_id) == current_user_id
@@ -545,6 +585,11 @@ async def get_enrollment_operations(
                 "assigned_user_id": str(row.assigned_user_id) if getattr(row, "assigned_user_id", None) else None,
                 "follow_up_status": getattr(row, "follow_up_status", "not_started"),
                 "follow_up_at": _serialize_datetime(getattr(row, "follow_up_at", None)),
+                "lifecycle_stage": getattr(row, "lifecycle_stage", "not_started"),
+                "next_step": getattr(row, "next_step", None),
+                "response_at": _serialize_datetime(getattr(row, "response_at", None)),
+                "booked_at": _serialize_datetime(getattr(row, "booked_at", None)),
+                "enrollment_outcome": getattr(row, "enrollment_outcome", None),
                 "error": row.error,
                 "retry_count": row.retry_count,
                 "score_origin": getattr(row, "score_origin", "approved_batch"),
@@ -688,6 +733,79 @@ async def retry_enrollment_batch_result(
     return await retry_batch_result(result, approval, db)
 
 
+@router.patch("/hot-leads/{result_id}/lifecycle", dependencies=[Depends(require_permission("leads:write"))])
+async def update_follow_up_lifecycle(
+    result_id: UUID,
+    request: FollowUpLifecycleRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Record the next authenticated step in the Enrollment follow-up lifecycle."""
+    result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hot lead not found")
+    if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Claim the lead before updating follow-up")
+
+    previous_stage = getattr(result, "lifecycle_stage", "not_started")
+    if request.stage not in LIFECYCLE_STAGES or request.stage not in LIFECYCLE_TRANSITIONS.get(previous_stage, set()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invalid follow-up lifecycle transition: {previous_stage} -> {request.stage}",
+        )
+
+    now = datetime.now(timezone.utc)
+    writeback = await ghl_service.sync_enrollment_outcome(
+        str(result.contact_id),
+        queue_status=result.queue_status,
+        owner_id=str(current_user.id),
+        lifecycle_stage=request.stage,
+        note=f"ENY Enrollment lifecycle changed to {request.stage}: {request.reason}",
+    )
+    if not writeback.get("success"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail={
+            "message": "Follow-up lifecycle was not changed because GHL write-back failed",
+            "writeback": writeback,
+        })
+
+    result.lifecycle_stage = request.stage
+    result.lifecycle_updated_at = now
+    result.next_step = request.next_step
+    result.enrollment_outcome = request.enrollment_outcome
+    if request.stage == "responded":
+        result.response_at = now
+    if request.stage == "booked":
+        result.booked_at = now
+    if request.stage == "enrolled":
+        result.enrollment_outcome = request.enrollment_outcome or "enrolled"
+    if request.stage == "lost":
+        result.enrollment_outcome = request.enrollment_outcome or "lost"
+
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=result.id,
+        event_type="follow_up_lifecycle_changed",
+        details={
+            "from": previous_stage,
+            "to": request.stage,
+            "reason": request.reason,
+            "next_step": request.next_step,
+            "enrollment_outcome": result.enrollment_outcome,
+            "ghl_writeback": writeback,
+        },
+    ))
+    db.commit()
+    return {
+        "result_id": str(result.id),
+        "lifecycle_stage": result.lifecycle_stage,
+        "next_step": result.next_step,
+        "response_at": _serialize_datetime(result.response_at),
+        "booked_at": _serialize_datetime(result.booked_at),
+        "enrollment_outcome": result.enrollment_outcome,
+        "ghl_writeback": writeback,
+    }
+
+
 @router.post("/hot-leads/{result_id}/claim", dependencies=[Depends(require_permission("leads:write"))])
 async def claim_hot_lead(
     result_id: UUID,
@@ -809,6 +927,7 @@ async def follow_up_hot_lead(
         str(result.contact_id),
         queue_status="contacted",
         owner_id=str(current_user.id),
+        lifecycle_stage="queued",
         note="ENY Enrollment follow-up completed and contact status synchronized.",
     )
     if not writeback.get("success"):
@@ -821,6 +940,8 @@ async def follow_up_hot_lead(
         })
     _transition_queue_state(result, "contacted", current_user.id, "Follow-up workflow completed")
     result.last_action_at = result.follow_up_at
+    result.lifecycle_stage = "queued"
+    result.lifecycle_updated_at = result.follow_up_at
     result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
     result.notification_error = workflow.get("notification_error")
     if result.notification_status == "sent":
