@@ -11,14 +11,14 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.get("/metrics", dependencies=[Depends(require_permission("leads:read"))])
+@router.get("/metrics", dependencies=[Depends(require_permission("marketing:analytics"))])
 async def get_marketing_metrics(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Get marketing dashboard metrics.
-    Requires leads:read permission.
+    Requires marketing:analytics permission.
     """
     try:
         contacts, _ = await ghl_service.get_all_contacts()
@@ -38,14 +38,14 @@ async def get_marketing_metrics(
             detail=f"Failed to fetch metrics: {str(e)}"
         )
 
-@router.get("/analytics", dependencies=[Depends(require_permission("leads:read"))])
+@router.get("/analytics", dependencies=[Depends(require_permission("marketing:analytics"))])
 async def get_marketing_analytics(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Get marketing analytics.
-    Requires leads:read permission.
+    Requires marketing:analytics permission.
     """
     try:
         campaigns = [
