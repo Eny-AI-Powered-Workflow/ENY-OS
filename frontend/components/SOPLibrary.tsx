@@ -21,6 +21,7 @@ const departmentNames: Record<string, string> = {
   programs_manager: 'Program Management',
   customer_success: 'Customer Success',
   business_support: 'Business Support',
+  marketing: 'Marketing',
   executive_assistant: 'Executive Assistant',
   developer: 'Platform Engineering',
 }
