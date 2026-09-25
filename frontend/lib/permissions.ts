@@ -112,12 +112,12 @@ export function usePermissions() {
   // Calculate permissions from userRoles
   // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
   const rolePermissions = {
-    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write', 'marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research'],
+    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write', 'marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:approve_sensitive'],
     programs_manager: ['students:read', 'students:write', 'pipeline:read', 'ai:chat'],
     customer_success: ['students:read', 'students:write', 'ai:chat'],
     business_support: ['ai:chat'],
     marketing: ['marketing:read', 'marketing:write', 'marketing:analytics', 'marketing:research'],
-    marketing_lead: ['marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research'],
+    marketing_lead: ['marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations'],
     executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
     developer: ['agents:trigger', 'agents:configure', 'ai:chat']

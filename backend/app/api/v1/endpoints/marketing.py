@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Literal, Optional
 from app.api.deps import require_permission
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
 from sqlalchemy.orm import Session
@@ -14,6 +15,9 @@ from app.services.ghl_service import ghl_service
 from app.services.claude_service import ClaudeService
 from app.services.knowledge_service import retrieve_knowledge
 from app.models.marketing_content import MarketingContentEvent, MarketingContentItem
+from app.models.marketing_delivery import MarketingDelivery, MarketingDeliveryEvent
+from app.models.operational_alert import OperationalAlert
+from app.services.marketing_delivery_service import marketing_delivery_service
 import logging
 
 router = APIRouter()
@@ -37,6 +41,18 @@ class ContentCreateRequest(BaseModel):
     prompt: Optional[str] = Field(None, max_length=10000)
     source_documents: list[dict[str, Any]] = Field(default_factory=list)
     confidence: str = "unverified"
+
+
+class DeliveryScheduleRequest(BaseModel):
+    content_id: UUID
+    channel: Literal["email", "linkedin", "instagram", "facebook", "x", "tiktok"]
+    scheduled_at: datetime
+    recipients: list[dict[str, str]] = Field(default_factory=list)
+    subject: Optional[str] = Field(None, max_length=240)
+    unsubscribe_url: Optional[str] = Field(None, max_length=2000)
+    consent_confirmed: bool = False
+    sensitive_broadcast: bool = False
+    ceo_approval_note: Optional[str] = Field(None, max_length=1000)
 
 @router.get("/metrics", dependencies=[Depends(require_permission("marketing:analytics"))])
 async def get_marketing_metrics(
@@ -222,6 +238,120 @@ async def publish_marketing_content(
     db.add(MarketingContentEvent(content_id=item.id, actor_id=current_user.id, event_type="published", details={"note": request.note, "external_publish": False}))
     db.commit()
     return _serialize_content(item)
+
+
+@router.get("/deliveries", dependencies=[Depends(require_permission("marketing:read"))])
+async def list_marketing_deliveries(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    deliveries = db.query(MarketingDelivery).order_by(MarketingDelivery.scheduled_at.desc()).limit(200).all()
+    return {"deliveries": [
+        {
+            "id": str(delivery.id),
+            "content_id": str(delivery.content_id),
+            "channel": delivery.channel,
+            "provider": delivery.provider,
+            "status": delivery.status,
+            "scheduled_at": delivery.scheduled_at.isoformat(),
+            "sent_at": delivery.sent_at.isoformat() if delivery.sent_at else None,
+            "recipient_count": delivery.recipient_count,
+            "metrics": delivery.metrics,
+            "error": delivery.error,
+        }
+        for delivery in deliveries
+    ]}
+
+
+@router.post("/deliveries/schedule", dependencies=[Depends(require_permission("marketing:send"))])
+async def schedule_marketing_delivery(
+    request: DeliveryScheduleRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    content = db.query(MarketingContentItem).filter(MarketingContentItem.id == request.content_id).first()
+    if not content:
+        raise HTTPException(status_code=404, detail="Marketing content not found")
+    if content.status != "approved":
+        raise HTTPException(status_code=409, detail="Only approved content can be scheduled")
+    if request.sensitive_broadcast:
+        raise HTTPException(status_code=409, detail="Use the CEO-only sensitive scheduling endpoint")
+    if request.channel == "email" and (not request.consent_confirmed or not request.unsubscribe_url or not request.subject):
+        raise HTTPException(status_code=422, detail="Email requires consent confirmation, subject, and unsubscribe URL")
+    provider = "ghl" if request.channel == "email" else "buffer"
+    delivery = MarketingDelivery(
+        content_id=content.id,
+        channel=request.channel,
+        provider=provider,
+        status="scheduled",
+        scheduled_at=request.scheduled_at,
+        recipient_count=len(request.recipients),
+        details={"recipients": request.recipients, "subject": request.subject, "unsubscribe_url": request.unsubscribe_url, "sensitive_broadcast": bool(request.ceo_approval_note), "ceo_approval_note": request.ceo_approval_note},
+        created_by=current_user.id,
+    )
+    db.add(delivery)
+    db.flush()
+    db.add(MarketingDeliveryEvent(delivery_id=delivery.id, actor_id=current_user.id, event_type="scheduled", details={"provider": provider}))
+    db.commit()
+    return {"id": str(delivery.id), "status": delivery.status, "provider": provider}
+
+
+@router.post("/deliveries/schedule-sensitive", dependencies=[Depends(require_permission("marketing:send")), Depends(require_permission("marketing:approve_sensitive"))])
+async def schedule_sensitive_marketing_delivery(
+    request: DeliveryScheduleRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    request.sensitive_broadcast = True
+    if not request.ceo_approval_note:
+        raise HTTPException(status_code=422, detail="CEO approval note is required")
+    request.sensitive_broadcast = False
+    return await schedule_marketing_delivery(request=request, db=db, current_user=current_user)
+
+
+@router.post("/deliveries/{delivery_id}/execute", dependencies=[Depends(require_permission("marketing:send"))])
+async def execute_marketing_delivery(
+    delivery_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    delivery = db.query(MarketingDelivery).filter(MarketingDelivery.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Marketing delivery not found")
+    content = db.query(MarketingContentItem).filter(MarketingContentItem.id == delivery.content_id).first()
+    if not content or content.status != "approved":
+        raise HTTPException(status_code=409, detail="Only approved content can be delivered")
+    details = delivery.details or {}
+    if delivery.provider == "ghl":
+        result = await marketing_delivery_service.send_ghl_email(
+            details.get("recipients", []),
+            details.get("subject") or content.title,
+            content.content,
+            details.get("unsubscribe_url") or "https://enyconsulting.com/unsubscribe",
+        )
+        success = result.get("status") == "sent"
+    else:
+        profile_ids = [value.strip() for value in settings.BUFFER_PROFILE_IDS.split(",") if value.strip()]
+        result = await marketing_delivery_service.schedule_buffer(content.content, profile_ids, delivery.scheduled_at)
+        success = result.get("status") == "scheduled"
+    delivery.status = "sent" if success else "failed"
+    delivery.sent_at = datetime.now(timezone.utc) if success else None
+    delivery.metrics = result
+    delivery.error = None if success else "; ".join(result.get("errors", []))
+    db.add(MarketingDeliveryEvent(delivery_id=delivery.id, actor_id=current_user.id, event_type="sent" if success else "failed", details=result))
+    if not success:
+        db.add(OperationalAlert(
+            team="marketing",
+            alert_type="marketing_delivery_failure",
+            severity="critical",
+            source=delivery.provider,
+            message="Approved Marketing content delivery failed.",
+            details={"delivery_id": str(delivery.id), "result": result},
+        ))
+    db.commit()
+    if not success:
+        raise HTTPException(status_code=502, detail={"message": "Marketing delivery failed", "result": result})
+    return {"id": str(delivery.id), "status": delivery.status, "metrics": result}
 
 
 @router.get("/content/{content_id}/history", dependencies=[Depends(require_permission("marketing:read"))])

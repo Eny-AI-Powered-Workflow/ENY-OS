@@ -44,6 +44,7 @@ supabase/migrations/*
 !supabase/migrations/0017_ea_action_reporting.sql
 !supabase/migrations/0018_marketing_rbac.sql
 !supabase/migrations/0019_marketing_content_workspace.sql
+!supabase/migrations/0020_marketing_deliveries.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md
