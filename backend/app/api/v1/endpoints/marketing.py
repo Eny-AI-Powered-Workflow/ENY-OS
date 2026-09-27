@@ -17,7 +17,9 @@ from app.services.knowledge_service import retrieve_knowledge
 from app.models.marketing_content import MarketingContentEvent, MarketingContentItem
 from app.models.marketing_delivery import MarketingDelivery, MarketingDeliveryEvent
 from app.models.operational_alert import OperationalAlert
+from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingSeoObservation, MarketingSocialMention
 from app.services.marketing_delivery_service import marketing_delivery_service
+from app.services.marketing_intelligence_service import marketing_intelligence_service
 import logging
 
 router = APIRouter()
@@ -25,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 CONTENT_TYPES = {"social_post", "email_campaign", "blog_article", "video_script", "short_form_caption", "repurposed_content", "seo_brief"}
 CHANNELS = {"linkedin", "instagram", "facebook", "x", "tiktok", "email", "blog"}
+SEO_OBSERVATION_TYPES = {"keyword", "ranking", "search_performance", "content_opportunity", "competitor", "technical_issue", "ai_overview"}
+SOCIAL_CLASSIFICATIONS = {"lead", "opportunity", "customer_question", "positive_mention", "complaint", "spam", "unclassified"}
+SOCIAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unclassified"}
+SOCIAL_RISK_LEVELS = {"low", "medium", "high", "critical"}
 
 
 class ContentStatusRequest(BaseModel):
@@ -53,6 +59,108 @@ class DeliveryScheduleRequest(BaseModel):
     consent_confirmed: bool = False
     sensitive_broadcast: bool = False
     ceo_approval_note: Optional[str] = Field(None, max_length=1000)
+
+
+class SeoObservationRequest(BaseModel):
+    observation_type: Literal["keyword", "ranking", "search_performance", "content_opportunity", "competitor", "technical_issue", "ai_overview"]
+    keyword: Optional[str] = Field(None, max_length=500)
+    url: Optional[str] = Field(None, max_length=2000)
+    value: dict[str, Any] = Field(default_factory=dict)
+    source: str = Field(..., min_length=2, max_length=120)
+    observed_at: datetime
+
+
+class SocialMentionRequest(BaseModel):
+    platform: str = Field(..., min_length=2, max_length=50)
+    external_id: Optional[str] = Field(None, max_length=240)
+    author: Optional[str] = Field(None, max_length=240)
+    text: str = Field(..., min_length=1, max_length=10000)
+    url: Optional[str] = Field(None, max_length=2000)
+    matched_term: str = Field(..., min_length=2, max_length=240)
+    classification: Literal["lead", "opportunity", "customer_question", "positive_mention", "complaint", "spam", "unclassified"] = "unclassified"
+    sentiment: Literal["positive", "neutral", "negative", "mixed", "unclassified"] = "unclassified"
+    risk_level: Literal["low", "medium", "high", "critical"] = "low"
+    observed_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def _source_status(family: str) -> dict[str, Any]:
+    providers = marketing_intelligence_service.provider_status()
+    configured = marketing_intelligence_service.configured_sources(family)
+    return {"status": "configured" if configured else "not_configured", "configured_sources": configured, "providers": providers}
+
+
+@router.get("/intelligence/status", dependencies=[Depends(require_permission("marketing:research"))])
+async def get_marketing_intelligence_status():
+    return {"seo": _source_status("seo"), "social": _source_status("social")}
+
+
+@router.get("/seo/overview", dependencies=[Depends(require_permission("marketing:seo"))])
+async def get_seo_overview(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    observations = db.query(MarketingSeoObservation).order_by(MarketingSeoObservation.observed_at.desc()).limit(500).all()
+    latest_by_type: dict[str, dict[str, Any]] = {}
+    for observation in observations:
+        latest_by_type.setdefault(observation.observation_type, {
+            "value": observation.value,
+            "keyword": observation.keyword,
+            "url": observation.url,
+            "source": observation.source,
+            "observed_at": observation.observed_at.isoformat(),
+        })
+    return {
+        "source_status": _source_status("seo"),
+        "counts": {"observations": len(observations), "keywords": len({item.keyword for item in observations if item.keyword})},
+        "latest_by_type": latest_by_type,
+        "observations": [{"id": str(item.id), "observation_type": item.observation_type, "keyword": item.keyword, "url": item.url, "value": item.value, "source": item.source, "observed_at": item.observed_at.isoformat()} for item in observations[:100]],
+    }
+
+
+@router.post("/seo/observations", dependencies=[Depends(require_permission("marketing:seo"))])
+async def create_seo_observation(request: SeoObservationRequest, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    observation = MarketingSeoObservation(**request.model_dump(), created_by=current_user.id)
+    db.add(observation)
+    db.flush()
+    db.add(MarketingIntelligenceEvent(entity_type="seo_observation", entity_id=observation.id, actor_id=current_user.id, event_type="created", details={"source": request.source, "observed_at": request.observed_at.isoformat()}))
+    db.commit()
+    return {"id": str(observation.id), "status": "recorded", "source": observation.source, "observed_at": observation.observed_at.isoformat()}
+
+
+@router.post("/seo/recommendations", dependencies=[Depends(require_permission("marketing:research"))])
+async def generate_seo_recommendations(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    observations = db.query(MarketingSeoObservation).order_by(MarketingSeoObservation.observed_at.desc()).limit(100).all()
+    if not observations:
+        return {"status": "not_configured", "message": "No source-backed SEO observations are available yet.", "recommendations": []}
+    evidence = [{"type": item.observation_type, "keyword": item.keyword, "url": item.url, "value": item.value, "source": item.source, "observed_at": item.observed_at.isoformat()} for item in observations]
+    prompt = f"""Create a concise weekly SEO recommendation list for ENY Marketing using only the evidence below.
+Do not invent rankings, traffic, dates, competitors, or performance claims. Every recommendation must cite one or more exact source and observed_at pairs from the evidence. Identify missing data explicitly.
+Evidence:
+{json.dumps(evidence, default=str)}"""
+    response = await ClaudeService().invoke(prompt=prompt, role_context="marketing", max_tokens=1800, temperature=0.2)
+    return {"status": "generated", "source_count": len(evidence), "recommendations": response, "evidence": evidence}
+
+
+@router.get("/social/overview", dependencies=[Depends(require_permission("marketing:social"))])
+async def get_social_overview(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    mentions = db.query(MarketingSocialMention).order_by(MarketingSocialMention.observed_at.desc()).limit(500).all()
+    counts = {classification: sum(1 for item in mentions if item.classification == classification) for classification in sorted(SOCIAL_CLASSIFICATIONS)}
+    risk_counts = {risk: sum(1 for item in mentions if item.risk_level == risk) for risk in sorted(SOCIAL_RISK_LEVELS)}
+    return {
+        "source_status": _source_status("social"),
+        "counts": {"mentions": len(mentions), "classifications": counts, "risk": risk_counts, "open_high_risk": sum(1 for item in mentions if item.status == "open" and item.risk_level in {"high", "critical"})},
+        "mentions": [{"id": str(item.id), "platform": item.platform, "author": item.author, "text": item.text, "url": item.url, "matched_term": item.matched_term, "classification": item.classification, "sentiment": item.sentiment, "risk_level": item.risk_level, "status": item.status, "source": item.source, "observed_at": item.observed_at.isoformat()} for item in mentions[:100]],
+    }
+
+
+@router.post("/social/mentions", dependencies=[Depends(require_permission("marketing:social"))])
+async def create_social_mention(request: SocialMentionRequest, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    mention = MarketingSocialMention(**request.model_dump(exclude={"metadata"}), metadata_json=request.metadata, created_by=current_user.id)
+    db.add(mention)
+    db.flush()
+    db.add(MarketingIntelligenceEvent(entity_type="social_mention", entity_id=mention.id, actor_id=current_user.id, event_type="created", details={"platform": request.platform, "risk_level": request.risk_level, "source": request.platform}))
+    if mention.risk_level in {"high", "critical"}:
+        db.add(OperationalAlert(team="marketing", alert_type="marketing_social_risk", severity="critical", source=mention.platform, message="High-risk social mention requires human review.", details={"mention_id": str(mention.id), "matched_term": mention.matched_term}))
+    db.commit()
+    return {"id": str(mention.id), "status": "routed_for_review" if mention.risk_level in {"high", "critical"} else "recorded", "risk_level": mention.risk_level}
 
 @router.get("/metrics", dependencies=[Depends(require_permission("marketing:analytics"))])
 async def get_marketing_metrics(
