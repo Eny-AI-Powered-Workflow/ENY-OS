@@ -46,6 +46,12 @@ export const MODULES: Module[] = [
     permissions: ['marketing:read']
   },
   {
+    name: 'Graphic & Funnel Designer',
+    href: '/dashboard/designer',
+    icon: 'Palette',
+    permissions: ['design:workspace']
+  },
+  {
     name: 'Operations',
     href: '/dashboard/operations',
     icon: 'Settings',
@@ -112,12 +118,13 @@ export function usePermissions() {
   // Calculate permissions from userRoles
   // Role to permissions mapping based on the seed data in 0001_init_rbac.sql
   const rolePermissions = {
-    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write', 'marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:approve_sensitive', 'marketing:seo', 'marketing:social'],
-    programs_manager: ['students:read', 'students:write', 'pipeline:read', 'ai:chat'],
-    customer_success: ['students:read', 'students:write', 'ai:chat'],
-    business_support: ['ai:chat'],
-    marketing: ['marketing:read', 'marketing:write', 'marketing:analytics', 'marketing:research', 'marketing:seo', 'marketing:social'],
-    marketing_lead: ['marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:seo', 'marketing:social'],
+    ceo: ['leads:read', 'leads:write', 'pipeline:read', 'agents:trigger', 'agents:configure', 'students:read', 'students:write', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write', 'marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:approve_sensitive', 'marketing:seo', 'marketing:social', 'design:workspace', 'design:manage', 'design:write', 'design:read_marketing', 'design:read_programs', 'design:review_marketing', 'design:review_programs', 'design:templates', 'design:funnels', 'design:analytics', 'design:publish'],
+    programs_manager: ['students:read', 'students:write', 'pipeline:read', 'ai:chat', 'design:workspace', 'design:read_programs', 'design:review_programs'],
+    customer_success: ['students:read', 'students:write', 'ai:chat', 'design:workspace', 'design:read_programs'],
+    business_support: ['ai:chat', 'design:workspace', 'design:read_marketing'],
+    marketing: ['marketing:read', 'marketing:write', 'marketing:analytics', 'marketing:research', 'marketing:seo', 'marketing:social', 'design:workspace', 'design:read_marketing'],
+    marketing_lead: ['marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:seo', 'marketing:social', 'design:workspace', 'design:read_marketing', 'design:review_marketing', 'design:templates', 'design:funnels', 'design:analytics', 'design:publish'],
+    graphic_designer: ['design:workspace', 'design:manage', 'design:write', 'design:templates', 'design:funnels', 'design:analytics'],
     executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
     developer: ['agents:trigger', 'agents:configure', 'ai:chat']

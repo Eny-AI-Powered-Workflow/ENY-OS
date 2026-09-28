@@ -34,6 +34,17 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    `GHL_MARKETING_CONSENT_FIELD_ID` to identify a GHL custom field that contains
    an explicit opt-in value.
 
+   The Graphic & Funnel Designer foundation uses
+   `supabase/migrations/0024_graphic_designer_foundation.sql`. It adds the
+   `graphic_designer` role and audience-scoped design permissions. Assign the
+   role through the existing Supabase RBAC/user-role workflow; no new API keys
+   or provider setup are required for phases 1–2. To grant a user this role,
+   add `graphic_designer` to that user's Supabase Auth `user_metadata.roles`
+   array; the existing backend token sync adds the corresponding `user_roles`
+   row at their next authenticated request. Start with
+   `GRAPHIC_DESIGN_FOUNDATION_TEMPLATE.md` and enter only approved source
+   material in the Designer workspace.
+
 3. Seed test users, one per role:
 
        python scripts/seed_dev_data.py
