@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
 import { Clapperboard, FileVideo2, Loader2, RefreshCw, Sparkles, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
+import LinkedDesignAssets from '@/components/LinkedDesignAssets'
 
 type VideoAsset = {
   id: string
@@ -116,6 +117,7 @@ export default function MarketingVideoWorkspace() {
         {assets.map((asset) => <article key={asset.id} className="rounded-xl border border-slate-200 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><FileVideo2 className="mt-0.5 h-4 w-4 text-rose-700" /><div><h3 className="font-semibold text-slate-900">{asset.title}</h3><p className="mt-1 text-xs text-slate-500">{asset.original_filename} · {fileSize(asset.size_bytes)} · {asset.status.replaceAll('_', ' ')}</p></div></div><div className="flex flex-wrap gap-2">{!asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'transcribe')} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"><Clapperboard className="h-3.5 w-3.5" />Transcribe</button>}{asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'generate-pack')} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />Generate review pack</button>}</div></div>
           {asset.transcript && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-700">Transcript · {asset.transcript_provider || 'provider unknown'}</summary><p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-5 text-slate-600">{asset.transcript}</p></details>}
+        <div className="space-y-1">{assets.filter((asset) => asset.status === 'pack_generated').map((asset) => <LinkedDesignAssets key={`video-design-${asset.id}`} sourceVideoAssetId={asset.id} contextLabel={asset.title} />)}</div>
           {asset.generated_outputs.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">{asset.generated_outputs.map((output, index) => <div key={`${output.kind}-${index}`} className="rounded-lg bg-slate-50 p-3 text-xs"><p className="font-semibold text-slate-800">{output.kind.replaceAll('_', ' ')} · {output.title}</p>{typeof output.start_seconds === 'number' && <p className="mt-1 text-slate-500">{output.start_seconds.toFixed(1)}s–{(output.end_seconds || 0).toFixed(1)}s</p>}<p className="mt-1 text-slate-500">Saved as approval-required draft content.</p></div>)}</div>}
         </article>)}
         {!assets.length && !loading && <p className="py-6 text-center text-sm text-slate-500">No source recordings have been uploaded.</p>}

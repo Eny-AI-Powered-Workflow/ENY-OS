@@ -84,11 +84,11 @@ def _visible_document_query(db: Session, user_id: UUID):
     if _has_scope(db, user_id, "design:read_marketing"):
         audience_filters.append((DesignSystemDocument.audience.in_(["marketing", "shared"])) & (DesignSystemDocument.status == "approved"))
     if _has_scope(db, user_id, "design:review_marketing"):
-        audience_filters.append((DesignSystemDocument.audience.in_(["marketing", "shared"])) & (DesignSystemDocument.status == "in_review"))
+        audience_filters.append((DesignSystemDocument.audience == "marketing") & (DesignSystemDocument.status == "in_review"))
     if _has_scope(db, user_id, "design:read_programs"):
         audience_filters.append((DesignSystemDocument.audience.in_(["programs", "student_success", "shared"])) & (DesignSystemDocument.status == "approved"))
     if _has_scope(db, user_id, "design:review_programs"):
-        audience_filters.append((DesignSystemDocument.audience.in_(["programs", "student_success", "shared"])) & (DesignSystemDocument.status == "in_review"))
+        audience_filters.append((DesignSystemDocument.audience.in_(["programs", "student_success"])) & (DesignSystemDocument.status == "in_review"))
     if not audience_filters:
         raise HTTPException(status_code=403, detail="No Designer documents are available to this account")
     return db.query(DesignSystemDocument).filter(or_(*audience_filters))
@@ -112,7 +112,7 @@ def _snapshot(document: DesignSystemDocument) -> dict[str, Any]:
 @router.get("/foundation", dependencies=[Depends(require_permission("design:workspace"))])
 async def list_design_foundation(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     documents = _visible_document_query(db, current_user.id).order_by(DesignSystemDocument.audience, DesignSystemDocument.category, DesignSystemDocument.title).limit(500).all()
-    scopes = [scope for scope in ("design:manage", "design:write", "design:read_marketing", "design:read_programs", "design:review_marketing", "design:review_programs", "design:templates", "design:funnels", "design:analytics", "design:publish") if _has_scope(db, current_user.id, scope)]
+    scopes = [scope for scope in ("design:manage", "design:write", "design:read_marketing", "design:read_programs", "design:review_marketing", "design:review_programs", "design:templates", "design:funnels", "design:analytics", "design:publish", "design:request", "design:publish_marketing", "design:publish_programs") if _has_scope(db, current_user.id, scope)]
     return {"documents": [_serialize(document) for document in documents], "permissions": scopes}
 
 

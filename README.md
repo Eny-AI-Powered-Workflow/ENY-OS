@@ -43,7 +43,14 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    array; the existing backend token sync adds the corresponding `user_roles`
    row at their next authenticated request. Start with
    `GRAPHIC_DESIGN_FOUNDATION_TEMPLATE.md` and enter only approved source
-   material in the Designer workspace.
+   material in the Designer workspace. For Designer requests, private asset
+   files, and manual template production, apply
+   `supabase/migrations/0025_design_requests_assets_templates.sql` after 0024.
+   `SUPABASE_DESIGN_ASSET_BUCKET` (default `design-assets`) and
+   `DESIGN_ASSET_MAX_UPLOAD_MB` (default `50`) are optional backend settings;
+   they are not secrets. Storage access uses the existing Supabase service-role
+   key on the backend only. Canva API credentials are not needed for this
+   manual-template phase; store approved Canva template links in the workspace.
 
 3. Seed test users, one per role:
 

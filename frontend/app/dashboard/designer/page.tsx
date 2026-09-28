@@ -1,4 +1,5 @@
 import GraphicDesignerWorkspace from '@/components/GraphicDesignerWorkspace'
+import DesignProductionWorkspace from '@/components/DesignProductionWorkspace'
 
 export default function GraphicDesignerPage() {
   return (
@@ -9,6 +10,7 @@ export default function GraphicDesignerPage() {
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Manage ENY’s versioned brand foundation and audience-specific visual guidance.</p>
       </header>
       <GraphicDesignerWorkspace />
+      <DesignProductionWorkspace />
     </div>
   )
 }
