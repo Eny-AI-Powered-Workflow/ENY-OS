@@ -26,11 +26,15 @@ from app.models.design_system import (
     DesignAssetFile,
     DesignFunnel,
     DesignFunnelEvent,
+    DesignFunnelExperiment,
+    DesignFunnelMeasurement,
     DesignFunnelVariant,
     DesignProviderEvent,
     DesignRequest,
     DesignSystemDocument,
     DesignTemplate,
+    ProgramMaterialInstance,
+    ProgramMaterialTemplate,
 )
 from app.models.permission import Permission
 from app.models.role_permission import RolePermission
@@ -76,6 +80,44 @@ class CanvaAutofillRequest(BaseModel):
 
 class CanvaExportRequest(BaseModel):
     format: Literal["png", "pdf"] = "png"
+
+
+class FunnelMeasurementCreate(BaseModel):
+    variant_id: Optional[UUID] = None
+    event_type: Literal["visit", "form_start", "form_complete", "conversion", "attribution"] = "visit"
+    conversion_event: Optional[str] = Field(None, min_length=2, max_length=160)
+    source: str = Field(default="direct", min_length=1, max_length=80)
+    provider: str = Field(default="webflow", min_length=1, max_length=80)
+    campaign_name: Optional[str] = Field(None, max_length=160)
+    session_key: Optional[str] = Field(None, max_length=200)
+    referral_url: Optional[str] = Field(None, max_length=2000)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class FunnelExperimentCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=180)
+    goal_event: str = Field(..., min_length=2, max_length=160)
+    hypothesis: str = Field(..., min_length=10, max_length=4000)
+    control_variant_id: UUID
+    treatment_variant_id: UUID
+    traffic_split: int = Field(50, ge=5, le=95)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class ProgramMaterialTemplateCreate(BaseModel):
+    template_key: str = Field(..., min_length=3, max_length=100, pattern=r"^[a-z0-9][a-z0-9._-]+$")
+    title: str = Field(..., min_length=3, max_length=240)
+    category: str = Field(..., min_length=2, max_length=80)
+    audience: Literal["programs", "student_success", "shared"]
+    allowed_fields: list[str] = Field(..., min_length=1, max_length=50)
+    required_fields: list[str] = Field(default_factory=list, max_length=20)
+    template_json: dict[str, Any] = Field(default_factory=dict)
+    usage_rights: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProgramMaterialRenderRequest(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    allow_pii: bool = False
 
 
 def _has_scope(db: Session, user_id: UUID, scope: str) -> bool:
@@ -420,6 +462,128 @@ async def poll_canva_export(asset_id: UUID, db: Session = Depends(get_db), curre
     return {"asset_id": str(asset.id), "job_status": job.get("status"), "error": job.get("error"), "file_count": db.query(DesignAssetFile.id).filter(DesignAssetFile.asset_id == asset.id).count()}
 
 
+@router.get("/funnels/{funnel_id}/metrics", dependencies=[Depends(require_permission("design:analytics"))])
+async def list_funnel_metrics(funnel_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    if not funnel:
+        raise HTTPException(status_code=404, detail="Funnel not found")
+    if not _has_scope(db, current_user.id, "design:manage") and funnel.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the funnel owner or a Designer can view metrics")
+    measurements = db.query(DesignFunnelMeasurement).filter(DesignFunnelMeasurement.funnel_id == funnel_id).order_by(DesignFunnelMeasurement.observed_at.desc()).limit(500).all()
+    return {"funnel_id": str(funnel.id), "measurements": [{"id": str(item.id), "variant_id": str(item.variant_id) if item.variant_id else None, "event_type": item.event_type, "conversion_event": item.conversion_event, "source": item.source, "provider": item.provider, "campaign_name": item.campaign_name, "session_key": item.session_key, "referral_url": item.referral_url, "details": item.details, "conversion_value": item.conversion_value, "observed_at": item.observed_at.isoformat() if item.observed_at else None} for item in measurements]}
+
+
+@router.post("/funnels/{funnel_id}/measurements", dependencies=[Depends(require_permission("design:analytics"))])
+async def record_funnel_measurement(funnel_id: UUID, request: FunnelMeasurementCreate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    if not funnel:
+        raise HTTPException(status_code=404, detail="Funnel not found")
+    if request.variant_id:
+        variant = db.query(DesignFunnelVariant).filter(DesignFunnelVariant.id == request.variant_id, DesignFunnelVariant.funnel_id == funnel_id).first()
+        if not variant:
+            raise HTTPException(status_code=404, detail="Variant does not belong to this funnel")
+    if request.event_type == "conversion" and not request.conversion_event:
+        raise HTTPException(status_code=422, detail="Conversion events require a conversion_event value")
+    if request.provider not in {"webflow", "manual", "ghl", "canva"}:
+        raise HTTPException(status_code=422, detail="Unsupported provider for funnel measurement")
+    measurement = DesignFunnelMeasurement(
+        funnel_id=funnel.id,
+        variant_id=request.variant_id,
+        source=request.source,
+        provider=request.provider,
+        campaign_name=request.campaign_name,
+        session_key=request.session_key,
+        referral_url=request.referral_url,
+        event_type=request.event_type,
+        conversion_event=request.conversion_event,
+        conversion_value=int(request.details.get("value", 0) or 0),
+        details=request.details,
+    )
+    db.add(measurement)
+    db.add(DesignFunnelEvent(funnel_id=funnel.id, variant_id=request.variant_id, actor_id=current_user.id, event_type="measurement_recorded", details={"measurement_id": str(measurement.id), "event_type": request.event_type, "conversion_event": request.conversion_event, "source": request.source}))
+    db.commit()
+    return {"id": str(measurement.id), "funnel_id": str(funnel.id), "status": "recorded"}
+
+
+@router.post("/funnels/{funnel_id}/experiments", dependencies=[Depends(require_permission("design:analytics"))])
+async def create_funnel_experiment(funnel_id: UUID, request: FunnelExperimentCreate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    if not funnel:
+        raise HTTPException(status_code=404, detail="Funnel not found")
+    if funnel.owner_id != current_user.id and not _has_scope(db, current_user.id, "design:manage"):
+        raise HTTPException(status_code=403, detail="Only the funnel owner or a Designer/CEO can start an experiment")
+    control = db.query(DesignFunnelVariant).filter(DesignFunnelVariant.id == request.control_variant_id, DesignFunnelVariant.funnel_id == funnel.id).first()
+    treatment = db.query(DesignFunnelVariant).filter(DesignFunnelVariant.id == request.treatment_variant_id, DesignFunnelVariant.funnel_id == funnel.id).first()
+    if not control or not treatment:
+        raise HTTPException(status_code=404, detail="Both experiment variants must belong to the funnel")
+    if control.id == treatment.id:
+        raise HTTPException(status_code=422, detail="Control and treatment variants must be different")
+    experiment = DesignFunnelExperiment(
+        funnel_id=funnel.id,
+        name=request.name,
+        goal_event=request.goal_event,
+        hypothesis=request.hypothesis,
+        status="draft",
+        traffic_split=request.traffic_split,
+        control_variant_id=control.id,
+        treatment_variant_id=treatment.id,
+        created_by=current_user.id,
+        notes=request.notes,
+    )
+    db.add(experiment)
+    db.add(DesignFunnelEvent(funnel_id=funnel.id, variant_id=treatment.id, actor_id=current_user.id, event_type="experiment_created", details={"experiment_id": str(experiment.id), "goal_event": request.goal_event, "traffic_split": request.traffic_split}))
+    db.commit()
+    return {"id": str(experiment.id), "status": experiment.status, "goal_event": experiment.goal_event, "traffic_split": experiment.traffic_split}
+
+
+@router.post("/funnels/{funnel_id}/experiments/{experiment_id}/approve", dependencies=[Depends(require_permission("design:review_marketing"))])
+async def approve_funnel_experiment(funnel_id: UUID, experiment_id: UUID, note: str = Query(..., min_length=5, max_length=2000), db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    experiment = db.query(DesignFunnelExperiment).filter(DesignFunnelExperiment.id == experiment_id, DesignFunnelExperiment.funnel_id == funnel_id).first()
+    if not funnel or not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.status not in {"draft", "paused"}:
+        raise HTTPException(status_code=409, detail="Only draft or paused experiments can be approved")
+    experiment.status = "approved"
+    experiment.approved_by = current_user.id
+    experiment.approved_at = datetime.now(timezone.utc)
+    experiment.notes = (experiment.notes or "") + f"\nApproved by {current_user.id}: {note}"
+    db.add(DesignFunnelEvent(funnel_id=funnel.id, actor_id=current_user.id, event_type="experiment_approved", details={"experiment_id": str(experiment.id), "note": note}))
+    db.commit()
+    return {"id": str(experiment.id), "status": experiment.status, "approved_at": experiment.approved_at.isoformat()}
+
+
+@router.post("/funnels/{funnel_id}/experiments/{experiment_id}/start", dependencies=[Depends(require_permission("design:analytics"))])
+async def start_funnel_experiment(funnel_id: UUID, experiment_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    experiment = db.query(DesignFunnelExperiment).filter(DesignFunnelExperiment.id == experiment_id, DesignFunnelExperiment.funnel_id == funnel_id).first()
+    if not funnel or not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.status != "approved":
+        raise HTTPException(status_code=409, detail="Marketing review approval is required before starting an experiment")
+    experiment.status = "running"
+    experiment.started_at = datetime.now(timezone.utc)
+    db.add(DesignFunnelEvent(funnel_id=funnel.id, actor_id=current_user.id, event_type="experiment_started", details={"experiment_id": str(experiment.id), "traffic_split": experiment.traffic_split}))
+    db.commit()
+    return {"id": str(experiment.id), "status": experiment.status, "started_at": experiment.started_at.isoformat()}
+
+
+@router.post("/funnels/{funnel_id}/experiments/{experiment_id}/stop", dependencies=[Depends(require_permission("design:analytics"))])
+async def stop_funnel_experiment(funnel_id: UUID, experiment_id: UUID, note: str = Query(..., min_length=5, max_length=2000), db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    funnel = db.query(DesignFunnel).filter(DesignFunnel.id == funnel_id).first()
+    experiment = db.query(DesignFunnelExperiment).filter(DesignFunnelExperiment.id == experiment_id, DesignFunnelExperiment.funnel_id == funnel_id).first()
+    if not funnel or not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if experiment.status not in {"running", "approved"}:
+        raise HTTPException(status_code=409, detail="Only active experiments can be stopped")
+    experiment.status = "paused"
+    experiment.ended_at = datetime.now(timezone.utc)
+    experiment.notes = (experiment.notes or "") + f"\nStopped by {current_user.id}: {note}"
+    db.add(DesignFunnelEvent(funnel_id=funnel.id, actor_id=current_user.id, event_type="experiment_stopped", details={"experiment_id": str(experiment.id), "note": note}))
+    db.commit()
+    return {"id": str(experiment.id), "status": experiment.status, "ended_at": experiment.ended_at.isoformat()}
+
+
 @router.get("/funnels/config", dependencies=[Depends(require_permission("design:funnels"))])
 async def get_funnel_provider_config():
     return webflow_service.configuration_status()
@@ -585,3 +749,123 @@ async def get_funnel_history(funnel_id: UUID, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=404, detail="Funnel not found")
     events = db.query(DesignFunnelEvent).filter(DesignFunnelEvent.funnel_id == funnel.id).order_by(DesignFunnelEvent.created_at.desc()).limit(500).all()
     return {"events": [{"variant_id": str(item.variant_id) if item.variant_id else None, "event_type": item.event_type, "details": item.details, "actor_id": str(item.actor_id), "created_at": item.created_at.isoformat() if item.created_at else None} for item in events]}
+
+
+@router.get("/program-material-templates", dependencies=[Depends(require_permission("design:read_programs"))])
+async def list_program_material_templates(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    templates = db.query(ProgramMaterialTemplate).filter(ProgramMaterialTemplate.status == "approved").order_by(ProgramMaterialTemplate.updated_at.desc()).all()
+    return {"templates": [{
+        "id": str(item.id),
+        "template_key": item.template_key,
+        "title": item.title,
+        "category": item.category,
+        "audience": item.audience,
+        "provider": item.provider,
+        "status": item.status,
+        "allowed_fields": item.allowed_fields or [],
+        "required_fields": item.required_fields or [],
+        "usage_rights": item.usage_rights or {},
+        "version": item.version,
+    } for item in templates]}
+
+
+@router.post("/program-material-templates", dependencies=[Depends(require_permission("design:templates"))])
+async def create_program_material_template(request: ProgramMaterialTemplateCreate, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    if request.audience not in {"programs", "student_success"} and not _has_scope(db, current_user.id, "design:manage"):
+        raise HTTPException(status_code=403, detail="Program material templates for programs and student success are reserved for Designer and CEO owners")
+    if not request.allowed_fields:
+        raise HTTPException(status_code=422, detail="At least one allowed field is required")
+    missing = set(request.required_fields) - set(request.allowed_fields)
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Required fields must be included in allowed_fields: {sorted(missing)}")
+    if request.template_json.get("type") not in {"workbook", "certificate", "visual_aid", "document", "tracking"}:
+        raise HTTPException(status_code=422, detail="Template JSON is missing a recognized material type")
+    template = ProgramMaterialTemplate(
+        template_key=request.template_key,
+        title=request.title,
+        category=request.category,
+        audience=request.audience,
+        provider="manual",
+        allowed_fields=request.allowed_fields,
+        required_fields=request.required_fields,
+        template_json=request.template_json,
+        usage_rights=request.usage_rights,
+        created_by=current_user.id,
+        updated_by=current_user.id,
+    )
+    db.add(template)
+    db.commit()
+    return {"id": str(template.id), "template_key": template.template_key, "status": template.status, "version": template.version}
+
+
+@router.post("/program-material-templates/{template_id}/approve", dependencies=[Depends(require_permission("design:review_programs"))])
+async def approve_program_material_template(template_id: UUID, note: str = Query(..., min_length=5, max_length=1000), db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    template = db.query(ProgramMaterialTemplate).filter(ProgramMaterialTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Program material template not found")
+    if template.status == "approved":
+        raise HTTPException(status_code=409, detail="Template is already approved")
+    template.status = "approved"
+    template.approved_by = current_user.id
+    template.approved_at = datetime.now(timezone.utc)
+    template.updated_by = current_user.id
+    _provider_event(db, "internal", "program_material_template", template.id, current_user.id, "approved", "success", {"note": note, "version": template.version})
+    db.commit()
+    return {"id": str(template.id), "status": template.status, "approved_at": template.approved_at.isoformat()}
+
+
+@router.post("/program-material-templates/{template_id}/render", dependencies=[Depends(require_permission("design:read_programs"))])
+async def render_program_material_template(template_id: UUID, request: ProgramMaterialRenderRequest, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    template = db.query(ProgramMaterialTemplate).filter(ProgramMaterialTemplate.id == template_id).first()
+    if not template or template.status != "approved":
+        raise HTTPException(status_code=404, detail="Approved program material template not found")
+    if request.allow_pii and template.audience not in {"programs", "student_success"}:
+        raise HTTPException(status_code=403, detail="PII rendering is limited to Program or Student Success templates")
+    allowed = set(template.allowed_fields or [])
+    request_fields = set((request.data or {}).keys())
+    if not request_fields.issubset(allowed):
+        raise HTTPException(status_code=422, detail="Render data includes fields outside the approved template schema")
+    missing = set(template.required_fields or []) - request_fields
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required material fields: {sorted(missing)}")
+    if request.allow_pii and not template.audience in {"programs", "student_success"}:
+        raise HTTPException(status_code=403, detail="This template does not permit student-specific data")
+    rendered = json.loads(json.dumps(template.template_json))
+    for field_name, value in (request.data or {}).items():
+        if field_name in rendered:
+            rendered[field_name] = value
+    instance = ProgramMaterialInstance(
+        template_id=template.id,
+        title=request.data.get("title", template.title),
+        audience=template.audience,
+        status="draft",
+        payload={"template_key": template.template_key, "rendered": rendered, "allow_pii": request.allow_pii},
+        allow_student_pii="true" if request.allow_pii else "false",
+        created_by=current_user.id,
+    )
+    db.add(instance)
+    db.commit()
+    return {"id": str(instance.id), "template_id": str(template.id), "status": instance.status, "payload": instance.payload}
+
+
+@router.post("/program-material-templates/{template_id}/publish", dependencies=[Depends(require_permission("design:publish_programs"))])
+async def publish_program_material_template(template_id: UUID, request: ProgramMaterialRenderRequest, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    template = db.query(ProgramMaterialTemplate).filter(ProgramMaterialTemplate.id == template_id).first()
+    if not template or template.status != "approved":
+        raise HTTPException(status_code=404, detail="Approved program material template not found")
+    if request.allow_pii and template.audience not in {"programs", "student_success"}:
+        raise HTTPException(status_code=403, detail="PII publishing is limited to Program or Student Success templates")
+    instance = ProgramMaterialInstance(
+        template_id=template.id,
+        title=request.data.get("title", template.title),
+        audience=template.audience,
+        status="published",
+        payload={"template_key": template.template_key, "rendered": template.template_json, "allow_pii": request.allow_pii, "data": request.data},
+        allow_student_pii="true" if request.allow_pii else "false",
+        created_by=current_user.id,
+        published_by=current_user.id,
+        published_at=datetime.now(timezone.utc),
+    )
+    db.add(instance)
+    db.commit()
+    return {"id": str(instance.id), "status": instance.status, "template_id": str(template.id)}

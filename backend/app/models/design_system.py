@@ -323,6 +323,89 @@ class DesignFunnelEvent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class DesignFunnelMeasurement(Base):
+    __tablename__ = "design_funnel_measurements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    funnel_id = Column(UUID(as_uuid=True), ForeignKey("design_funnels.id", ondelete="CASCADE"), nullable=False, index=True)
+    variant_id = Column(UUID(as_uuid=True), ForeignKey("design_funnel_variants.id", ondelete="set null"), nullable=True)
+    source = Column(String, nullable=False, default="direct", index=True)
+    provider = Column(String, nullable=False, default="webflow")
+    campaign_name = Column(String, nullable=True)
+    session_key = Column(String, nullable=True)
+    referral_url = Column(Text, nullable=True)
+    event_type = Column(String, nullable=False, index=True)
+    conversion_event = Column(String, nullable=True, index=True)
+    conversion_value = Column(Integer, nullable=False, default=0)
+    details = Column(JSONB, nullable=False, default=dict)
+    observed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class DesignFunnelExperiment(Base):
+    __tablename__ = "design_funnel_experiments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    funnel_id = Column(UUID(as_uuid=True), ForeignKey("design_funnels.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    goal_event = Column(String, nullable=False)
+    hypothesis = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="draft", index=True)
+    traffic_split = Column(Integer, nullable=False, default=50)
+    control_variant_id = Column(UUID(as_uuid=True), ForeignKey("design_funnel_variants.id", ondelete="restrict"), nullable=False)
+    treatment_variant_id = Column(UUID(as_uuid=True), ForeignKey("design_funnel_variants.id", ondelete="restrict"), nullable=False)
+    winner_variant_id = Column(UUID(as_uuid=True), ForeignKey("design_funnel_variants.id", ondelete="set null"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    approved_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="set null"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    metadata = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ProgramMaterialTemplate(Base):
+    __tablename__ = "program_material_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    template_key = Column(String, nullable=False, unique=True)
+    title = Column(String, nullable=False)
+    category = Column(String, nullable=False)
+    audience = Column(String, nullable=False, default="programs", index=True)
+    provider = Column(String, nullable=False, default="manual")
+    status = Column(String, nullable=False, default="draft", index=True)
+    allowed_fields = Column(JSONB, nullable=False, default=list)
+    required_fields = Column(JSONB, nullable=False, default=list)
+    template_json = Column(JSONB, nullable=False, default=dict)
+    usage_rights = Column(JSONB, nullable=False, default=dict)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    approved_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="set null"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ProgramMaterialInstance(Base):
+    __tablename__ = "program_material_instances"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    template_id = Column(UUID(as_uuid=True), ForeignKey("program_material_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    audience = Column(String, nullable=False, default="programs", index=True)
+    status = Column(String, nullable=False, default="draft", index=True)
+    payload = Column(JSONB, nullable=False, default=dict)
+    allow_student_pii = Column(String, nullable=False, default="false")
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    approved_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="set null"), nullable=True)
+    published_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="set null"), nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class DesignProviderEvent(Base):
     __tablename__ = "design_provider_events"
 
