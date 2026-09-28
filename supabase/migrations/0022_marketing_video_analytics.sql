@@ -15,7 +15,6 @@ create table if not exists marketing_video_assets (
   generated_outputs jsonb not null default '[]'::jsonb,
   created_by uuid not null references auth.users(id) on delete restrict,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 

@@ -81,3 +81,46 @@ def test_contact_quality_report_normalizes_and_detects_duplicate_identity():
     assert report["missing_contact_channel"] == 1
     assert report["missing_source"] == 1
     assert report["quality_status"] == "needs_review"
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_requires_configured_explicit_opt_in(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "marketing-consent")
+    service.get_contact = AsyncMock(return_value={"contact": {
+        "id": "contact-1",
+        "email": "person@example.com",
+        "dnd": False,
+        "customFields": [{"id": "marketing-consent", "value": "yes"}],
+    }})
+
+    result = await service.validate_marketing_email_consent("contact-1", "PERSON@example.com")
+
+    assert result["eligible"] is True
+    assert result["email_matches"] is True
+    assert result["opted_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_blocks_dnd_and_email_mismatch(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "marketing-consent")
+    service.get_contact = AsyncMock(return_value={"id": "contact-1", "email": "person@example.com", "dnd": True, "customFields": [{"id": "marketing-consent", "value": True}]})
+
+    result = await service.validate_marketing_email_consent("contact-1", "other@example.com")
+
+    assert result["eligible"] is False
+    assert result["email_matches"] is False
+    assert result["email_dnd"] is True
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_fails_closed_without_field_configuration(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "")
+    service.get_contact = AsyncMock()
+
+    result = await service.validate_marketing_email_consent("contact-1", "person@example.com")
+
+    assert result == {"status": "not_configured", "eligible": False}
+    service.get_contact.assert_not_awaited()

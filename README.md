@@ -24,11 +24,15 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
 2. Apply the RBAC schema: run `supabase/migrations/0001_init_rbac.sql` in
    the Supabase SQL editor (or `supabase db push` if you're using the CLI).
 
-   For Marketing video repurposing and campaign analytics, apply the next
-   unapplied migration, `supabase/migrations/0022_marketing_video_analytics.sql`.
-   Configure provider credentials in the backend environment only; see
-   `backend/.env.example` for Whisper, private media storage, and optional Canva
-   settings. `OPENAI_API_KEY` enables both embeddings and Whisper transcription.
+   For Marketing phases 9–12, apply the next unapplied migrations in order:
+   `supabase/migrations/0022_marketing_video_analytics.sql` and
+   `supabase/migrations/0023_marketing_governance_reporting.sql`. Configure
+   provider credentials in the backend environment only; see
+   `backend/.env.example` for Whisper, private media storage, optional Canva,
+   GHL email consent, and reporting thresholds. `OPENAI_API_KEY` enables both
+   embeddings and Whisper transcription. Email scheduling requires
+   `GHL_MARKETING_CONSENT_FIELD_ID` to identify a GHL custom field that contains
+   an explicit opt-in value.
 
 3. Seed test users, one per role:
 

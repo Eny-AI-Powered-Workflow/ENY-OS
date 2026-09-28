@@ -178,6 +178,27 @@ class GHLService:
             logger.error(f"Error fetching contact {contact_id} from GHL: {e}")
             return None
 
+    async def validate_marketing_email_consent(self, contact_id: str, email: str) -> Dict[str, Any]:
+        """Verify the recipient address, explicit GHL consent field, and email DND state before a Marketing send."""
+        if not settings.GHL_MARKETING_CONSENT_FIELD_ID:
+            return {"status": "not_configured", "eligible": False}
+        payload = await self.get_contact(contact_id)
+        if not payload:
+            return {"status": "unavailable", "eligible": False}
+        contact = payload.get("contact", payload)
+        if not isinstance(contact, dict):
+            return {"status": "unavailable", "eligible": False}
+        email_matches = str(contact.get("email") or "").strip().lower() == email.strip().lower()
+        custom_fields = contact.get("customFields", [])
+        if isinstance(custom_fields, dict):
+            custom_fields = [custom_fields]
+        consent_value = next((field.get("value") for field in custom_fields if isinstance(field, dict) and field.get("id") == settings.GHL_MARKETING_CONSENT_FIELD_ID), None)
+        opted_in = consent_value is True or str(consent_value or "").strip().lower() in {"true", "yes", "1", "subscribed", "opted_in", "opted-in"}
+        dnd_settings = contact.get("dndSettings") or {}
+        email_dnd = bool(contact.get("dnd")) or str((dnd_settings.get("Email") or {}).get("status", "")).lower() in {"active", "enabled"}
+        eligible = email_matches and opted_in and not email_dnd
+        return {"status": "eligible" if eligible else "ineligible", "eligible": eligible, "email_matches": email_matches, "opted_in": opted_in, "email_dnd": email_dnd}
+
     async def tag_contact(self, contact_id: str, tags: List[str]) -> bool:
         """
         Add tags to a contact in GHL.
