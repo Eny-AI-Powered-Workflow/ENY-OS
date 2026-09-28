@@ -33,6 +33,7 @@ supabase/*
 !supabase/migrations/
 supabase/migrations/*
 !supabase/migrations/0021_marketing_intelligence.sql
+!supabase/migrations/0022_marketing_video_analytics.sql
 !supabase/migrations/0008_enrollment_operations.sql
 !supabase/migrations/0009_sales_operations_fields.sql
 !supabase/migrations/0010_knowledge_vectors.sql

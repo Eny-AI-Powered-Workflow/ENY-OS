@@ -1,8 +1,8 @@
 import MarketingMetrics from "@/components/MarketingMetrics";
-import CampaignList from "@/components/CampaignList";
 import MarketingAnalytics from "@/components/MarketingAnalytics";
 import MarketingContentWorkspace from "@/components/MarketingContentWorkspace";
 import MarketingIntelligence from "@/components/MarketingIntelligence";
+import MarketingVideoWorkspace from "@/components/MarketingVideoWorkspace";
 
 export default function MarketingDashboard() {
   return (
@@ -25,12 +25,9 @@ export default function MarketingDashboard() {
       <MarketingContentWorkspace />
 
       <MarketingIntelligence />
+      <MarketingVideoWorkspace />
 
-      {/* Campaigns and Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CampaignList />
-        <MarketingAnalytics />
-      </div>
+      <MarketingAnalytics />
     </div>
   );
 }

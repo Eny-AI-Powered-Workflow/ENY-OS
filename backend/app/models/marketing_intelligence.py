@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -54,4 +54,40 @@ class MarketingIntelligenceEvent(Base):
     actor_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
     event_type = Column(String, nullable=False)
     details = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MarketingVideoAsset(Base):
+    __tablename__ = "marketing_video_assets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    size_bytes = Column(BigInteger, nullable=False)
+    storage_path = Column(Text, nullable=False, unique=True)
+    status = Column(String, nullable=False, default="uploaded", index=True)
+    transcript = Column(Text, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    transcript_segments = Column(JSONB, nullable=False, default=list)
+    transcript_provider = Column(String, nullable=True)
+    generated_outputs = Column(JSONB, nullable=False, default=list)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class MarketingMetricObservation(Base):
+    __tablename__ = "marketing_metric_observations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    metric_key = Column(String, nullable=False, index=True)
+    metric_value = Column(Numeric, nullable=False)
+    campaign_name = Column(String, nullable=True, index=True)
+    channel = Column(String, nullable=True)
+    provider = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    observed_at = Column(DateTime(timezone=True), nullable=False)
+    metadata_json = Column(JSONB, nullable=False, default=dict)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

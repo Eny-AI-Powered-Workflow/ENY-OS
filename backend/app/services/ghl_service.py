@@ -363,6 +363,7 @@ class GHLService:
         if not self.private_token or not self.location_id:
             logger.warning("GHL credentials not configured - returning empty pipeline data")
             return {
+                "status": "not_configured",
                 "total_leads": 0,
                 "conversion_rate": 0.0,
                 "revenue_forecast": 0,
@@ -414,6 +415,7 @@ class GHLService:
             ]
 
             return {
+                "status": "connected",
                 "total_leads": total_leads,
                 "conversion_rate": conversion_rate,
                 "revenue_forecast": sum(
@@ -433,6 +435,7 @@ class GHLService:
         except Exception as exc:
             logger.error(f"Error fetching pipeline data from GHL: {exc}")
             return {
+                "status": "error",
                 "total_leads": 0,
                 "conversion_rate": 0.0,
                 "revenue_forecast": 0,

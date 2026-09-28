@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Literal, Optional
 from app.api.deps import require_permission
@@ -17,9 +17,10 @@ from app.services.knowledge_service import retrieve_knowledge
 from app.models.marketing_content import MarketingContentEvent, MarketingContentItem
 from app.models.marketing_delivery import MarketingDelivery, MarketingDeliveryEvent
 from app.models.operational_alert import OperationalAlert
-from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingSeoObservation, MarketingSocialMention
+from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingMetricObservation, MarketingSeoObservation, MarketingSocialMention, MarketingVideoAsset
 from app.services.marketing_delivery_service import marketing_delivery_service
 from app.services.marketing_intelligence_service import marketing_intelligence_service
+from app.services.marketing_video_service import marketing_video_service
 import logging
 
 router = APIRouter()
@@ -31,6 +32,11 @@ SEO_OBSERVATION_TYPES = {"keyword", "ranking", "search_performance", "content_op
 SOCIAL_CLASSIFICATIONS = {"lead", "opportunity", "customer_question", "positive_mention", "complaint", "spam", "unclassified"}
 SOCIAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unclassified"}
 SOCIAL_RISK_LEVELS = {"low", "medium", "high", "critical"}
+CAMPAIGN_METRICS = {
+    "email_delivery_rate", "email_open_rate", "email_click_rate", "email_unsubscribe_rate",
+    "social_reach", "social_engagement", "website_sessions", "content_assisted_conversions",
+    "ghl_pipeline_value", "spend", "attributed_revenue",
+}
 
 
 class ContentStatusRequest(BaseModel):
@@ -80,6 +86,17 @@ class SocialMentionRequest(BaseModel):
     classification: Literal["lead", "opportunity", "customer_question", "positive_mention", "complaint", "spam", "unclassified"] = "unclassified"
     sentiment: Literal["positive", "neutral", "negative", "mixed", "unclassified"] = "unclassified"
     risk_level: Literal["low", "medium", "high", "critical"] = "low"
+    observed_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CampaignMetricRequest(BaseModel):
+    metric_key: Literal["email_delivery_rate", "email_open_rate", "email_click_rate", "email_unsubscribe_rate", "social_reach", "social_engagement", "website_sessions", "content_assisted_conversions", "ghl_pipeline_value", "spend", "attributed_revenue"]
+    metric_value: float = Field(..., ge=0)
+    campaign_name: Optional[str] = Field(None, max_length=240)
+    channel: Optional[str] = Field(None, max_length=80)
+    provider: str = Field(..., min_length=2, max_length=120)
+    source: str = Field(..., min_length=2, max_length=500)
     observed_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -162,6 +179,153 @@ async def create_social_mention(request: SocialMentionRequest, db: Session = Dep
     db.commit()
     return {"id": str(mention.id), "status": "routed_for_review" if mention.risk_level in {"high", "critical"} else "recorded", "risk_level": mention.risk_level}
 
+
+def _video_asset_payload(asset: MarketingVideoAsset) -> dict[str, Any]:
+    return {
+        "id": str(asset.id), "title": asset.title, "original_filename": asset.original_filename,
+        "mime_type": asset.mime_type, "size_bytes": asset.size_bytes, "status": asset.status,
+        "transcript": asset.transcript, "duration_seconds": asset.duration_seconds, "transcript_segments": asset.transcript_segments,
+        "transcript_provider": asset.transcript_provider, "generated_outputs": asset.generated_outputs,
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+    }
+
+
+@router.get("/video/assets", dependencies=[Depends(require_permission("marketing:read"))])
+async def list_marketing_video_assets(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    assets = db.query(MarketingVideoAsset).order_by(MarketingVideoAsset.created_at.desc()).limit(100).all()
+    return {"assets": [_video_asset_payload(asset) for asset in assets], "providers": _source_status("video")["providers"]}
+
+
+@router.post("/video/assets", dependencies=[Depends(require_permission("marketing:write"))])
+async def upload_marketing_video(
+    file: UploadFile = File(...),
+    title: str = Form(..., min_length=3, max_length=240),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    file.file.seek(0, 2)
+    size_bytes = file.file.tell()
+    file.file.seek(0)
+    storage_path = await marketing_video_service.store_upload(file, size_bytes)
+    asset = MarketingVideoAsset(
+        title=title.strip(), original_filename=file.filename or "marketing-media",
+        mime_type=file.content_type or "application/octet-stream", size_bytes=size_bytes,
+        storage_path=storage_path, created_by=current_user.id,
+    )
+    db.add(asset)
+    db.flush()
+    db.add(MarketingIntelligenceEvent(entity_type="video_asset", entity_id=asset.id, actor_id=current_user.id, event_type="uploaded", details={"filename": asset.original_filename, "size_bytes": size_bytes, "storage": "private_supabase_storage"}))
+    db.commit()
+    return _video_asset_payload(asset)
+
+
+@router.post("/video/assets/{asset_id}/transcribe", dependencies=[Depends(require_permission("marketing:write"))])
+async def transcribe_marketing_video(asset_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    asset = db.query(MarketingVideoAsset).filter(MarketingVideoAsset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Marketing video asset not found")
+    if asset.transcript:
+        return _video_asset_payload(asset)
+    result = await marketing_video_service.transcribe(asset.storage_path, asset.original_filename, asset.mime_type, asset.size_bytes)
+    if result["status"] != "transcribed":
+        asset.status = "transcription_required"
+        db.add(MarketingIntelligenceEvent(entity_type="video_asset", entity_id=asset.id, actor_id=current_user.id, event_type="transcription_unavailable", details={"status": result["status"], "message": result["message"]}))
+        db.commit()
+        return {**_video_asset_payload(asset), "transcription": result}
+    asset.transcript = result["text"]
+    asset.duration_seconds = int(result["duration"]) if result.get("duration") is not None else None
+    asset.transcript_segments = result["segments"]
+    asset.transcript_provider = result["provider"]
+    asset.status = "transcribed"
+    db.add(MarketingIntelligenceEvent(entity_type="video_asset", entity_id=asset.id, actor_id=current_user.id, event_type="transcribed", details={"provider": result["provider"], "duration_seconds": result.get("duration"), "segment_count": len(result["segments"])}))
+    db.commit()
+    return _video_asset_payload(asset)
+
+
+@router.post("/video/assets/{asset_id}/generate-pack", dependencies=[Depends(require_permission("marketing:write"))])
+async def generate_marketing_video_pack(asset_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    asset = db.query(MarketingVideoAsset).filter(MarketingVideoAsset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Marketing video asset not found")
+    if not asset.transcript:
+        raise HTTPException(status_code=409, detail="Transcribe the source video before generating its content pack")
+    knowledge = await retrieve_knowledge(db, ["marketing"], f"video repurposing brand voice social content {asset.title}", limit=8)
+    prompt = f"""Repurpose this ENY Consulting recording into a reviewable content pack.
+Use only the source transcript and approved Marketing knowledge for factual claims. Do not invent statistics, offers, or claims. Clip start/end values must refer to the supplied transcript segment timestamps. Return valid JSON only, in this shape:
+{{"clips":[{{"title":"", "start_seconds":0, "end_seconds":30, "rationale":"", "caption":"", "description":"", "quote_card":"", "social_posts":[{{"platform":"linkedin", "copy":""}}]}}], "blog_excerpts":[{{"title":"", "excerpt":""}}]}}
+Create up to 5 distinct clip recommendations and 3 blog excerpts. Include captions, titles, descriptions, quote cards, and platform-specific social copy where supported by the transcript.
+Approved Marketing knowledge: {json.dumps(knowledge, default=str)}
+Transcript segments: {json.dumps(asset.transcript_segments[:500], default=str)}
+Transcript: {asset.transcript[:60000]}"""
+    response = await ClaudeService().invoke(prompt=prompt, role_context="marketing", max_tokens=5000, temperature=0.3)
+    try:
+        generated = json.loads(response)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Content generation returned an invalid pack; retry after reviewing the transcript") from exc
+    clips = generated.get("clips", []) if isinstance(generated, dict) else []
+    excerpts = generated.get("blog_excerpts", []) if isinstance(generated, dict) else []
+    if not isinstance(clips, list) or not isinstance(excerpts, list):
+        raise HTTPException(status_code=502, detail="Content generation returned an invalid pack structure")
+
+    outputs: list[dict[str, Any]] = []
+    drafts: list[MarketingContentItem] = []
+    source_documents = [{"title": asset.title, "source": asset.original_filename, "provider": asset.transcript_provider}]
+    for clip in clips[:5]:
+        if not isinstance(clip, dict):
+            continue
+        try:
+            start_seconds = max(0, float(clip.get("start_seconds", 0)))
+            end_seconds = float(clip.get("end_seconds", 0))
+        except (TypeError, ValueError):
+            continue
+        if asset.duration_seconds is not None:
+            end_seconds = min(end_seconds, float(asset.duration_seconds))
+        if end_seconds <= start_seconds:
+            continue
+        output = {"kind": "clip", "title": str(clip.get("title") or "Video clip recommendation")[:240], "start_seconds": start_seconds, "end_seconds": end_seconds, "rationale": str(clip.get("rationale") or "")[:3000], "caption": str(clip.get("caption") or "")[:5000], "description": str(clip.get("description") or "")[:5000], "quote_card": str(clip.get("quote_card") or "")[:2000], "social_posts": clip.get("social_posts") if isinstance(clip.get("social_posts"), list) else []}
+        outputs.append(output)
+        content = json.dumps(output, ensure_ascii=True)
+        drafts.append(MarketingContentItem(title=output["title"], content_type="repurposed_content", channel="linkedin", content=content, prompt=prompt, source_documents=source_documents, confidence="requires_review", created_by=current_user.id, campaign_owner_id=current_user.id))
+        for post in output["social_posts"][:5]:
+            if not isinstance(post, dict) or not str(post.get("copy") or "").strip():
+                continue
+            platform = str(post.get("platform") or "linkedin").lower()
+            if platform not in CHANNELS or platform in {"email", "blog"}:
+                continue
+            drafts.append(MarketingContentItem(title=f"{output['title']} ({platform})", content_type="social_post", channel=platform, content=str(post.get("copy") or "")[:10000], prompt=prompt, source_documents=source_documents, confidence="requires_review", created_by=current_user.id, campaign_owner_id=current_user.id))
+    for excerpt in excerpts[:3]:
+        if not isinstance(excerpt, dict) or not excerpt.get("excerpt"):
+            continue
+        output = {"kind": "blog_excerpt", "title": str(excerpt.get("title") or f"{asset.title} excerpt")[:240], "excerpt": str(excerpt["excerpt"])[:50000]}
+        outputs.append(output)
+        drafts.append(MarketingContentItem(title=output["title"], content_type="blog_article", channel="blog", content=output["excerpt"], prompt=prompt, source_documents=source_documents, confidence="requires_review", created_by=current_user.id, campaign_owner_id=current_user.id))
+    if not drafts:
+        raise HTTPException(status_code=502, detail="Content generation produced no reviewable drafts")
+    asset.generated_outputs = outputs
+    asset.status = "pack_generated"
+    db.add(asset)
+    for draft in drafts:
+        db.add(draft)
+        db.flush()
+        db.add(MarketingContentEvent(content_id=draft.id, actor_id=current_user.id, event_type="generated_from_video", details={"video_asset_id": str(asset.id), "status": "draft"}))
+    db.add(MarketingIntelligenceEvent(entity_type="video_asset", entity_id=asset.id, actor_id=current_user.id, event_type="content_pack_generated", details={"outputs": len(outputs), "drafts": len(drafts), "approval_required": True}))
+    db.commit()
+    return {"asset": _video_asset_payload(asset), "draft_count": len(drafts), "drafts": [_serialize_content(draft) for draft in drafts]}
+
+
+@router.post("/analytics/observations", dependencies=[Depends(require_permission("marketing:analytics"))])
+async def create_campaign_metric_observation(request: CampaignMetricRequest, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    observation = MarketingMetricObservation(
+        metric_key=request.metric_key, metric_value=request.metric_value, campaign_name=request.campaign_name,
+        channel=request.channel, provider=request.provider, source=request.source, observed_at=request.observed_at,
+        metadata_json=request.metadata, created_by=current_user.id,
+    )
+    db.add(observation)
+    db.flush()
+    db.add(MarketingIntelligenceEvent(entity_type="campaign_metric", entity_id=observation.id, actor_id=current_user.id, event_type="recorded", details={"metric_key": request.metric_key, "provider": request.provider, "source": request.source, "observed_at": request.observed_at.isoformat()}))
+    db.commit()
+    return {"id": str(observation.id), "status": "recorded", "provider": observation.provider, "source": observation.source, "observed_at": observation.observed_at.isoformat()}
+
 @router.get("/metrics", dependencies=[Depends(require_permission("marketing:analytics"))])
 async def get_marketing_metrics(
     db: Session = Depends(get_db),
@@ -172,13 +336,17 @@ async def get_marketing_metrics(
     Requires marketing:analytics permission.
     """
     try:
-        contacts, _ = await ghl_service.get_all_contacts()
+        contacts, inventory = await ghl_service.get_all_contacts()
         pipeline = await ghl_service.get_pipeline_data()
-        current_month = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m")
+        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        connected = inventory.get("status") == "connected"
         metrics = {
-            "totalLeads": len(contacts),
-            "leadsThisMonth": sum(1 for contact in contacts if str(contact.get("dateAdded", "")).startswith(current_month)),
-            "conversionRate": round(float(pipeline.get("conversion_rate", 0)) * 100, 2),
+            "status": inventory.get("status", "not_configured"),
+            "source": "GoHighLevel",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "totalLeads": len(contacts) if connected else None,
+            "leadsThisMonth": sum(1 for contact in contacts if str(contact.get("dateAdded", "")).startswith(current_month)) if connected else None,
+            "conversionRate": round(float(pipeline.get("conversion_rate", 0)) * 100, 2) if pipeline.get("status") == "connected" else None,
             "roi": None,
         }
         return {"metrics": metrics}
@@ -194,44 +362,92 @@ async def get_marketing_analytics(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    Get marketing analytics.
-    Requires marketing:analytics permission.
-    """
-    try:
-        campaigns = [
-            {
-                "id": "1",
-                "name": "Q3 Social Media Campaign",
-                "description": "Facebook and Instagram lead generation campaign",
-                "impressions": 125000,
-                "clicks": 3200,
-                "ctr": 2.56,
-                "conversions": 185,
-                "conversionRate": 5.78,
-                "cost": 8500,
-                "roi": 4.2
-            },
-            {
-                "id": "2",
-                "name": "Email Newsletter Series",
-                "description": "Monthly educational newsletter",
-                "impressions": 89000,
-                "clicks": 4500,
-                "ctr": 5.06,
-                "conversions": 210,
-                "conversionRate": 4.67,
-                "cost": 3200,
-                "roi": 8.9
+    """Return source-attributed observations and live GHL attribution, never sample metrics."""
+    observed_at = datetime.now(timezone.utc).isoformat()
+    observations = db.query(MarketingMetricObservation).order_by(MarketingMetricObservation.observed_at.desc()).limit(2000).all()
+    expected_metrics = sorted(CAMPAIGN_METRICS)
+    latest_metrics: dict[str, dict[str, Any]] = {}
+    grouped_campaigns: dict[str, dict[str, Any]] = {}
+    for observation in observations:
+        metric_payload = {
+            "value": float(observation.metric_value), "provider": observation.provider,
+            "source": observation.source, "observed_at": observation.observed_at.isoformat(),
+        }
+        if observation.metric_key not in latest_metrics:
+            latest_metrics[observation.metric_key] = metric_payload
+        campaign_key = observation.campaign_name or observation.provider
+        campaign = grouped_campaigns.setdefault(campaign_key, {"name": campaign_key, "metrics": {}, "sources": set(), "observed_at": observation.observed_at.isoformat()})
+        campaign["metrics"].setdefault(observation.metric_key, metric_payload["value"])
+        campaign["sources"].add(observation.source)
+        campaign.setdefault("metric_sources", {}).setdefault(observation.metric_key, metric_payload)
+
+    for campaign in grouped_campaigns.values():
+        spend = campaign["metrics"].get("spend")
+        revenue = campaign["metrics"].get("attributed_revenue")
+        if spend is not None and spend > 0 and revenue is not None:
+            spend_source = campaign["metric_sources"]["spend"]
+            revenue_source = campaign["metric_sources"]["attributed_revenue"]
+            campaign["metrics"]["roi"] = round((revenue - spend) / spend * 100, 2)
+            campaign["metric_sources"]["roi"] = {
+                "source": f"Calculated from {revenue_source['source']} and {spend_source['source']}",
+                "observed_at": max(revenue_source["observed_at"], spend_source["observed_at"]),
             }
-        ]
-        return {"campaigns": campaigns}
-    except Exception as e:
-        logger.error(f"Error fetching marketing analytics: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch analytics: {str(e)}"
-        )
+
+    metrics = {
+        key: {"status": "configured", **latest_metrics[key]} if key in latest_metrics else {"status": "not_configured", "value": None, "provider": None, "source": None, "observed_at": None}
+        for key in expected_metrics
+    }
+    campaigns = [{**campaign, "sources": sorted(campaign["sources"])} for campaign in grouped_campaigns.values()]
+
+    ghl_configured = bool(settings.GHL_PRIVATE_TOKEN and settings.GHL_LOCATION_ID)
+    lead_sources: dict[str, int] = {}
+    leads_by_campaign: dict[str, int] = {}
+    contacts_status = "not_configured"
+    pipeline_status = "not_configured"
+    pipeline_by_campaign: dict[str, dict[str, Any]] = {}
+    if ghl_configured:
+        try:
+            contacts, inventory = await ghl_service.get_all_contacts()
+            contacts_status = inventory.get("status", "error")
+            for contact in contacts:
+                source = str(contact.get("source") or "unknown")
+                lead_sources[source] = lead_sources.get(source, 0) + 1
+                campaign = contact.get("campaignName") or contact.get("campaign") or contact.get("utmCampaign")
+                if campaign:
+                    campaign_name = str(campaign)
+                    leads_by_campaign[campaign_name] = leads_by_campaign.get(campaign_name, 0) + 1
+            pipeline = await ghl_service.get_pipeline_data()
+            pipeline_status = pipeline.get("status", "error")
+            for opportunity in pipeline.get("opportunities", []):
+                campaign = opportunity.get("campaignName") or opportunity.get("campaign") or opportunity.get("utmCampaign")
+                if not campaign:
+                    continue
+                name = str(campaign)
+                contribution = pipeline_by_campaign.setdefault(name, {"opportunities": 0, "value": 0.0})
+                contribution["opportunities"] += 1
+                contribution["value"] += float(opportunity.get("expectedValue") or opportunity.get("monetaryValue") or 0)
+        except Exception:
+            logger.exception("Unable to load live GHL Marketing attribution")
+            contacts_status = "error"
+            pipeline_status = "error"
+
+    deliveries = db.query(MarketingDelivery).order_by(MarketingDelivery.created_at.desc()).limit(1000).all()
+    email_deliveries = [delivery for delivery in deliveries if delivery.channel == "email"]
+    sent_count = sum(int((delivery.metrics or {}).get("sent", 0) or 0) for delivery in email_deliveries if delivery.status == "sent")
+    recipient_count = sum(delivery.recipient_count for delivery in email_deliveries)
+    return {
+        "observed_at": observed_at,
+        "status": "configured" if observations or contacts_status == "connected" or email_deliveries else "not_configured",
+        "metrics": metrics,
+        "campaigns": campaigns,
+        "attribution": {
+            "leads_by_campaign": {"status": "configured" if leads_by_campaign else "not_configured", "source": "GoHighLevel", "observed_at": observed_at if contacts_status == "connected" else None, "items": [{"campaign": name, "leads": count} for name, count in sorted(leads_by_campaign.items())]},
+            "lead_sources": {"status": contacts_status, "source": "GoHighLevel", "observed_at": observed_at if contacts_status == "connected" else None, "items": [{"source": name, "leads": count} for name, count in sorted(lead_sources.items())]},
+            "pipeline_contribution": {"status": "configured" if pipeline_by_campaign else "not_configured" if pipeline_status == "connected" else pipeline_status, "source": "GoHighLevel", "observed_at": observed_at if pipeline_status == "connected" else None, "items": [{"campaign": name, **value} for name, value in sorted(pipeline_by_campaign.items())]},
+        },
+        "email_sends": {"status": "configured" if email_deliveries else "not_configured", "provider": "GHL", "records": len(email_deliveries), "recipients": recipient_count, "sent": sent_count, "send_completion_rate": round(sent_count / recipient_count * 100, 2) if recipient_count else None, "observed_at": observed_at if email_deliveries else None},
+        "sources": {"ghl_contacts": contacts_status, "ghl_pipeline": pipeline_status, "metric_observations": len(observations), "delivery_records": len(deliveries)},
+    }
 
 
 def _serialize_content(item: MarketingContentItem) -> dict[str, Any]:

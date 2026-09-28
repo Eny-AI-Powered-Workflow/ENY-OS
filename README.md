@@ -24,6 +24,12 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
 2. Apply the RBAC schema: run `supabase/migrations/0001_init_rbac.sql` in
    the Supabase SQL editor (or `supabase db push` if you're using the CLI).
 
+   For Marketing video repurposing and campaign analytics, apply the next
+   unapplied migration, `supabase/migrations/0022_marketing_video_analytics.sql`.
+   Configure provider credentials in the backend environment only; see
+   `backend/.env.example` for Whisper, private media storage, and optional Canva
+   settings. `OPENAI_API_KEY` enables both embeddings and Whisper transcription.
+
 3. Seed test users, one per role:
 
        python scripts/seed_dev_data.py

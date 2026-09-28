@@ -12,10 +12,11 @@ const formatLiveTimestamp = (date = new Date()) =>
 
 export default function MarketingMetrics() {
   const [metrics, setMetrics] = useState({
-    totalLeads: 0,
-    leadsThisMonth: 0,
-    conversionRate: 0,
+    totalLeads: null as number | null,
+    leadsThisMonth: null as number | null,
+    conversionRate: null as number | null,
     roi: null as number | null,
+    status: 'not_configured',
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +49,11 @@ export default function MarketingMetrics() {
 
       const data = await res.json();
       setMetrics(data.metrics || {
-        totalLeads: 0,
-        leadsThisMonth: 0,
-        conversionRate: 0,
-        roi: 0,
+        totalLeads: null,
+        leadsThisMonth: null,
+        conversionRate: null,
+        roi: null,
+        status: 'not_configured',
       });
       setUpdatedAt(formatLiveTimestamp());
     } catch (err: any) {
@@ -67,9 +69,9 @@ export default function MarketingMetrics() {
   }, []);
 
   const statCards = [
-    { label: 'Total Leads', value: metrics.totalLeads.toLocaleString(), icon: '📢', accent: 'violet' as const },
-    { label: 'Leads This Month', value: metrics.leadsThisMonth.toLocaleString(), icon: '📅', accent: 'sky' as const },
-    { label: 'Conversion Rate', value: `${metrics.conversionRate}%`, icon: '📈', accent: 'emerald' as const },
+    { label: 'Total Leads', value: metrics.totalLeads?.toLocaleString() ?? null, icon: '📢', accent: 'violet' as const },
+    { label: 'Leads This Month', value: metrics.leadsThisMonth?.toLocaleString() ?? null, icon: '📅', accent: 'sky' as const },
+    { label: 'Conversion Rate', value: metrics.conversionRate === null ? null : `${metrics.conversionRate}%`, icon: '📈', accent: 'emerald' as const },
     { label: 'ROI', value: metrics.roi === null ? null : `${metrics.roi.toFixed(1)}x`, icon: '💰', accent: 'amber' as const },
   ];
 
@@ -96,5 +98,5 @@ export default function MarketingMetrics() {
     return renderCards(() => 'Unavailable', 'Retry required');
   }
 
-  return renderCards((card) => card.value, updatedAt ? `Updated ${updatedAt}` : 'Live from marketing services');
+  return renderCards((card) => card.value, metrics.status === 'connected' && updatedAt ? `GHL · updated ${updatedAt}` : 'GoHighLevel not configured');
 }
