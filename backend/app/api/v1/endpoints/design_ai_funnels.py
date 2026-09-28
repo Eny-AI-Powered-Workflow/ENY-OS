@@ -36,6 +36,7 @@ from app.models.design_system import (
     ProgramMaterialInstance,
     ProgramMaterialTemplate,
 )
+from app.models.operational_alert import OperationalAlert
 from app.models.permission import Permission
 from app.models.role_permission import RolePermission
 from app.models.user_role import UserRole
@@ -128,6 +129,145 @@ def _has_scope(db: Session, user_id: UUID, scope: str) -> bool:
 
 def _provider_event(db: Session, provider: str, entity_type: str, entity_id: Optional[UUID], actor_id: UUID, event_type: str, status: str, details: dict[str, Any] | None = None) -> None:
     db.add(DesignProviderEvent(provider=provider, entity_type=entity_type, entity_id=entity_id, actor_id=actor_id, event_type=event_type, status=status, details=details or {}))
+
+
+def _raise_design_alert(db: Session, alert_type: str, source: str, message: str, details: dict[str, Any], severity: str = "warning") -> None:
+    existing = db.query(OperationalAlert).filter(
+        OperationalAlert.team == "design",
+        OperationalAlert.alert_type == alert_type,
+        OperationalAlert.source == source,
+        OperationalAlert.status == "open",
+    ).first()
+    if existing:
+        existing.details = {**(existing.details or {}), **details}
+        existing.message = message
+        existing.severity = severity
+        return
+    db.add(OperationalAlert(team="design", alert_type=alert_type, severity=severity, source=source, message=message, details=details))
+
+
+def _as_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _hours_between(start: Any, end: Any) -> Optional[float]:
+    start_dt = _as_datetime(start)
+    end_dt = _as_datetime(end)
+    if start_dt is None or end_dt is None or end_dt < start_dt:
+        return None
+    return round((end_dt - start_dt).total_seconds() / 3600, 2)
+
+
+def _summarize_design_operations_metrics(
+    requests: list[Any],
+    assets: list[Any],
+    templates: list[Any],
+    design_documents: list[Any],
+    funnel_experiments: list[Any],
+    measurements: list[Any],
+    provider_events: list[Any],
+    alerts: list[Any],
+) -> dict[str, Any]:
+    request_turnaround = [hours for request in requests if request.status == "completed" and (hours := _hours_between(request.created_at, request.updated_at)) is not None]
+    asset_approval = [hours for asset in assets if asset.approved_at and (hours := _hours_between(asset.created_at, asset.approved_at)) is not None]
+    template_reuse = [
+        {"template_key": template.template_key, "title": getattr(template, "title", ""), "usage_count": int(getattr(template, "usage_count", 0) or 0)}
+        for template in templates
+    ]
+    template_reuse.sort(key=lambda item: (-item["usage_count"], item["template_key"]))
+
+    brand_review_outcomes: dict[str, dict[str, int]] = {}
+    for document in design_documents:
+        audience = getattr(document, "audience", "shared")
+        bucket = brand_review_outcomes.setdefault(audience, {"approved": 0, "changes_requested": 0, "in_review": 0, "draft": 0, "total": 0})
+        bucket[document.status] = bucket.get(document.status, 0) + 1
+        bucket["total"] += 1
+
+    failure_events = [
+        event for event in provider_events
+        if getattr(event, "status", "") == "error"
+        and getattr(event, "provider", "") == "webflow"
+        and "publish_failed" in str(getattr(event, "event_type", ""))
+    ]
+
+    experiment_results: dict[str, dict[str, Any]] = {}
+    for experiment in funnel_experiments:
+        goal = getattr(experiment, "goal_event", "unknown")
+        entry = experiment_results.setdefault(goal, {"total": 0, "wins": 0, "winner_rate": 0})
+        entry["total"] += 1
+        if getattr(experiment, "winner_variant_id", None):
+            entry["wins"] += 1
+    for goal, entry in experiment_results.items():
+        entry["winner_rate"] = round(entry["wins"] / entry["total"], 2) if entry["total"] else 0
+
+    conversion_by_source: dict[str, int] = {}
+    for measurement in measurements:
+        if getattr(measurement, "event_type", None) != "conversion":
+            continue
+        source = getattr(measurement, "source", "direct") or "direct"
+        value = int(getattr(measurement, "conversion_value", 0) or 0)
+        conversion_by_source[source] = conversion_by_source.get(source, 0) + value
+
+    open_alerts = [
+        {
+            "alert_type": alert.alert_type,
+            "source": alert.source,
+            "message": alert.message,
+            "severity": alert.severity,
+            "status": alert.status,
+            "created_at": alert.created_at.isoformat() if getattr(alert, "created_at", None) else None,
+        }
+        for alert in alerts
+        if getattr(alert, "status", None) == "open"
+    ]
+
+    return {
+        "request_turnaround_hours": round(min(request_turnaround), 2) if request_turnaround else None,
+        "asset_approval_hours": round(min(asset_approval), 2) if asset_approval else None,
+        "template_reuse": template_reuse[:10],
+        "brand_review_outcomes": brand_review_outcomes,
+        "funnel_publishing_failures": len(failure_events),
+        "experiment_results": experiment_results,
+        "conversion_by_source": conversion_by_source,
+        "open_alerts": open_alerts,
+    }
+
+
+def _design_operations_runbook() -> dict[str, Any]:
+    return {
+        "provider_setup": {
+            "canva": "Connect Canva with brandtemplate:content:read and design:content:write scopes, and keep the connected user mapped to the correct design owner.",
+            "webflow": "Set WEBFLOW_ACCESS_TOKEN and WEBFLOW_CMS_COLLECTION_ID before publishing. Confirm the public base URL matches the live site domain.",
+            "tracking": "Verify GTM/GA4 event names and funnel conversion events match the exact names used in the funnel variant payload and measurement ingestion.",
+        },
+        "recovery_actions": {
+            "failed_exports": "Re-run the Canva export job from the approved asset, verify asset approval status, and confirm the file has a valid output URL before publishing.",
+            "funnel_publish_failures": "Check the Webflow collection item and token permissions, then re-stage and publish the last approved variant with a rollback snapshot in hand.",
+            "form_breakage": "Review the latest form field definitions, confirm all required names/types match the funnel variant schema, and re-submit the variant for approval.",
+            "tracking_outages": "Compare expected conversion events with live GTM/GA4 telemetry, validate the page snippet, and confirm the funnel variant slug and conversion_event names are aligned.",
+        },
+        "review_rituals": {
+            "weekly": "Review open design alerts, approval backlog, template reuse, and approval SLA adherence once per week.",
+            "launch": "Before publishing a new marketing or programs funnel, confirm the approved design system and a current marketing review approval are both in place.",
+            "post_launch": "Compare experiment winner rate and source conversion totals against the previous 30-day baseline before broad rollout.",
+        },
+        "ownership": {
+            "design_owner": "Graphic Designer manages production quality, template approvals, and Canva/Webflow handoff.",
+            "marketing_review": "Marketing reviewer approves or rejects funnel and creative variants before publication.",
+            "operations_owner": "Operations or the department lead monitors alerts, tracks failures, and ensures recovery steps are completed.",
+        },
+    }
 
 
 def _template_for_canva(db: Session, template_id: UUID, user_id: UUID) -> DesignTemplate:
@@ -457,9 +597,40 @@ async def poll_canva_export(asset_id: UUID, db: Session = Depends(get_db), curre
         _provider_event(db, "canva", "design_asset", asset.id, current_user.id, "export_completed", "success", {"file_id": str(file_row.id), "mime_type": mime_type})
     elif job.get("status") == "failed":
         _provider_event(db, "canva", "design_asset", asset.id, current_user.id, "export_failed", "error", {"error": job.get("error")})
+        _raise_design_alert(db, "canva_export_failed", "canva", "Canva export failed for an approved design asset.", {"asset_id": str(asset.id), "error": job.get("error")}, "critical")
         db.add(DesignAssetEvent(asset_id=asset.id, actor_id=current_user.id, event_type="canva_export_failed", details={"error": job.get("error")}))
     db.commit()
     return {"asset_id": str(asset.id), "job_status": job.get("status"), "error": job.get("error"), "file_count": db.query(DesignAssetFile.id).filter(DesignAssetFile.asset_id == asset.id).count()}
+
+
+@router.get("/operations/report", dependencies=[Depends(require_permission("design:analytics"))])
+async def get_design_operations_report(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    window_start = datetime.now(timezone.utc) - timedelta(days=30)
+    requests = db.query(DesignRequest).filter(DesignRequest.created_at >= window_start).order_by(DesignRequest.created_at.desc()).all()
+    assets = db.query(DesignAsset).filter(DesignAsset.created_at >= window_start).order_by(DesignAsset.created_at.desc()).all()
+    templates = db.query(ProgramMaterialTemplate).filter(ProgramMaterialTemplate.created_at >= window_start).order_by(ProgramMaterialTemplate.created_at.desc()).all()
+    design_documents = db.query(DesignSystemDocument).filter(DesignSystemDocument.created_at >= window_start).order_by(DesignSystemDocument.created_at.desc()).all()
+    funnel_experiments = db.query(DesignFunnelExperiment).filter(DesignFunnelExperiment.created_at >= window_start).order_by(DesignFunnelExperiment.created_at.desc()).all()
+    measurements = db.query(DesignFunnelMeasurement).filter(DesignFunnelMeasurement.observed_at >= window_start).order_by(DesignFunnelMeasurement.observed_at.desc()).all()
+    provider_events = db.query(DesignProviderEvent).filter(DesignProviderEvent.created_at >= window_start).order_by(DesignProviderEvent.created_at.desc()).all()
+    alerts = db.query(OperationalAlert).filter(OperationalAlert.team == "design", OperationalAlert.created_at >= window_start).order_by(OperationalAlert.created_at.desc()).all()
+    report = _summarize_design_operations_metrics(requests, assets, templates, design_documents, funnel_experiments, measurements, provider_events, alerts)
+    report["runbook"] = _design_operations_runbook()
+    report["period_start"] = window_start.isoformat()
+    report["period_end"] = datetime.now(timezone.utc).isoformat()
+    return report
+
+
+@router.post("/operations/alerts", dependencies=[Depends(require_permission("design:analytics"))])
+async def create_design_operations_alert(request: dict[str, Any], db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
+    alert_type = str(request.get("alert_type") or "design_alert")
+    source = str(request.get("source") or "manual")
+    message = str(request.get("message") or "Design workflow issue requires attention.")
+    details = request.get("details") if isinstance(request.get("details"), dict) else {}
+    severity = str(request.get("severity") or "warning")
+    _raise_design_alert(db, alert_type, source, message, details, severity)
+    db.commit()
+    return {"status": "alert_recorded", "alert_type": alert_type, "source": source, "severity": severity}
 
 
 @router.get("/funnels/{funnel_id}/metrics", dependencies=[Depends(require_permission("design:analytics"))])
@@ -704,6 +875,7 @@ async def publish_funnel_variant(funnel_id: UUID, variant_id: UUID, request: Fun
         published = await webflow_service.publish_variant(funnel, item_id)
     except HTTPException as exc:
         _provider_event(db, "webflow", "funnel_variant", variant.id, current_user.id, "publish_failed", "error", {"status_code": exc.status_code, "detail": str(exc.detail)})
+        _raise_design_alert(db, "webflow_publish_failed", "webflow", "Webflow funnel publication failed for the approved variant.", {"funnel_id": str(funnel.id), "variant_id": str(variant.id), "status_code": exc.status_code, "detail": str(exc.detail)}, "critical")
         db.add(DesignFunnelEvent(funnel_id=funnel.id, variant_id=variant.id, actor_id=current_user.id, event_type="publish_failed", details={"status_code": exc.status_code, "detail": str(exc.detail)}))
         db.commit()
         raise
