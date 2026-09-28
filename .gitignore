@@ -37,6 +37,7 @@ supabase/migrations/*
 !supabase/migrations/0023_marketing_governance_reporting.sql
 !supabase/migrations/0024_graphic_designer_foundation.sql
 !supabase/migrations/0025_design_requests_assets_templates.sql
+!supabase/migrations/0026_designer_ai_canva_funnels.sql
 !supabase/migrations/0025_design_requests_assets_templates.sql
 !supabase/migrations/0008_enrollment_operations.sql
 !supabase/migrations/0009_sales_operations_fields.sql

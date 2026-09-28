@@ -74,6 +74,23 @@ class DesignAssetService:
             raise HTTPException(status_code=502, detail="Private design asset upload failed") from exc
         return storage_path
 
+    async def upload_bytes(self, content: bytes, mime_type: str, audience: str, filename: str) -> str:
+        if mime_type not in self.allowed_mime_types:
+            raise HTTPException(status_code=415, detail="Unsupported design export type")
+        max_size = settings.DESIGN_ASSET_MAX_UPLOAD_MB * 1024 * 1024
+        if not content or len(content) > max_size:
+            raise HTTPException(status_code=413, detail="Design export is empty or exceeds the configured upload limit")
+        extension = self.file_extensions[mime_type]
+        storage_path = f"{audience}/{uuid4()}.{extension}"
+        headers = {**self._headers(), "Content-Type": mime_type, "Content-Length": str(len(content)), "x-upsert": "false"}
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.put(self._object_url(storage_path), headers=headers, content=content)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Unable to store the Canva export in private storage") from exc
+        return storage_path
+
     async def create_signed_url(self, storage_path: str, expires_seconds: int = 900) -> str:
         bucket = quote(settings.SUPABASE_DESIGN_ASSET_BUCKET, safe="")
         path = quote(storage_path, safe="/")

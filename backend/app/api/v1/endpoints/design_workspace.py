@@ -24,7 +24,6 @@ from app.models.design_system import (
     DesignTemplate,
     DesignTemplateEvent,
     DesignTemplateVersion,
-    DesignTemplateVersion,
 )
 from app.models.marketing_content import MarketingContentItem
 from app.models.marketing_intelligence import MarketingVideoAsset
