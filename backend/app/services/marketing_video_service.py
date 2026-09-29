@@ -28,6 +28,31 @@ class MarketingVideoService:
         key = settings.SUPABASE_SERVICE_ROLE_KEY
         return {"apikey": key, "Authorization": f"Bearer {key}"}
 
+    async def create_signed_url(self, storage_path: str, expires_in: int = 3600) -> str:
+        if not settings.SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(status_code=503, detail="Private Marketing media storage is not configured")
+        bucket = quote(settings.SUPABASE_MARKETING_VIDEO_BUCKET, safe="")
+        path = quote(storage_path, safe="/")
+        url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/sign/{bucket}/{path}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    url,
+                    headers={**self._storage_headers(), "Content-Type": "application/json"},
+                    json={"expiresIn": expires_in},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                signed_path = payload.get("signedURL") or payload.get("signedUrl")
+                if not signed_path:
+                    raise HTTPException(status_code=502, detail="Private media storage returned no signed URL")
+                if signed_path.startswith("http://") or signed_path.startswith("https://"):
+                    return signed_path
+                suffix = signed_path if signed_path.startswith("/") else f"/{signed_path}"
+                return f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1{suffix}"
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Unable to create a temporary private media URL") from exc
+
     async def store_upload(self, upload: UploadFile, size_bytes: int) -> str:
         if upload.content_type not in self.allowed_types:
             raise HTTPException(status_code=415, detail="Upload an MP4, WebM, MOV, or supported audio file")

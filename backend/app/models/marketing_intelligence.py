@@ -67,6 +67,8 @@ class MarketingVideoAsset(Base):
     size_bytes = Column(BigInteger, nullable=False)
     storage_path = Column(Text, nullable=False, unique=True)
     status = Column(String, nullable=False, default="uploaded", index=True)
+    team = Column(String, nullable=False, default="marketing", index=True)
+    audience = Column(String, nullable=False, default="marketing", index=True)
     transcript = Column(Text, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     transcript_segments = Column(JSONB, nullable=False, default=list)

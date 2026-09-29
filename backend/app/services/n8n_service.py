@@ -60,6 +60,7 @@ class N8NService:
             "eny-ea-task-reminders",
             "eny-ea-opportunity-research",
             "eny-ea-follow-up-reminders",
+            "eny-video-publish",
         }
         if normalized_name not in allowed:
             return {
@@ -104,6 +105,13 @@ class N8NService:
                     "workflow": normalized_name,
                     "message": "EA automation queued in mock mode",
                     "requires_approval": bool(data.get("requires_approval", True)),
+                }
+            if normalized_name == "eny-video-publish":
+                return {
+                    "status": "mocked",
+                    "workflow": normalized_name,
+                    "published": False,
+                    "message": "Video publishing is simulated in n8n mock mode.",
                 }
             return {
                 "status": "success",

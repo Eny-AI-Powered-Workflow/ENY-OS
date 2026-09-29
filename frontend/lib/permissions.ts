@@ -47,7 +47,7 @@ export const MODULES: Module[] = [
   },
   {
     name: 'Videographer',
-    href: '/dashboard/marketing',
+    href: '/dashboard/videographer',
     icon: 'Video',
     permissions: ['video:read']
   },
@@ -130,7 +130,7 @@ export function usePermissions() {
     business_support: ['ai:chat', 'design:workspace', 'design:read_marketing', 'design:request'],
     marketing: ['marketing:read', 'marketing:write', 'marketing:analytics', 'marketing:research', 'marketing:seo', 'marketing:social', 'video:read', 'video:upload', 'video:edit', 'marketing:content:read', 'marketing:content:write', 'design:workspace', 'design:read_marketing', 'design:request'],
     marketing_lead: ['marketing:read', 'marketing:write', 'marketing:approve', 'marketing:publish', 'marketing:analytics', 'marketing:configure', 'marketing:research', 'marketing:send', 'marketing:integrations', 'marketing:seo', 'marketing:social', 'video:read', 'video:upload', 'video:edit', 'video:approve', 'video:publish', 'marketing:content:read', 'marketing:content:write', 'design:workspace', 'design:read_marketing', 'design:review_marketing', 'design:templates', 'design:funnels', 'design:analytics', 'design:publish', 'design:request', 'design:publish_marketing'],
-    videographer: ['video:read', 'video:upload', 'video:edit', 'marketing:content:read', 'marketing:content:write', 'design:read_marketing'],
+    videographer: ['video:read', 'video:upload', 'video:edit', 'video:approve', 'video:publish', 'marketing:content:read', 'marketing:content:write', 'design:read_marketing', 'design:canva'],
     graphic_designer: ['design:workspace', 'design:manage', 'design:write', 'design:templates', 'design:funnels', 'design:analytics', 'design:request', 'design:ai', 'design:canva'],
     executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],

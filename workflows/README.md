@@ -8,6 +8,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 |---------------|--------------|-------------|
 | ENY-SALES-SCORE | /webhook/eny-sales-score | Lead scoring workflow that analyzes leads and assigns scores based on engagement and fit criteria |
 | ENY-ENROLLMENT-FOLLOW-UP | /webhook/eny-enrollment-follow-up | Queues approved hot-lead follow-up for the Enrollment team |
+| ENY-VIDEO-PUBLISH | /webhook/eny-video-publish | Validates an approved clip and sends it to the configured publishing adapter |
 
 ## How to Use
 
@@ -37,6 +38,15 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Output**: Success after the GHL contact is loaded and tagged with `eny-follow-up-queued`. The inbox email is best-effort: the response includes `notification_sent` and `notification_error` if delivery fails after the tag succeeds.
 - **Required n8n environment variables**: `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, `GHL_NOTIFICATION_FROM_EMAIL`
 - **Recommended webhook protection**: configure the Webhook node with a dedicated header secret and set the same value as backend `N8N_WEBHOOK_TOKEN`.
+
+### ENY-VIDEO-PUBLISH
+- **Webhook Path**: `/webhook/eny-video-publish`
+- **Workflow File**: `eny-video-publish.json`
+- **Description**: Receives an approved clip, its private signed source URL and time range, then delegates clipping/publication to a configured channel adapter. The backend marks the output published only after this workflow confirms success.
+- **Expected Input**: `asset_id`, `title`, `caption`, `source_media_url`, `start_seconds`, `end_seconds`, `channel`, and approval metadata.
+- **Required n8n environment variables**: `ENY_VIDEO_PUBLISHER_URL`, `ENY_VIDEO_PUBLISHER_TOKEN`.
+- **Webhook protection**: configure the imported Webhook node with header authentication using the same secret as backend `N8N_WEBHOOK_TOKEN`.
+- **Important**: The channel adapter must actually trim the requested time range and return `{ "published": true, "url": "..." }` (or `{ "status": "published" }`). The included workflow is inactive until imported, configured, and activated. It deliberately does not report a simulated publish as complete.
 
 ## Development Notes
 

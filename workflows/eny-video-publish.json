@@ -1,0 +1,84 @@
+{
+  "name": "ENY-VIDEO-PUBLISH",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "eny-video-publish", "responseMode": "lastNode", "options": {} },
+      "name": "Videographer Publish Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $input.first().json || {};\nconst payload = typeof envelope.body === 'string' ? JSON.parse(envelope.body) : (envelope.body || envelope);\nconst required = ['asset_id', 'title', 'caption', 'source_media_url', 'start_seconds', 'end_seconds', 'channel'];\nconst missing = required.filter((key) => payload[key] === undefined || payload[key] === null || payload[key] === '');\nconst channels = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube'];\nif (missing.length) throw new Error(`Invalid video publish payload. Missing: ${missing.join(', ')}`);\nif (!channels.includes(String(payload.channel).toLowerCase())) throw new Error('Unsupported publishing channel');\nif (Number(payload.start_seconds) < 0 || Number(payload.end_seconds) <= Number(payload.start_seconds)) throw new Error('Invalid clip timestamps');\nif (!String(payload.source_media_url).startsWith('https://')) throw new Error('Video media URL must be HTTPS');\nreturn [{ json: { ...payload, channel: String(payload.channel).toLowerCase(), requested_at: new Date().toISOString() } }];"
+      },
+      "name": "Validate Approved Clip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "leftValue": "={{$env.ENY_VIDEO_PUBLISHER_URL}}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Publisher Configured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.ENY_VIDEO_PUBLISHER_URL}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{'Bearer ' + $env.ENY_VIDEO_PUBLISHER_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { asset_id: $json.asset_id, title: $json.title, caption: $json.caption, source_media_url: $json.source_media_url, start_seconds: $json.start_seconds, end_seconds: $json.end_seconds, channel: $json.channel, requested_at: $json.requested_at } }}",
+        "options": {}
+      },
+      "name": "Publish Through Configured Channel Adapter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json || {};\nconst published = result.published === true || result.status === 'published';\nif (!published) throw new Error(result.message || result.error || 'Channel adapter did not confirm publication');\nreturn [{ json: { status: 'success', published: true, asset_id: $('Validate Approved Clip').first().json.asset_id, channel: $('Validate Approved Clip').first().json.channel, url: result.url || result.permalink || null, provider: result.provider || 'configured_channel_adapter', published_at: result.published_at || new Date().toISOString() } }];"
+      },
+      "name": "Confirm Publication",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'error', published: false, message: 'ENY_VIDEO_PUBLISHER_URL is not configured in n8n.' } }];"
+      },
+      "name": "Return Not Configured",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 420]
+    }
+  ],
+  "connections": {
+    "Videographer Publish Webhook": { "main": [[{ "node": "Validate Approved Clip", "type": "main", "index": 0 }]] },
+    "Validate Approved Clip": { "main": [[{ "node": "Publisher Configured", "type": "main", "index": 0 }]] },
+    "Publisher Configured": { "main": [[{ "node": "Publish Through Configured Channel Adapter", "type": "main", "index": 0 }], [{ "node": "Return Not Configured", "type": "main", "index": 0 }]] },
+    "Publish Through Configured Channel Adapter": { "main": [[{ "node": "Confirm Publication", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
