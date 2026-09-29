@@ -30,6 +30,11 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    migrations have been applied in order. Verify the grants with seeded roles
    in a non-production Supabase project before rollout.
 
+   Migration `supabase/migrations/0032_programs_manager_student_read.sql`
+   grants Programs & Operations the existing read-only `students:read` scope
+   needed for Student Success oversight. Apply it after 0031 and verify the
+   role grant in non-production before using the Student Success API.
+
    For Marketing phases 9–12, apply the next unapplied migrations in order:
    `supabase/migrations/0022_marketing_video_analytics.sql` and
    `supabase/migrations/0023_marketing_governance_reporting.sql`. Configure

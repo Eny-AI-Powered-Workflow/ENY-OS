@@ -8,7 +8,7 @@ import { usePermissions } from '@/lib/permissions'
 const modules = [
   { name: 'CEO Cockpit', href: '/dashboard/ceo', code: 'C', permissions: ['pipeline:read', 'agents:configure'] },
   { name: 'Sales & Enrollment', href: '/dashboard/enrollment', code: 'S', permissions: ['leads:read', 'leads:write', 'pipeline:read'] },
-  { name: 'Student Success', href: '/dashboard/student-success', code: 'SS', permissions: ['students:read', 'students:write'] },
+  { name: 'Student Success', href: '/dashboard/student-success', code: 'SS', permissions: ['students:read'] },
   { name: 'Marketing', href: '/dashboard/marketing', code: 'M', permissions: ['marketing:read'] },
   { name: 'Operations', href: '/dashboard/operations', code: 'O', permissions: [] },
   { name: 'Writer & SOPs', href: '/dashboard/writer', code: 'W', permissions: ['agents:trigger'] },

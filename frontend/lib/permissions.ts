@@ -37,7 +37,7 @@ export const MODULES: Module[] = [
     name: 'Student Success',
     href: '/dashboard/student-success',
     icon: 'GraduationCap',
-    permissions: ['students:read', 'students:write']
+    permissions: ['students:read']
   },
   {
     name: 'Marketing',

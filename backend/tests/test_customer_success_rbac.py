@@ -40,3 +40,9 @@ def test_customer_success_scopes_have_explicit_ceo_grants():
 
     assert {"students:read", "students:write"} <= customer_success_scopes
     assert customer_success_scopes <= ceo_scopes
+
+
+def test_programs_manager_has_student_read_access_for_oversight():
+    programs_manager_scopes = _explicit_scopes_for_role("programs_manager")
+
+    assert "students:read" in programs_manager_scopes
