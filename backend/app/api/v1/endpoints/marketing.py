@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Literal, Optional
 from urllib.parse import urlsplit
-from app.api.deps import require_permission
+from app.api.deps import require_any_permission, require_permission
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
@@ -379,13 +379,13 @@ def _video_asset_payload(asset: MarketingVideoAsset) -> dict[str, Any]:
     }
 
 
-@router.get("/video/assets", dependencies=[Depends(require_permission("marketing:read"))])
+@router.get("/video/assets", dependencies=[Depends(require_any_permission("marketing:read", "video:read"))])
 async def list_marketing_video_assets(db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     assets = db.query(MarketingVideoAsset).order_by(MarketingVideoAsset.created_at.desc()).limit(100).all()
     return {"assets": [_video_asset_payload(asset) for asset in assets], "providers": _source_status("video")["providers"]}
 
 
-@router.post("/video/assets", dependencies=[Depends(require_permission("marketing:write"))])
+@router.post("/video/assets", dependencies=[Depends(require_any_permission("marketing:write", "video:upload"))])
 async def upload_marketing_video(
     file: UploadFile = File(...),
     title: str = Form(..., min_length=3, max_length=240),
@@ -408,7 +408,7 @@ async def upload_marketing_video(
     return _video_asset_payload(asset)
 
 
-@router.post("/video/assets/{asset_id}/transcribe", dependencies=[Depends(require_permission("marketing:write"))])
+@router.post("/video/assets/{asset_id}/transcribe", dependencies=[Depends(require_any_permission("marketing:write", "video:edit"))])
 async def transcribe_marketing_video(asset_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     asset = db.query(MarketingVideoAsset).filter(MarketingVideoAsset.id == asset_id).first()
     if not asset:
@@ -431,7 +431,7 @@ async def transcribe_marketing_video(asset_id: UUID, db: Session = Depends(get_d
     return _video_asset_payload(asset)
 
 
-@router.post("/video/assets/{asset_id}/generate-pack", dependencies=[Depends(require_permission("marketing:write"))])
+@router.post("/video/assets/{asset_id}/generate-pack", dependencies=[Depends(require_any_permission("marketing:write", "video:edit"))])
 async def generate_marketing_video_pack(asset_id: UUID, db: Session = Depends(get_db), current_user: Any = Depends(get_current_user)):
     asset = db.query(MarketingVideoAsset).filter(MarketingVideoAsset.id == asset_id).first()
     if not asset:

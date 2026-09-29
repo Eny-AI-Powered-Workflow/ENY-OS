@@ -67,3 +67,39 @@ def require_permission(permission_scope: str):
         return current_user
 
     return permission_checker
+
+
+def require_any_permission(*permission_scopes: str):
+    """Allow access when the user has any of the provided permission scopes."""
+    def permission_checker(
+        current_user: Annotated[Any, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)]
+    ):
+        scopes = tuple(permission_scopes)
+        user_has_permission = (
+            db.query(Permission)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .join(UserRole, RolePermission.role_id == UserRole.role_id)
+            .filter(UserRole.user_id == current_user.id)
+            .filter(Permission.scope.in_(scopes))
+            .first()
+        ) is not None
+
+        for scope in scopes:
+            db.add(AuditLog(
+                user_id=current_user.id,
+                permission_scope=scope,
+                granted=user_has_permission,
+                path="",
+            ))
+        db.commit()
+
+        if not user_has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: one of {', '.join(scopes)}",
+            )
+
+        return current_user
+
+    return permission_checker
