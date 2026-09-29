@@ -32,7 +32,7 @@ async def list_videographer_assets(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
-    assets = videographer_service.list_assets(db, owner_id=owner_id, team=team, audience=audience)
+    assets = videographer_service.list_assets(db, user_id=current_user.id, owner_id=owner_id, team=team, audience=audience)
     return {"assets": [videographer_service.asset_payload(asset) for asset in assets]}
 
 
@@ -60,8 +60,12 @@ async def generate_videographer_clips(asset_id: UUID, db: Session = Depends(get_
 
 
 @router.get("/assets/{asset_id}/outputs", dependencies=[Depends(require_permission("video:read"))])
-async def get_videographer_outputs(asset_id: UUID, db: Session = Depends(get_db)):
-    asset = videographer_service.get_asset(db, asset_id)
+async def get_videographer_outputs(
+    asset_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    asset = videographer_service.get_asset(db, asset_id, current_user.id)
     return {"asset_id": str(asset.id), "outputs": asset.generated_outputs or []}
 
 

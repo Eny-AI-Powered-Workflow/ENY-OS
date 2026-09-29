@@ -8,9 +8,15 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.audit_log import AuditLog
 from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingVideoAsset
+from app.models.operational_alert import OperationalAlert
+from app.models.permission import Permission
+from app.models.role_permission import RolePermission
+from app.models.user_role import UserRole
 from app.services.canva_service import canva_service
 from app.services.claude_service import ClaudeService
+from app.services.knowledge_service import retrieve_knowledge
 from app.services.marketing_video_service import marketing_video_service
 from app.services.n8n_service import N8NService
 
@@ -43,9 +49,25 @@ class VideographerService:
         }
 
     @staticmethod
-    def get_asset(db: Session, asset_id: UUID) -> MarketingVideoAsset:
+    def allowed_teams(db: Session, user_id: UUID) -> set[str]:
+        scopes = (
+            db.query(Permission.scope)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .join(UserRole, RolePermission.role_id == UserRole.role_id)
+            .filter(UserRole.user_id == user_id)
+            .filter(Permission.scope.like("video:team:read:%"))
+            .all()
+        )
+        return {scope.rsplit(":", 1)[-1] for (scope,) in scopes}
+
+    def get_asset(self, db: Session, asset_id: UUID, user_id: UUID) -> MarketingVideoAsset:
         asset = db.query(MarketingVideoAsset).filter(MarketingVideoAsset.id == asset_id).first()
         if not asset:
+            raise HTTPException(status_code=404, detail="Video asset not found")
+        has_team_access = asset.team in self.allowed_teams(db, user_id)
+        self._audit_team_read(db, user_id, asset.team, has_team_access)
+        db.commit()
+        if not has_team_access:
             raise HTTPException(status_code=404, detail="Video asset not found")
         return asset
 
@@ -53,11 +75,20 @@ class VideographerService:
         self,
         db: Session,
         *,
+        user_id: UUID,
         owner_id: UUID | None = None,
         team: str | None = None,
         audience: str | None = None,
     ) -> list[MarketingVideoAsset]:
+        allowed_teams = self.allowed_teams(db, user_id)
+        if team and team not in allowed_teams:
+            self._audit_team_read(db, user_id, team, False)
+            db.commit()
+            raise HTTPException(status_code=404, detail="Video assets not found")
+        if not allowed_teams:
+            return []
         query = db.query(MarketingVideoAsset)
+        query = query.filter(MarketingVideoAsset.team.in_(allowed_teams))
         if owner_id:
             query = query.filter(MarketingVideoAsset.created_by == owner_id)
         if team:
@@ -75,6 +106,19 @@ class VideographerService:
         team: str,
         audience: str,
     ) -> MarketingVideoAsset:
+        allowed_teams = self.allowed_teams(db, current_user.id)
+        if team not in allowed_teams:
+            self._audit_team_access(db, current_user.id, team, "upload", False)
+            db.commit()
+            raise HTTPException(status_code=403, detail="You cannot upload assets for this team")
+        allowed_audiences = {
+            "videographer": {"marketing", "shared"},
+            "marketing": {"marketing", "shared"},
+            "programs": {"programs", "shared"},
+            "student_success": {"student_success", "shared"},
+        }
+        if audience not in allowed_audiences.get(team, set()):
+            raise HTTPException(status_code=403, detail="You cannot upload assets for this audience")
         upload.file.seek(0, 2)
         size_bytes = upload.file.tell()
         upload.file.seek(0)
@@ -100,16 +144,27 @@ class VideographerService:
         return asset
 
     async def transcribe(self, db: Session, asset_id: UUID, current_user: Any) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         if asset.transcript:
             return {**self.asset_payload(asset), "transcription": {"status": "already_transcribed"}}
 
-        result = await marketing_video_service.transcribe(
-            asset.storage_path, asset.original_filename, asset.mime_type, asset.size_bytes
-        )
+        try:
+            result = await marketing_video_service.transcribe(
+                asset.storage_path, asset.original_filename, asset.mime_type, asset.size_bytes
+            )
+        except Exception as exc:
+            self._event(db, asset, current_user.id, "transcription_failed", {"reason": str(exc)[:1000]})
+            self._alert(db, asset.id, "video_transcription_failed", "Video transcription failed.", {"reason": str(exc)[:1000]})
+            db.commit()
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(status_code=502, detail="Video transcription failed") from exc
         if result["status"] != "transcribed":
             asset.status = "transcription_required"
             self._event(db, asset, current_user.id, "transcription_unavailable", {
+                "status": result["status"], "message": result.get("message"),
+            })
+            self._alert(db, asset.id, "video_transcription_failed", "Video transcription could not be completed.", {
                 "status": result["status"], "message": result.get("message"),
             })
             db.commit()
@@ -129,24 +184,34 @@ class VideographerService:
         return self.asset_payload(asset)
 
     async def generate_clips(self, db: Session, asset_id: UUID, current_user: Any) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         if not asset.transcript:
             raise HTTPException(status_code=409, detail="Transcribe the video before generating clips")
 
-        prompt = f"""Create up to five short-form clip recommendations for ENY Consulting using only this transcript.
-Return valid JSON only: {{"clips":[{{"title":"", "start_seconds":0, "end_seconds":30, "rationale":"", "caption":"", "hook":""}}]}}.
-Every timestamp must fall within the source duration ({asset.duration_seconds or 0} seconds). Do not invent claims, statistics, offers, or facts.
+        try:
+            brand_knowledge = await retrieve_knowledge(
+                db, ["marketing"], f"approved video brand voice caption guidance for {asset.title}", limit=8
+            )
+            prompt = f"""Create up to five short-form clip recommendations for ENY Consulting using only this transcript.
+Return valid JSON only: {{"clips":[{{"title":"", "start_seconds":0, "end_seconds":30, "rationale":"", "caption":"", "hook":"", "brand_consistent":true, "brand_issues":[]}}]}}.
+Every timestamp must fall within the source duration ({asset.duration_seconds or 0} seconds). Do not invent claims, statistics, offers, or facts. Captions must be complete, readable, and aligned with the approved brand guidance. Set brand_consistent=false and explain any mismatch in brand_issues.
+Approved Marketing brand knowledge: {json.dumps(brand_knowledge, default=str)}
 Transcript segments: {json.dumps((asset.transcript_segments or [])[:500], default=str)}
 Transcript: {asset.transcript[:60000]}"""
-        response = await ClaudeService().invoke(
-            prompt=prompt, role_context="marketing", max_tokens=4000, temperature=0.2
-        )
-        try:
+            response = await ClaudeService().invoke(
+                prompt=prompt, role_context="marketing", max_tokens=4000, temperature=0.2
+            )
             generated = json.loads(response)
-        except json.JSONDecodeError as exc:
+        except Exception as exc:
+            self._event(db, asset, current_user.id, "clip_generation_failed", {"reason": str(exc)[:1000]})
+            self._alert(db, asset.id, "video_clip_generation_failed", "AI clip generation failed.", {"reason": str(exc)[:1000]})
+            db.commit()
             raise HTTPException(status_code=502, detail="Clip generation returned invalid JSON") from exc
         raw_clips = generated.get("clips") if isinstance(generated, dict) else None
         if not isinstance(raw_clips, list):
+            self._event(db, asset, current_user.id, "clip_generation_failed", {"reason": "Malformed clips payload"})
+            self._alert(db, asset.id, "video_clip_generation_failed", "AI clip generation returned a malformed payload.", {})
+            db.commit()
             raise HTTPException(status_code=502, detail="Clip generation payload was malformed")
 
         clips = []
@@ -155,7 +220,21 @@ Transcript: {asset.transcript[:60000]}"""
             if normalized:
                 clips.append(normalized)
         if not clips:
+            self._event(db, asset, current_user.id, "clip_generation_failed", {"reason": "No valid timestamped clips"})
+            self._alert(db, asset.id, "video_clip_generation_failed", "AI clip generation returned no valid timestamped clips.", {})
+            db.commit()
             raise HTTPException(status_code=502, detail="Clip generation returned no valid timestamped clips")
+
+        broken_captions = [index for index, clip in enumerate(clips) if clip["caption_quality_issues"]]
+        branding_issues = [
+            {"index": index, "issues": clip["brand_issues"]}
+            for index, clip in enumerate(clips)
+            if not clip["brand_consistent"]
+        ]
+        if broken_captions:
+            self._alert(db, asset.id, "video_caption_quality", "Generated clips contain missing or malformed captions.", {"output_indexes": broken_captions})
+        if branding_issues:
+            self._alert(db, asset.id, "video_branding_review", "AI flagged generated clips for possible brand inconsistency.", {"outputs": branding_issues})
 
         asset.generated_outputs = clips
         asset.status = "ready_for_review"
@@ -172,7 +251,7 @@ Transcript: {asset.transcript[:60000]}"""
         note: str,
         current_user: Any,
     ) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         outputs = list(asset.generated_outputs or [])
         if output_index < 0 or output_index >= len(outputs):
             raise HTTPException(status_code=404, detail="Generated clip not found")
@@ -198,7 +277,7 @@ Transcript: {asset.transcript[:60000]}"""
         data: dict[str, Any],
         current_user: Any,
     ) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         outputs = list(asset.generated_outputs or [])
         if output_index < 0 or output_index >= len(outputs):
             raise HTTPException(status_code=404, detail="Generated clip not found")
@@ -228,7 +307,7 @@ Transcript: {asset.transcript[:60000]}"""
         output_index: int,
         current_user: Any,
     ) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         outputs = list(asset.generated_outputs or [])
         if output_index < 0 or output_index >= len(outputs):
             raise HTTPException(status_code=404, detail="Generated clip not found")
@@ -269,28 +348,52 @@ Transcript: {asset.transcript[:60000]}"""
         channel: str,
         current_user: Any,
     ) -> dict[str, Any]:
-        asset = self.get_asset(db, asset_id)
+        asset = self.get_asset(db, asset_id, current_user.id)
         outputs = list(asset.generated_outputs or [])
         if output_index < 0 or output_index >= len(outputs):
             raise HTTPException(status_code=404, detail="Generated clip not found")
         output = dict(outputs[output_index])
         if output.get("status") != "approved":
+            self._event(db, asset, current_user.id, "publish_blocked_missing_approval", {"output_index": output_index, "channel": channel})
+            self._alert(db, asset.id, "video_missing_approval", "Publishing was blocked because the clip has no approval.", {
+                "output_index": output_index, "channel": channel,
+            })
+            db.commit()
             raise HTTPException(status_code=409, detail="Only approved clips can be published")
-        media_url = await marketing_video_service.create_signed_url(asset.storage_path)
-        result = await N8NService().trigger_workflow("eny-video-publish", {
-            "asset_id": str(asset.id),
-            "output_index": output_index,
-            "title": output.get("title"),
-            "caption": output.get("caption"),
-            "hook": output.get("hook"),
-            "source_media_url": media_url,
-            "start_seconds": output["start_seconds"],
-            "end_seconds": output["end_seconds"],
-            "channel": channel,
-            "approved_by": output.get("reviewed_by"),
-            "requested_by": str(current_user.id),
-        })
+        try:
+            media_url = await marketing_video_service.create_signed_url(asset.storage_path)
+            result = await N8NService().trigger_workflow("eny-video-publish", {
+                "asset_id": str(asset.id),
+                "output_index": output_index,
+                "title": output.get("title"),
+                "caption": output.get("caption"),
+                "hook": output.get("hook"),
+                "source_media_url": media_url,
+                "start_seconds": output["start_seconds"],
+                "end_seconds": output["end_seconds"],
+                "channel": channel,
+                "approved_by": output.get("reviewed_by"),
+                "requested_by": str(current_user.id),
+            })
+        except Exception as exc:
+            self._event(db, asset, current_user.id, "publish_failed", {"output_index": output_index, "channel": channel, "reason": str(exc)[:1000]})
+            self._alert(db, asset.id, "video_publish_failed", "Video publishing workflow failed.", {
+                "output_index": output_index, "channel": channel, "reason": str(exc)[:1000],
+            })
+            db.commit()
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(status_code=502, detail="Video publishing workflow failed") from exc
         if result.get("status") not in {"success", "published"} or not result.get("published"):
+            self._event(db, asset, current_user.id, "publish_failed", {
+                "output_index": output_index, "channel": channel,
+                "reason": result.get("error") or result.get("message") or "Publication was not confirmed",
+            })
+            self._alert(db, asset.id, "video_publish_failed", "Video publishing was not confirmed by n8n.", {
+                "output_index": output_index, "channel": channel,
+                "reason": result.get("error") or result.get("message") or "Publication was not confirmed",
+            })
+            db.commit()
             raise HTTPException(
                 status_code=502,
                 detail=result.get("error") or result.get("message") or "The publishing workflow did not confirm publication",
@@ -319,16 +422,62 @@ Transcript: {asset.transcript[:60000]}"""
             return None
         if duration_seconds is not None and end > duration_seconds:
             return None
+        raw_caption = clip.get("caption")
+        caption = raw_caption[:5000] if isinstance(raw_caption, str) else ""
+        caption_issues = []
+        if raw_caption is not None and not isinstance(raw_caption, str):
+            caption_issues.append("malformed")
+        if not caption.strip():
+            caption_issues.append("missing")
+        if len(caption) >= 5000:
+            caption_issues.append("truncated_at_limit")
+        brand_issues = clip.get("brand_issues") if isinstance(clip.get("brand_issues"), list) else []
+        brand_consistent = clip.get("brand_consistent") is True
+        if not brand_consistent and not brand_issues:
+            brand_issues = ["Brand consistency was not verified"]
         return {
             "kind": "short_form_clip",
             "title": str(clip.get("title") or "Untitled clip")[:240],
             "start_seconds": start,
             "end_seconds": end,
             "rationale": str(clip.get("rationale") or "")[:2000],
-            "caption": str(clip.get("caption") or "")[:5000],
+            "caption": caption,
             "hook": str(clip.get("hook") or "")[:1000],
+            "brand_consistent": brand_consistent,
+            "brand_issues": [str(issue)[:500] for issue in brand_issues[:10]],
+            "caption_quality_issues": caption_issues,
             "status": "draft",
         }
+
+    @staticmethod
+    def _alert(db: Session, asset_id: UUID, alert_type: str, message: str, details: dict[str, Any]) -> None:
+        existing = db.query(OperationalAlert).filter(
+            OperationalAlert.team == "videographer",
+            OperationalAlert.alert_type == alert_type,
+            OperationalAlert.source == str(asset_id),
+            OperationalAlert.status == "open",
+        ).first()
+        if existing:
+            existing.message = message
+            existing.details = {**(existing.details or {}), **details}
+            return
+        db.add(OperationalAlert(
+            team="videographer", alert_type=alert_type, severity="warning",
+            source=str(asset_id), message=message, details=details,
+        ))
+
+    @staticmethod
+    def _audit_team_read(db: Session, user_id: UUID, team: str, granted: bool) -> None:
+        VideographerService._audit_team_access(db, user_id, team, "read", granted)
+
+    @staticmethod
+    def _audit_team_access(db: Session, user_id: UUID, team: str, action: str, granted: bool) -> None:
+        db.add(AuditLog(
+            user_id=user_id,
+            permission_scope=f"video:team:{action}:{team}",
+            granted=granted,
+            path="",
+        ))
 
     @staticmethod
     def _event(db: Session, asset: MarketingVideoAsset, actor_id: UUID, event_type: str, details: dict[str, Any]) -> None:
