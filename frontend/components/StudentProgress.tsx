@@ -5,14 +5,23 @@ import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { GraduationCap } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function StudentProgress() {
+type StudentProgressData = {
+  activeStudents: number | null
+  programSheetMatches: number | null
+  attendanceReported: number | null
+  assignmentsReported: number | null
+  capstonesReported: number | null
+}
+
+export default function StudentProgress({ offerId }: { offerId: string }) {
   const [progressData, setProgressData] = useState({
-    graduationRate: 0,
-    averageGpa: 0,
-    retentionRate: 0,
-    collegeAcceptanceRate: 0,
-  });
-  const [interventions, setInterventions] = useState<Array<any>>([]);
+    activeStudents: null,
+    programSheetMatches: null,
+    attendanceReported: null,
+    assignmentsReported: null,
+    capstonesReported: null,
+  } as StudentProgressData);
+  const [programSheetStatus, setProgramSheetStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +36,8 @@ export default function StudentProgress() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/progress`, {
+      const params = new URLSearchParams({ offer_id: offerId });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/progress?${params}`, {
         headers,
         credentials: 'include',
       });
@@ -36,8 +46,8 @@ export default function StudentProgress() {
         const payload = await res.json().catch(() => ({}));
         if (res.status === 401) {
           setError('Your session has expired. Please log in again.');
-        } else if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
-          setError('Student progress is unavailable until the approved source is connected.');
+        } else if (res.status === 503 && payload?.detail?.code === 'provider_not_configured') {
+          setError('Kajabi is not configured in the backend environment.');
         } else if (res.status === 403) {
           setError('You do not have permission to view student progress.');
         } else {
@@ -48,12 +58,13 @@ export default function StudentProgress() {
 
       const data = await res.json();
       setProgressData(data.progress || {
-        graduationRate: 0,
-        averageGpa: 0,
-        retentionRate: 0,
-        collegeAcceptanceRate: 0,
+        activeStudents: null,
+        programSheetMatches: null,
+        attendanceReported: null,
+        assignmentsReported: null,
+        capstonesReported: null,
       });
-      setInterventions(data.recentInterventions || []);
+      setProgramSheetStatus(data.sources?.program_sheet ?? null);
     } catch (err: any) {
       console.error('Error fetching student progress:', err);
       setError(err.message || 'An unknown error occurred');
@@ -63,8 +74,8 @@ export default function StudentProgress() {
   };
 
   useEffect(() => {
-    fetchProgressData();
-  }, []);
+    void fetchProgressData();
+  }, [offerId]);
 
   if (loading) {
     return (
@@ -89,85 +100,31 @@ export default function StudentProgress() {
     );
   }
 
-  if (progressData.graduationRate === 0 && interventions.length === 0) {
-    return (
-      <Card className="w-full">
-        <CardHeader className="flex flex-col items-center py-6">
-          <GraduationCap className="h-5 w-5 text-muted-foreground mr-2" />
-          <div className="text-sm">No progress data available</div>
-        </CardHeader>
-      </Card>
-    );
-  }
-
   return (
     <Card className="w-full">
       <CardHeader className="pb-4">
         <div className="flex items-center">
           <GraduationCap className="h-4 w-4 mr-2" />
-          <h2 className="text-xl font-semibold">Student Progress & Outcomes</h2>
+          <h2 className="text-xl font-semibold">Program Sheet coverage</h2>
         </div>
-        <p className="text-xs text-muted-foreground">Track key metrics and recent interventions</p>
+        <p className="text-xs text-muted-foreground">Counts indicate populated source fields, not grades or risk decisions.</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Graduation Rate</p>
-                <p className="text-lg font-bold text-foreground">{progressData.graduationRate}%</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-lg">🎓</span>
-              </div>
+        <p className="text-xs text-muted-foreground">Program Sheet source: {programSheetStatus?.replaceAll('_', ' ') || 'Unknown'}</p>
+        <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          {[
+            ['Active learners', progressData.activeStudents],
+            ['Matched Program Sheet rows', progressData.programSheetMatches],
+            ['Attendance values', progressData.attendanceReported],
+            ['Assignment values', progressData.assignmentsReported],
+            ['Capstone values', progressData.capstonesReported],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="border border-slate-200 p-4">
+              <dt className="text-sm text-muted-foreground">{label}</dt>
+              <dd className="mt-2 text-xl font-semibold text-foreground">{typeof value === 'number' ? value.toLocaleString() : 'Unavailable'}</dd>
             </div>
-          </div>
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Average GPA</p>
-                <p className="text-lg font-bold text-foreground">{progressData.averageGpa.toFixed(2)}</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-lg">📊</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Retention Rate</p>
-                <p className="text-lg font-bold text-foreground">{progressData.retentionRate}%</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-lg">🔄</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">College Acceptance</p>
-                <p className="text-lg font-bold text-foreground">{progressData.collegeAcceptanceRate}%</p>
-              </div>
-              <div className="w-8 h-8 bg-brass-500/10 rounded-full flex items-center justify-center">
-                <span className="text-brass-500 text-lg">🎉</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {interventions.length > 0 && (
-          <div className="space-y-3">
-            {interventions.map((intervention) => (
-              <div key={intervention.id} className="bg-card/50 p-3 rounded-lg border border-border/50">
-                <p className="font-medium text-foreground">{intervention.title}</p>
-                <p className="text-sm text-muted-foreground">{intervention.description}</p>
-                <p className="text-xs text-muted-foreground mt-1">{intervention.timeAgo}</p>
-              </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </dl>
       </CardContent>
     </Card>
   );

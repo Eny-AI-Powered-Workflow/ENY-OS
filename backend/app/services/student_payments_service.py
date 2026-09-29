@@ -47,6 +47,7 @@ class StudentPaymentsService:
         return {
             "transaction_id": cls._text(transaction.get("id")),
             "provider": "paystack",
+            "customer_id": cls._text(customer.get("id")),
             "amount_minor": cls._amount_minor(transaction.get("amount")),
             "currency": currency,
             "status": cls._text(transaction.get("status")) or "unknown",
@@ -72,6 +73,7 @@ class StudentPaymentsService:
             normalized.append({
                 "transaction_id": cls._text(transaction.get("id")),
                 "provider": "kajabi",
+                "customer_id": cls._text(customer_data.get("id")),
                 "amount_minor": cls._amount_minor(attributes.get("amount_in_cents")),
                 "currency": str(attributes.get("currency") or "USD").upper(),
                 "status": cls._text(attributes.get("state")) or "unknown",
@@ -90,6 +92,7 @@ class StudentPaymentsService:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, Any]:
+        """Read transaction facts from Paystack; keep the payment processor authoritative."""
         if not settings.PAYSTACK_SECRET_KEY:
             raise HTTPException(
                 status_code=503,
@@ -172,6 +175,104 @@ class StudentPaymentsService:
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid token response") from exc
 
+    async def _kajabi_get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        token = await self._kajabi_token()
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{settings.KAJABI_API_BASE_URL.rstrip('/')}{path}",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.api+json"},
+                )
+                response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                raise HTTPException(status_code=503, detail="Kajabi rate limit reached; retry later") from exc
+            raise HTTPException(status_code=502, detail="Kajabi read failed") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid response") from exc
+
+    async def list_kajabi_offers(self, page: int, per_page: int) -> dict[str, Any]:
+        """Read non-archived offers from the configured Kajabi site."""
+        if not settings.KAJABI_SITE_ID:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "provider_not_configured", "provider": "kajabi"},
+            )
+        payload = await self._kajabi_get("/v1/offers", {
+            "page[number]": page,
+            "page[size]": per_page,
+            "filter[site_id]": settings.KAJABI_SITE_ID,
+            "fields[offers]": "title,currency,status",
+        })
+        records = []
+        for offer in payload.get("data", []):
+            attributes = offer.get("attributes") or {}
+            if str(attributes.get("status") or "active").lower() != "active":
+                continue
+            records.append({
+                "id": str(offer.get("id")),
+                "title": self._text(attributes.get("title")) or "Untitled offer",
+                "currency": str(attributes.get("currency") or "USD").upper(),
+            })
+        meta = payload.get("meta") or {}
+        total_pages = meta.get("total_pages")
+        return {
+            "provider": "kajabi",
+            "offers": records,
+            "page": page,
+            "per_page": per_page,
+            "has_more": page < total_pages if isinstance(total_pages, int) else len(records) >= per_page,
+        }
+
+    async def list_kajabi_active_students(
+        self,
+        offer_id: str,
+        page: int,
+        per_page: int,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """Read Kajabi customers with a currently granted offer; Kajabi owns access status."""
+        if not settings.KAJABI_SITE_ID:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "provider_not_configured", "provider": "kajabi"},
+            )
+        params: dict[str, Any] = {
+            "page[number]": page,
+            "page[size]": per_page,
+            "filter[site_id]": settings.KAJABI_SITE_ID,
+            "filter[has_offer_id]": offer_id,
+            "fields[customers]": "name,email,external_user_id",
+            "sort": "name",
+        }
+        if search and search.strip():
+            params["filter[search]"] = search.strip()
+        payload = await self._kajabi_get("/v1/customers", params)
+        records = []
+        for customer in payload.get("data", []):
+            attributes = customer.get("attributes") or {}
+            records.append({
+                "id": str(customer.get("id")),
+                "name": self._text(attributes.get("name")) or "Name unavailable",
+                "email": self._text(attributes.get("email")),
+                "external_user_id": self._text(attributes.get("external_user_id")),
+                "offer_id": offer_id,
+                "offer_status": "granted",
+            })
+        meta = payload.get("meta") or {}
+        total_pages = meta.get("total_pages")
+        return {
+            "provider": "kajabi",
+            "records": records,
+            "page": page,
+            "per_page": per_page,
+            "total_count": meta.get("total_count"),
+            "total_pages": total_pages,
+            "has_more": page < total_pages if isinstance(total_pages, int) else len(records) >= per_page,
+        }
+
     async def list_kajabi_transactions(
         self,
         page: int,
@@ -179,39 +280,23 @@ class StudentPaymentsService:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, Any]:
+        """Read site-scoped financial transaction facts from Kajabi without local copies."""
         if not settings.KAJABI_SITE_ID:
             raise HTTPException(
                 status_code=503,
                 detail={"code": "provider_not_configured", "provider": "kajabi"},
             )
-        token = await self._kajabi_token()
         params: dict[str, Any] = {
             "page[number]": page,
             "page[size]": per_page,
             "filter[site_id]": settings.KAJABI_SITE_ID,
-            "fields[transactions]": "action,state,payment_type,amount_in_cents,currency,created_at",
-            "fields[customers]": "name,email",
-            "include": "customer",
+            "fields[transactions]": "action,state,payment_type,amount_in_cents,currency,created_at,customer",
         }
         if from_date:
             params["filter[start_date]"] = from_date.isoformat()
         if to_date:
             params["filter[end_date]"] = to_date.isoformat()
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(
-                    f"{settings.KAJABI_API_BASE_URL.rstrip('/')}/v1/transactions",
-                    params=params,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.api+json"},
-                )
-                response.raise_for_status()
-            payload = response.json()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
-                raise HTTPException(status_code=503, detail="Kajabi rate limit reached; retry later") from exc
-            raise HTTPException(status_code=502, detail="Kajabi transaction read failed") from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid response") from exc
+        payload = await self._kajabi_get("/v1/transactions", params)
 
         records = self._normalize_kajabi_response(payload)
         meta = payload.get("meta") or {}

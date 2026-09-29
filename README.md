@@ -41,7 +41,15 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    Apply it after 0032. Kajabi and Paystack credentials belong only in the
    backend environment; configure them from `backend/.env.example`. Kajabi
    reads are site-filtered by `KAJABI_SITE_ID` and Paystack results are limited
-   to provider-reported NGN transactions.
+   to provider-reported NGN transactions. For the Student Success roster, set
+   `KAJABI_CLIENT_ID`, `KAJABI_CLIENT_SECRET`, and `KAJABI_SITE_ID`; configure
+   `PAYSTACK_SECRET_KEY`; and set
+   `CUSTOMER_SUCCESS_SHEETS_SERVICE_ACCOUNT_JSON`,
+   `CUSTOMER_SUCCESS_PROGRAM_SHEET_ID`, and
+   `CUSTOMER_SUCCESS_PROGRAM_SHEET_RANGE`. Grant that service account viewer
+   access to the Program Sheet. Its spreadsheet ID and service-account JSON
+   must remain in backend-managed environment secrets, never in the frontend
+   or source control.
 
    For Marketing phases 9–12, apply the next unapplied migrations in order:
    `supabase/migrations/0022_marketing_video_analytics.sql` and

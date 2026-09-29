@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 type Provider = 'kajabi' | 'paystack'
 type PaymentRecord = {
   transaction_id: string | null
+  customer_id: string | null
   provider: Provider
   amount_minor: number | null
   currency: string
@@ -158,7 +159,7 @@ export default function StudentPayments() {
                   <tr key={`${provider}-${record.transaction_id ?? record.reference}`} className="border-b border-slate-100">
                     <td className="py-3 pr-4 text-slate-700">{formatDate(record.transaction_date)}</td>
                     <td className="py-3 pr-4 text-slate-800">
-                      <span className="block">{record.customer_name || 'Name unavailable'}</span>
+                      <span className="block">{record.customer_name || (record.customer_id ? `Customer ${record.customer_id}` : 'Name unavailable')}</span>
                       <span className="block text-xs text-slate-500">{record.customer_email || 'Email unavailable'}</span>
                     </td>
                     <td className="py-3 pr-4 font-mono text-xs text-slate-600">{record.reference || record.transaction_id || 'Unavailable'}</td>

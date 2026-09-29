@@ -10,13 +10,12 @@ const formatLiveTimestamp = (date = new Date()) =>
     timeStyle: 'short',
   }).format(date);
 
-export default function StudentSuccessMetrics() {
+export default function StudentSuccessMetrics({ offerId }: { offerId: string }) {
   const [metrics, setMetrics] = useState({
     totalStudents: null as number | null,
-    atRiskStudents: null as number | null,
-    graduationRate: null as number | null,
-    interventionsToday: null as number | null,
+    activeOffer: null as string | null,
   });
+  const [programSheetStatus, setProgramSheetStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string>('');
@@ -32,7 +31,8 @@ export default function StudentSuccessMetrics() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/metrics`, {
+      const params = new URLSearchParams({ offer_id: offerId });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/metrics?${params}`, {
         headers,
         credentials: 'include',
       });
@@ -41,19 +41,15 @@ export default function StudentSuccessMetrics() {
         const payload = await res.json().catch(() => ({}));
         if (res.status === 401) throw new Error('Your session has expired. Please log in again.');
         if (res.status === 403) throw new Error('You do not have permission to view student metrics.');
-        if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
-          throw new Error('Student metrics are unavailable until the approved source is connected.');
+        if (res.status === 503 && payload?.detail?.code === 'provider_not_configured') {
+          throw new Error('Kajabi is not configured in the backend environment.');
         }
         throw new Error(`Failed to fetch metrics: ${res.status}`);
       }
 
       const data = await res.json();
-      setMetrics(data.metrics || {
-        totalStudents: 0,
-        atRiskStudents: 0,
-        graduationRate: 0,
-        interventionsToday: 0,
-      });
+      setMetrics(data.metrics || { totalStudents: null, activeOffer: null });
+      setProgramSheetStatus(data.sources?.program_sheet ?? null);
       setUpdatedAt(formatLiveTimestamp());
     } catch (err: any) {
       console.error('Error fetching student success metrics:', err);
@@ -64,18 +60,17 @@ export default function StudentSuccessMetrics() {
   };
 
   useEffect(() => {
-    fetchMetrics();
-  }, []);
+    void fetchMetrics();
+  }, [offerId]);
 
   const statCards = [
-    { label: 'Total Students', value: metrics.totalStudents === null ? null : metrics.totalStudents.toLocaleString(), icon: '🎓', accent: 'violet' as const },
-    { label: 'At Risk Students', value: metrics.atRiskStudents === null ? null : metrics.atRiskStudents.toLocaleString(), icon: '⚠️', accent: 'rose' as const },
-    { label: 'Graduation Rate', value: metrics.graduationRate === null ? null : `${metrics.graduationRate}%`, icon: '📈', accent: 'emerald' as const },
-    { label: 'Interventions Today', value: metrics.interventionsToday === null ? null : metrics.interventionsToday.toLocaleString(), icon: '⚡', accent: 'sky' as const },
+    { label: 'Active Kajabi learners', value: metrics.totalStudents?.toLocaleString() ?? null, icon: '🎓', accent: 'violet' as const },
+    { label: 'Selected offer', value: metrics.activeOffer, icon: '▤', accent: 'sky' as const },
+    { label: 'Program Sheet', value: programSheetStatus?.replaceAll('_', ' ') ?? null, icon: '▦', accent: 'emerald' as const },
   ];
 
   const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
       {statCards.map((card) => (
         <MetricCard
           key={card.label}

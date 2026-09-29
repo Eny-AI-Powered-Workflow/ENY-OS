@@ -10,11 +10,9 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-placeholder")
 
 import pytest
 from fastapi import HTTPException
+from pydantic_core import PydanticUndefined
 
 from app.api.v1.endpoints.student_success import (
-    get_student_list,
-    get_student_progress,
-    get_student_success_metrics,
     router,
 )
 from app.core.config import settings
@@ -75,19 +73,16 @@ def test_payment_routes_require_provider_specific_read_scopes():
 def test_student_lifecycle_routes_require_read_scope():
     routes = {route.path: route for route in router.routes if hasattr(route, "dependant")}
 
-    for path in ("/metrics", "/students", "/progress"):
+    for path in ("/offers", "/metrics", "/students", "/progress"):
         assert "students:read" in _required_scopes(routes[path])
 
 
-@pytest.mark.asyncio
-async def test_student_lifecycle_routes_return_unavailable_instead_of_mock_data():
-    handlers = (get_student_success_metrics, get_student_list, get_student_progress)
+def test_student_roster_and_summary_routes_require_an_offer_id():
+    routes = {route.path: route for route in router.routes if hasattr(route, "dependant")}
 
-    for handler in handlers:
-        with pytest.raises(HTTPException) as error:
-            await handler()
-        assert error.value.status_code == 503
-        assert error.value.detail == {"code": "source_not_configured", "source": "student_lifecycle"}
+    for path in ("/students", "/metrics", "/progress"):
+        query_parameters = {parameter.name: parameter for parameter in routes[path].dependant.query_params}
+        assert query_parameters["offer_id"].field_info.default is PydanticUndefined
 
 
 def test_normalize_paystack_keeps_only_ngn_and_minimum_fields():
@@ -105,6 +100,7 @@ def test_normalize_paystack_keeps_only_ngn_and_minimum_fields():
     assert result == {
         "transaction_id": "23",
         "provider": "paystack",
+        "customer_id": None,
         "amount_minor": 125000,
         "currency": "NGN",
         "status": "success",
@@ -140,6 +136,7 @@ def test_normalize_kajabi_joins_minimal_customer_fields():
     assert records == [{
         "transaction_id": "txn-1",
         "provider": "kajabi",
+        "customer_id": "customer-1",
         "amount_minor": 4900,
         "currency": "USD",
         "status": "succeeded",
@@ -202,7 +199,7 @@ async def test_kajabi_read_authenticates_and_filters_by_site(monkeypatch):
     assert params["filter[site_id]"] == "site-123"
     assert params["page[number]"] == 1
     assert params["page[size]"] == 25
-    assert params["include"] == "customer"
+    assert "customer" in params["fields[transactions]"]
 
 
 @pytest.mark.asyncio
@@ -211,5 +208,11 @@ async def test_provider_reads_fail_closed_when_unconfigured(monkeypatch):
     with pytest.raises(HTTPException) as error:
         await StudentPaymentsService().list_paystack_transactions(1, 25)
 
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "provider_not_configured"
+
+    monkeypatch.setattr(settings, "KAJABI_SITE_ID", "")
+    with pytest.raises(HTTPException) as error:
+        await StudentPaymentsService().list_kajabi_offers(1, 25)
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "provider_not_configured"

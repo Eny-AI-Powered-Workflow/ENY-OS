@@ -5,34 +5,37 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import require_permission
 from app.services.student_payments_service import student_payments_service
+from app.services.student_success_service import student_success_service
 
 router = APIRouter()
 
 
-def _source_unavailable(source: str) -> HTTPException:
-    return HTTPException(
-        status_code=503,
-        detail={"code": "source_not_configured", "source": source},
-    )
-
-
-@router.get("/metrics", dependencies=[Depends(require_permission("students:read"))])
-async def get_student_success_metrics() -> None:
-    raise _source_unavailable("student_lifecycle")
+@router.get("/offers", dependencies=[Depends(require_permission("students:read"))])
+async def get_student_success_offers(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=100),
+):
+    return await student_success_service.list_offers(page, per_page)
 
 
 @router.get("/students", dependencies=[Depends(require_permission("students:read"))])
 async def get_student_list(
+    offer_id: str = Query(..., min_length=1),
+    page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     search: str | None = None,
-    risk: str | None = None,
-) -> None:
-    raise _source_unavailable("student_lifecycle")
+):
+    return await student_success_service.list_students(offer_id, page, limit, search)
 
 
 @router.get("/progress", dependencies=[Depends(require_permission("students:read"))])
-async def get_student_progress() -> None:
-    raise _source_unavailable("student_lifecycle")
+async def get_student_progress(offer_id: str = Query(..., min_length=1)):
+    return await student_success_service.get_progress(offer_id)
+
+
+@router.get("/metrics", dependencies=[Depends(require_permission("students:read"))])
+async def get_student_success_metrics(offer_id: str = Query(..., min_length=1)):
+    return await student_success_service.get_metrics(offer_id)
 
 
 def _validate_date_range(from_date: date | None, to_date: date | None) -> None:

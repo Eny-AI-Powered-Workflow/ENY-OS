@@ -2,17 +2,33 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { GraduationCap, Search, AlertTriangle } from 'lucide-react';
+import { GraduationCap, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
-export default function StudentList() {
-  const [students, setStudents] = useState<Array<any>>([]);
+type Student = {
+  id: string
+  name: string
+  email: string | null
+  external_user_id: string | null
+  offer_title: string
+  offer_status: string
+  program_sheet_status: string
+  program: string | null
+  cohort: string | null
+  attendance: string | null
+  assignment_status: string | null
+  capstone_status: string | null
+}
+
+export default function StudentList({ offerId }: { offerId: string }) {
+  const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterRisk, setFilterRisk] = useState<'all' | 'at-risk' | 'on-track'>('all');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
-  const fetchStudents = async () => {
+  const fetchStudents = async (requestedPage: number, append = false) => {
     try {
       setLoading(true);
       setError(null);
@@ -23,8 +39,9 @@ export default function StudentList() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const query = encodeURIComponent(searchTerm);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/students?limit=20&search=${query}&risk=${filterRisk}`, {
+      const params = new URLSearchParams({ offer_id: offerId, limit: '25', page: String(requestedPage) });
+      if (searchTerm) params.set('search', searchTerm);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/students?${params}`, {
         headers,
         credentials: 'include',
       });
@@ -33,6 +50,8 @@ export default function StudentList() {
         const payload = await res.json().catch(() => ({}));
         if (res.status === 401) {
           setError('Your session has expired. Please log in again.');
+        } else if (res.status === 503 && payload?.detail?.code === 'provider_not_configured') {
+          setError('Kajabi is not configured in the backend environment.');
         } else if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
           setError('Student records are unavailable until the approved source is connected.');
         } else if (res.status === 403) {
@@ -44,7 +63,9 @@ export default function StudentList() {
       }
 
       const data = await res.json();
-      setStudents(data.students || []);
+      setStudents((current) => append ? [...current, ...(data.students || [])] : (data.students || []));
+      setPage(data.page ?? requestedPage);
+      setHasMore(Boolean(data.has_more));
     } catch (err: any) {
       console.error('Error fetching student list:', err);
       setError(err.message || 'An unknown error occurred');
@@ -54,15 +75,13 @@ export default function StudentList() {
   };
 
   useEffect(() => {
-    fetchStudents();
-  }, [searchTerm, filterRisk]);
+    setStudents([]);
+    setPage(1);
+    void fetchStudents(1);
+  }, [offerId, searchTerm]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
-  };
-
-  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFilterRisk(e.target.value as 'all' | 'at-risk' | 'on-track');
   };
 
   if (loading) {
@@ -123,22 +142,13 @@ export default function StudentList() {
                 className="border rounded px-3 py-1.5 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
               />
             </div>
-            <select
-              value={filterRisk}
-              onChange={handleFilterChange}
-              className="border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
-            >
-              <option value="all">All Students</option>
-              <option value="at-risk">At Risk Only</option>
-              <option value="on-track">On Track Only</option>
-            </select>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Track and manage student progress and interventions</p>
+        <p className="text-xs text-muted-foreground">Current Kajabi offer grants joined to matching Program Sheet fields.</p>
       </CardHeader>
       <CardContent className="space-y-4">
         {students.map((student) => (
-          <div key={student.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div key={student.id} className="border rounded-lg p-4">
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <div className="flex items-center mb-2">
@@ -146,46 +156,31 @@ export default function StudentList() {
                     <GraduationCap className="h-4 w-4 text-brass-500" />
                   </div>
                   <div className="ml-3">
-                    <h3 className="font-semibold text-foreground truncate max-w-xs">
-                      {student.firstName} {student.lastName}
-                    </h3>
+                    <h3 className="font-semibold text-foreground truncate max-w-xs">{student.name}</h3>
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground truncate">{student.email}</p>
-                {student.studentId && <p className="text-xs text-muted-foreground">ID: {student.studentId}</p>}
+                {student.external_user_id && <p className="text-xs text-muted-foreground">External ID: {student.external_user_id}</p>}
               </div>
-              <div className="flex flex-col items-end space-y-3">
-                <div className="text-xs text-muted-foreground">
-                  {student.status === 'at-risk' ? (
-                    <span className="text-red-600 font-medium">At Risk</span>
-                  ) : student.status === 'on-track' ? (
-                    <span className="text-green-600 font-medium">On Track</span>
-                  ) : (
-                    <span className="text-gray-600">{student.status}</span>
-                  )}
-                </div>
-                {student.interventionsToday > 0 && (
-                  <div className="mt-2 flex space-x-2">
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800">
-                      {student.interventionsToday} interventions today
-                    </span>
-                    <button onClick={() => console.log('View interventions:', student.id)} className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded">
-                      View
-                    </button>
-                  </div>
-                )}
-                <div className="mt-2 flex space-x-2">
-                  <button onClick={() => console.log('View student:', student.id)} className="px-3 py-1 text-xs bg-brass-500/10 hover:bg-brass-500/20 rounded">
-                    View Details
-                  </button>
-                  <button onClick={() => console.log('Flag for intervention:', student.id)} className="px-3 py-1 text-xs text-warning bg-transparent hover:bg-warning/10 rounded">
-                    <AlertTriangle className="h-3.5 w-3.5 inline-block mr-1" /> Flag Intervention
-                  </button>
-                </div>
+              <div className="grid gap-2 text-right text-xs text-slate-600">
+                <span>Offer: {student.offer_status}</span>
+                <span>Program Sheet: {student.program_sheet_status.replaceAll('_', ' ')}</span>
               </div>
             </div>
+            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-sm sm:grid-cols-4">
+              <div><dt className="text-xs text-muted-foreground">Program</dt><dd>{student.program || 'Not recorded'}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Cohort</dt><dd>{student.cohort || 'Not recorded'}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Attendance</dt><dd>{student.attendance || 'Not recorded'}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Assignments</dt><dd>{student.assignment_status || 'Not recorded'}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Capstone</dt><dd>{student.capstone_status || 'Not recorded'}</dd></div>
+            </dl>
           </div>
         ))}
+        {hasMore && (
+          <button type="button" disabled={loading} onClick={() => void fetchStudents(page + 1, true)} className="border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50">
+            {loading ? 'Loading...' : 'Load more'}
+          </button>
+        )}
       </CardContent>
     </Card>
   );
