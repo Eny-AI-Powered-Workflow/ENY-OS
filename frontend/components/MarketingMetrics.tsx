@@ -76,7 +76,7 @@ export default function MarketingMetrics() {
   ];
 
   const renderCards = (cardValue: (card: (typeof statCards)[number]) => string | null, helper: string) => (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {statCards.map((card) => (
         <MetricCard
           key={card.label}
@@ -91,12 +91,27 @@ export default function MarketingMetrics() {
   );
 
   if (loading) {
-    return renderCards(() => '—', 'Loading data');
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-foreground">Key Performance Indicators</h2>
+        {renderCards(() => '—', 'Loading data')}
+      </div>
+    );
   }
 
   if (error) {
-    return renderCards(() => 'Unavailable', 'Retry required');
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-foreground">Key Performance Indicators</h2>
+        {renderCards(() => 'Unavailable', 'Retry required')}
+      </div>
+    );
   }
 
-  return renderCards((card) => card.value, metrics.status === 'connected' && updatedAt ? `GHL · updated ${updatedAt}` : 'GoHighLevel not configured');
+  return (
+    <div className="space-y-6">
+      <h2 className="text-lg font-semibold text-foreground">Key Performance Indicators</h2>
+      {renderCards((card) => card.value, metrics.status === 'connected' && updatedAt ? `GHL · updated ${updatedAt}` : 'GoHighLevel not configured')}
+    </div>
+  );
 }
