@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 from app.core.security import get_current_user
@@ -31,7 +31,8 @@ def require_permission(permission_scope: str):
     """
     def permission_checker(
         current_user: Annotated[Any, Depends(get_current_user)],
-        db: Annotated[Session, Depends(get_db)]
+        db: Annotated[Session, Depends(get_db)],
+        request: Request,
     ):
         # Check if user has the required permission through their roles
         user_has_permission = (
@@ -48,7 +49,7 @@ def require_permission(permission_scope: str):
             user_id=current_user.id,
             permission_scope=permission_scope,
             granted=user_has_permission,
-            path="",  # TODO: Get actual path from request
+            path=request.url.path,
         )
         db.add(audit_log)
         db.commit()
@@ -73,24 +74,29 @@ def require_any_permission(*permission_scopes: str):
     """Allow access when the user has any of the provided permission scopes."""
     def permission_checker(
         current_user: Annotated[Any, Depends(get_current_user)],
-        db: Annotated[Session, Depends(get_db)]
+        db: Annotated[Session, Depends(get_db)],
+        request: Request,
     ):
         scopes = tuple(permission_scopes)
-        user_has_permission = (
+        granted_scopes = {
+            permission.scope
+            for permission in (
             db.query(Permission)
             .join(RolePermission, Permission.id == RolePermission.permission_id)
             .join(UserRole, RolePermission.role_id == UserRole.role_id)
             .filter(UserRole.user_id == current_user.id)
             .filter(Permission.scope.in_(scopes))
-            .first()
-        ) is not None
+                .all()
+            )
+        }
+        user_has_permission = bool(granted_scopes)
 
         for scope in scopes:
             db.add(AuditLog(
                 user_id=current_user.id,
                 permission_scope=scope,
-                granted=user_has_permission,
-                path="",
+                granted=scope in granted_scopes,
+                path=request.url.path,
             ))
         db.commit()
 

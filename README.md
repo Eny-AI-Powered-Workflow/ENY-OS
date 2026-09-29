@@ -24,6 +24,12 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
 2. Apply the RBAC schema: run `supabase/migrations/0001_init_rbac.sql` in
    the Supabase SQL editor (or `supabase db push` if you're using the CLI).
 
+   To enable the existing Student Success API for Customer Success and
+   explicitly grant CEO access to all current Customer Success scopes, apply
+   `supabase/migrations/0031_customer_success_rbac.sql` after the earlier
+   migrations have been applied in order. Verify the grants with seeded roles
+   in a non-production Supabase project before rollout.
+
    For Marketing phases 9–12, apply the next unapplied migrations in order:
    `supabase/migrations/0022_marketing_video_analytics.sql` and
    `supabase/migrations/0023_marketing_governance_reporting.sql`. Configure

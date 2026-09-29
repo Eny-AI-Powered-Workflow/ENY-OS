@@ -146,6 +146,12 @@ export function usePermissions() {
         perms.push(...rolePerms)
       }
     })
+    if (userRoles.includes('ceo')) {
+      perms.push(...MODULES.flatMap(module => [
+        ...module.permissions,
+        ...(module.children ?? []).flatMap(child => child.permissions),
+      ]))
+    }
     // Remove duplicates while preserving order
     const uniquePerms = Array.from(new Set(perms))
     setPermissions(uniquePerms)

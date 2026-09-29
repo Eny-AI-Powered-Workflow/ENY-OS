@@ -1,14 +1,17 @@
+'use client'
+
 import Link from 'next/link'
 import HotLeadsCard from '@/components/HotLeadsCard'
 import DashboardLiveStats from '@/components/DashboardLiveStats'
+import { usePermissions } from '@/lib/permissions'
 
 const modules = [
-  { name: 'CEO Cockpit', href: '/dashboard/ceo', code: 'C' },
-  { name: 'Sales & Enrollment', href: '/dashboard/enrollment', code: 'S' },
-  { name: 'Student Success', href: '/dashboard/student-success', code: 'SS' },
-  { name: 'Marketing', href: '/dashboard/marketing', code: 'M' },
-  { name: 'Operations', href: '/dashboard/operations', code: 'O' },
-  { name: 'Writer & SOPs', href: '/dashboard/writer', code: 'W' },
+  { name: 'CEO Cockpit', href: '/dashboard/ceo', code: 'C', permissions: ['pipeline:read', 'agents:configure'] },
+  { name: 'Sales & Enrollment', href: '/dashboard/enrollment', code: 'S', permissions: ['leads:read', 'leads:write', 'pipeline:read'] },
+  { name: 'Student Success', href: '/dashboard/student-success', code: 'SS', permissions: ['students:read', 'students:write'] },
+  { name: 'Marketing', href: '/dashboard/marketing', code: 'M', permissions: ['marketing:read'] },
+  { name: 'Operations', href: '/dashboard/operations', code: 'O', permissions: [] },
+  { name: 'Writer & SOPs', href: '/dashboard/writer', code: 'W', permissions: ['agents:trigger'] },
 ]
 
 const recentActivity = [
@@ -27,6 +30,11 @@ const recentActivity = [
 ]
 
 export default function DashboardPage() {
+  const { canAll, userRoles } = usePermissions()
+  const accessibleModules = modules.filter((module) => module.permissions.length === 0
+    ? userRoles.includes('ceo')
+    : canAll(module.permissions))
+
   return (
     <div className="space-y-8">
       <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_transparent_28%),linear-gradient(135deg,_rgba(15,23,42,0.96),_rgba(14,116,144,0.14),_rgba(15,23,42,0.98))] p-6 shadow-[0_24px_60px_rgba(15,23,42,0.45)] sm:p-8">
@@ -57,7 +65,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {modules.map((module) => (
+          {accessibleModules.map((module) => (
             <Link key={module.name} href={module.href} className="group block">
               <div className="h-full rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-[0_14px_30px_rgba(15,23,42,0.2)] transition hover:-translate-y-1 hover:border-violet-400/40 hover:bg-slate-900">
                 <div className="mb-5 flex items-center justify-between">

@@ -21,7 +21,7 @@
 - [x] Main FastAPI application with CORS middleware
 - [x] API router configuration
 - [x] Permission enforcement dependency (`require_permission`) - the SINGLE enforcement point
-- [x] Audit logging for all permission checks (grant/deny)
+- [x] Audit logging for all permission checks, including request paths and per-scope outcomes
 
 ### Frontend Implementation
 - [x] Next.js 14 application with App Router
@@ -42,6 +42,7 @@
 - [x] UI Components:
   - `AccessBadge` - displays user roles and permissions
   - `Sidebar` - dynamic navigation based on user permissions
+  - Dashboard quick access filtered by module permissions; CEO UI scopes follow the module registry
   - `DashboardLayout` - responsive layout with header and main content
   - `DashboardContent` - overview cards (students, leads, revenue, completion)
   - UI Card component (reusable)
@@ -65,9 +66,9 @@
 
 ### Backend
 - [ ] Implement actual user creation in Supabase Auth (test users)
-- [ ] Verify audit_log table is being populated correctly
+- [ ] Verify audit rows persist correctly in non-production Supabase (grant/deny behavior and paths have unit coverage)
 - [ ] Add role information to user metadata in Supabase (for frontend access)
-- [ ] Test permission checking with actual database queries (currently using in-memory mapping)
+- [ ] Test permission checking with actual database queries and seeded Supabase users
 
 ### Frontend
 - [ ] Connect to actual Supabase instance (need credentials)
@@ -80,12 +81,12 @@
 ### Testing / Verification
 - [ ] Create test script to verify:
   - CEO user can access all modules
+  - Customer Success user sees only approved student-success access
   - Enrollment user can only access leads/pipeline
   - Programs manager can only access student success
   - Unauthorized access attempts are blocked and logged
-- [ ] Verify audit log entries are created for:
-  - Successful permission checks
-  - Failed permission checks
+- [x] Unit-test granted and denied audit entries, request paths, and per-scope any-permission results
+- [ ] Verify the same audit entries are persisted in non-production Supabase
 - [ ] Test responsive design on mobile/tablet
 
 ## 📋 Next Steps
@@ -105,7 +106,7 @@
 
 ## 🎯 Current State
 
-The foundation for a secure, role-based access control system is fully implemented. The backend enforces permissions at a single point (`require_permission` dependency), and the frontend dynamically adjusts the UI based on user permissions. All that remains is to connect to a real Supabase instance, create test users, and verify the end-to-end flow works as specified in the exit criteria.
+Local regression coverage now checks granted and denied audit entries, endpoint paths, mixed any-permission outcomes, and permission-filtered dashboard navigation. The Phase 1 exit gate is not complete until seeded-role sign-in, persisted audit rows, and direct API denials are verified against a non-production Supabase project.
 
 This implementation satisfies the core requirements from the ENY Consulting Platform specification:
 - Single login with role-based access

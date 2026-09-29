@@ -8,11 +8,12 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.api.deps import require_permission
+from app.api.deps import require_any_permission, require_permission
 from app.api.v1.endpoints.videographer import router
 from app.models.audit_log import AuditLog
 from app.models.operational_alert import OperationalAlert
 from app.services.videographer_service import VideographerService
+from starlette.requests import Request
 
 
 def test_clip_normalization_rejects_invalid_timestamps():
@@ -89,10 +90,11 @@ def test_denied_permission_attempt_is_written_to_audit_log():
     database = Mock()
     database.query.return_value = query
     current_user = SimpleNamespace(id=uuid4())
+    request = Request({"type": "http", "method": "GET", "path": "/api/v1/videographer/assets", "headers": [], "query_string": b""})
     checker = require_permission("video:publish")
 
     with pytest.raises(HTTPException) as error:
-        checker(current_user, database)
+        checker(current_user, database, request)
 
     assert error.value.status_code == 403
     audit = database.add.call_args.args[0]
@@ -100,6 +102,49 @@ def test_denied_permission_attempt_is_written_to_audit_log():
     assert audit.user_id == current_user.id
     assert audit.permission_scope == "video:publish"
     assert audit.granted is False
+    assert audit.path == "/api/v1/videographer/assets"
+    database.commit.assert_called_once()
+
+
+def test_granted_permission_attempt_is_written_to_audit_log():
+    query = Mock()
+    query.join.return_value = query
+    query.filter.return_value = query
+    query.first.return_value = SimpleNamespace()
+    database = Mock()
+    database.query.return_value = query
+    current_user = SimpleNamespace(id=uuid4())
+    request = Request({"type": "http", "method": "GET", "path": "/api/v1/student-success/metrics", "headers": [], "query_string": b""})
+
+    result = require_permission("students:read")(current_user, database, request)
+
+    audit = database.add.call_args.args[0]
+    assert result is current_user
+    assert audit.permission_scope == "students:read"
+    assert audit.granted is True
+    assert audit.path == "/api/v1/student-success/metrics"
+    database.commit.assert_called_once()
+
+
+def test_any_permission_audits_each_scope_with_its_own_result():
+    query = Mock()
+    query.join.return_value = query
+    query.filter.return_value = query
+    query.all.return_value = [SimpleNamespace(scope="students:read")]
+    database = Mock()
+    database.query.return_value = query
+    current_user = SimpleNamespace(id=uuid4())
+    request = Request({"type": "http", "method": "GET", "path": "/api/v1/student-success", "headers": [], "query_string": b""})
+
+    result = require_any_permission("students:read", "students:write")(current_user, database, request)
+
+    audits = [call.args[0] for call in database.add.call_args_list]
+    assert result is current_user
+    assert [(audit.permission_scope, audit.granted) for audit in audits] == [
+        ("students:read", True),
+        ("students:write", False),
+    ]
+    assert all(audit.path == "/api/v1/student-success" for audit in audits)
     database.commit.assert_called_once()
 
 

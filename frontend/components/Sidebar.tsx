@@ -33,7 +33,7 @@ import {
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedModules, setExpandedModules] = useState<string[]>(['Sales & Enrollment'])
-  const { canAll } = usePermissions()
+  const { canAll, userRoles } = usePermissions()
   const pathname = usePathname()
   const router = useRouter()
 
@@ -57,7 +57,9 @@ export function Sidebar() {
   }
 
   const accessibleModules = MODULES.filter(
-    (module) => module.permissions.length === 0 || canAll(module.permissions)
+    (module) => module.permissions.length === 0
+      ? userRoles.includes('ceo')
+      : canAll(module.permissions)
   )
 
   const handleSignOut = async () => {
@@ -99,7 +101,9 @@ export function Sidebar() {
           const Icon = iconMap[module.icon] || LayoutDashboard
           const isActive = pathname === module.href || pathname.startsWith(`${module.href}/`)
           const accessibleChildren = (module.children || []).filter(
-            (child) => child.permissions.length === 0 || canAll(child.permissions)
+            (child) => child.permissions.length === 0
+              ? userRoles.includes('ceo')
+              : canAll(child.permissions)
           )
           const isExpanded = expandedModules.includes(module.name) || isActive
 
