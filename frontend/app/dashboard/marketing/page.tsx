@@ -7,29 +7,46 @@ import MarketingOperationsReport from "@/components/MarketingOperationsReport";
 
 export default function MarketingDashboard() {
   return (
-    <div className="space-y-8">
+    <div className="min-h-[calc(100vh-4rem)] bg-background p-6">
       {/* Header */}
-      <div className="flex flex-col items-center text-center py-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2">
-          Marketing
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold text-foreground bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mb-2">
+          Marketing Dashboard
         </h1>
-        <p className="text-xl text-muted-foreground max-w-xl">
-          Manage campaigns, track performance, and drive growth
+        <p className="text-lg text-muted-foreground max-w-2xl">
+          Manage campaigns, track performance, and drive growth with intelligent insights
         </p>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <MarketingMetrics />
       </div>
 
-      <MarketingContentWorkspace />
+      {/* Main Content */}
+      <div className="space-y-8">
+        {/* Left Column */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Content Workspace */}
+          <div className="col-span-1 lg:col-span-1">
+            <MarketingContentWorkspace />
+          </div>
+          {/* Video Workspace */}
+          <div className="col-span-1 lg:col-span-1">
+            <MarketingVideoWorkspace />
+          </div>
+          {/* Intelligence */}
+          <div className="col-span-1 lg:col-span-1">
+            <MarketingIntelligence />
+          </div>
+        </div>
 
-      <MarketingIntelligence />
-      <MarketingVideoWorkspace />
-
-      <MarketingAnalytics />
-      <MarketingOperationsReport />
+        {/* Full Width Sections */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <MarketingAnalytics />
+          <MarketingOperationsReport />
+        </div>
+      </div>
     </div>
   );
 }
