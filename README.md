@@ -35,6 +35,14 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    needed for Student Success oversight. Apply it after 0031 and verify the
    role grant in non-production before using the Student Success API.
 
+   Migration `supabase/migrations/0033_customer_success_least_privilege.sql`
+   replaces Customer Success' unused broad `students:write` grant with
+   operation-specific scopes and adds provider-specific payment-read scopes.
+   Apply it after 0032. Kajabi and Paystack credentials belong only in the
+   backend environment; configure them from `backend/.env.example`. Kajabi
+   reads are site-filtered by `KAJABI_SITE_ID` and Paystack results are limited
+   to provider-reported NGN transactions.
+
    For Marketing phases 9–12, apply the next unapplied migrations in order:
    `supabase/migrations/0022_marketing_video_analytics.sql` and
    `supabase/migrations/0023_marketing_governance_reporting.sql`. Configure

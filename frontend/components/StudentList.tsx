@@ -30,8 +30,13 @@ export default function StudentList() {
       });
 
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
+        const payload = await res.json().catch(() => ({}));
+        if (res.status === 401) {
           setError('Your session has expired. Please log in again.');
+        } else if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
+          setError('Student records are unavailable until the approved source is connected.');
+        } else if (res.status === 403) {
+          setError('You do not have permission to view student records.');
         } else {
           throw new Error(`Failed to fetch students: ${res.status}`);
         }
@@ -76,7 +81,8 @@ export default function StudentList() {
       <Card className="w-full">
         <CardHeader className="flex flex-col items-center py-6">
           <GraduationCap className="h-5 w-5 text-destructive mr-2" />
-          <CardTitle className="text-sm text-destructive">Error loading students</CardTitle>
+          <CardTitle className="text-sm text-destructive">Student records unavailable</CardTitle>
+          <p className="text-center text-sm text-muted-foreground">{error}</p>
         </CardHeader>
       </Card>
     );

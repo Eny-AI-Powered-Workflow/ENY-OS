@@ -38,12 +38,13 @@ export default function StudentSuccessMetrics() {
       });
 
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          setError('Your session has expired. Please log in again.');
-        } else {
-          throw new Error(`Failed to fetch metrics: ${res.status}`);
+        const payload = await res.json().catch(() => ({}));
+        if (res.status === 401) throw new Error('Your session has expired. Please log in again.');
+        if (res.status === 403) throw new Error('You do not have permission to view student metrics.');
+        if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
+          throw new Error('Student metrics are unavailable until the approved source is connected.');
         }
-        return;
+        throw new Error(`Failed to fetch metrics: ${res.status}`);
       }
 
       const data = await res.json();
@@ -93,7 +94,7 @@ export default function StudentSuccessMetrics() {
   }
 
   if (error) {
-    return renderCards(() => 'Unavailable', 'Retry required');
+    return renderCards(() => 'Unavailable', error);
   }
 
   return renderCards((card) => card.value, updatedAt ? `Updated ${updatedAt}` : 'Live from student success services');

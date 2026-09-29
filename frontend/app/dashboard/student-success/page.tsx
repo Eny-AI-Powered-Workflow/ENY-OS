@@ -1,6 +1,7 @@
 import StudentSuccessMetrics from "@/components/StudentSuccessMetrics";
 import StudentList from "@/components/StudentList";
 import StudentProgress from "@/components/StudentProgress";
+import StudentPayments from "@/components/StudentPayments";
 
 export default function StudentSuccessDashboard() {
   return (
@@ -11,7 +12,7 @@ export default function StudentSuccessDashboard() {
           Student Success
         </h1>
         <p className="text-xl text-muted-foreground max-w-xl">
-          Track student progress, manage interventions, and drive outcomes
+          Student lifecycle sources and provider-reported payment records
         </p>
       </div>
 
@@ -19,6 +20,8 @@ export default function StudentSuccessDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StudentSuccessMetrics />
       </div>
+
+      <StudentPayments />
 
       {/* Students and Progress */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
