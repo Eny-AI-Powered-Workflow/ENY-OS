@@ -5,6 +5,7 @@ import StudentSuccessMetrics from '@/components/StudentSuccessMetrics'
 import StudentList from '@/components/StudentList'
 import StudentProgress from '@/components/StudentProgress'
 import StudentPayments from '@/components/StudentPayments'
+import StudentLifecycleQueue from '@/components/StudentLifecycleQueue'
 import { supabase } from '@/lib/supabaseClient'
 
 type KajabiOffer = { id: string; title: string; currency: string }
@@ -74,6 +75,7 @@ export default function StudentSuccessDashboard() {
       </section>
 
       <StudentPayments />
+      <StudentLifecycleQueue />
 
       {selectedOfferId && (
         <>
