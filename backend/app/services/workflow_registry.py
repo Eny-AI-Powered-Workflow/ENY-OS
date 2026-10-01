@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
+
 APPROVED_WORKFLOWS: dict[str, dict[str, Any]] = {
     "eny-prog-onboard": {
         "name": "ENY-PROG-ONBOARD",
