@@ -23,6 +23,38 @@ This directory contains exported n8n workflow JSON files that can be imported in
 
 ## Available Workflows
 
+### ENY-PROG-ONBOARD
+- **Webhook Path**: `/webhook/eny-prog-onboard`
+- **Description**: Generates an onboarding/orientation draft checklist and reminder summary for human review before any student-facing message is sent.
+- **Trigger Type**: Webhook
+- **Approval Model**: `shadow` mode with `programs_manager` review required before any outbound send.
+- **Expected Input**: `student_id`, `program_id`, `cohort_id`, `summary`, and optional `follow_up_type`
+- **Output**: A draft queue item and review record, not a live message.
+
+### ENY-PROG-MONITOR
+- **Webhook Path**: `/webhook/eny-prog-monitor`
+- **Description**: Produces class/attendance and assignment summaries for review; it never decides access, grades, or compliance.
+- **Trigger Type**: Webhook
+- **Approval Model**: `shadow` mode with `programs_manager` or `customer_success` review required before an outbound action.
+- **Expected Input**: `student_id`, `offer_id`, `attendance_status`, `assignment_status`, `capstone_status`, and `period`
+- **Output**: Human-readable summary and queue item only.
+
+### ENY-CUSTOMER-SUCCESS-CHECKIN
+- **Webhook Path**: `/webhook/eny-customer-success-checkin`
+- **Description**: Drafts weekly check-in or reminder messages for a staff reviewer.
+- **Trigger Type**: Webhook
+- **Approval Model**: `draft-only`; the message remains in the review queue until an authorized user approves sending.
+- **Expected Input**: `student_name`, `category`, `message`, and optional `sentiment` metadata.
+- **Output**: Draft communication item, never a live email/WhatsApp payload.
+
+### ENY-CUSTOMER-SUCCESS-ESCALATION
+- **Webhook Path**: `/webhook/eny-customer-success-escalation`
+- **Description**: Escalates sensitive issues to an assigned human owner instead of letting an automated bot resolve complaints, payment disputes, or coach issues.
+- **Trigger Type**: Webhook
+- **Approval Model**: `manual` escalation only; requires human approval and a supervisor owner.
+- **Expected Input**: `student_id`, `case_type`, `reason`, `priority`, and `assigned_owner`
+- **Output**: Escalation queue item and operational log only.
+
 ### ENY-SALES-SCORE
 - **Webhook Path**: `/webhook/eny-sales-score`
 - **Description**: Analyzes incoming leads and assigns a score based on predefined criteria (engagement, demographic fit, behavioral signals)

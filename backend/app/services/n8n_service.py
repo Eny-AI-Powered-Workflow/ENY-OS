@@ -10,7 +10,9 @@ import httpx
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List
+
 from app.core.config import settings
+from app.services.workflow_registry import is_registered_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,21 @@ class N8NService:
             self.headers["X-ENY-WEBHOOK-TOKEN"] = self.webhook_token
         if self.api_key:
             self.headers["X-N8N-API-KEY"] = self.api_key
+
+    def trigger_workflow_sync(
+        self,
+        workflow_name: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Compatibility wrapper for synchronous callers and tests."""
+        try:
+            return asyncio.run(self.trigger_workflow(workflow_name, data))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(self.trigger_workflow(workflow_name, data))
+            finally:
+                loop.close()
 
     async def trigger_workflow(
         self,
@@ -61,8 +78,19 @@ class N8NService:
             "eny-ea-opportunity-research",
             "eny-ea-follow-up-reminders",
             "eny-video-publish",
+            "eny-prog-onboard",
+            "eny-prog-monitor",
+            "eny-customer-success-checkin",
+            "eny-customer-success-escalation",
         }
         if normalized_name not in allowed:
+            return {
+                "status": "error",
+                "workflow": workflow_name,
+                "error": "Workflow is not registered",
+            }
+
+        if not is_registered_workflow(workflow_name):
             return {
                 "status": "error",
                 "workflow": workflow_name,
