@@ -50,6 +50,24 @@ def _explicit_scopes_for_role(role_name: str) -> set[str]:
     return scopes
 
 
+def _business_support_scopes() -> set[str]:
+    scopes: set[str] = set()
+    for migration in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+        sql = migration.read_text(encoding="utf-8")
+        permission_inserts = re.finditer(
+            r"insert\s+into\s+permissions\b.*?;",
+            sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        for statement_match in permission_inserts:
+            scopes.update(
+                scope
+                for scope in re.findall(r"'([^']+)'", statement_match.group(0))
+                if scope.startswith("business_support:")
+            )
+    return scopes
+
+
 def test_customer_success_scopes_have_explicit_ceo_grants():
     customer_success_scopes = _explicit_scopes_for_role("customer_success")
     ceo_scopes = _explicit_scopes_for_role("ceo")
@@ -99,3 +117,11 @@ def test_payment_and_lifecycle_scopes_follow_the_phase_three_matrix():
     assert {"payments:kajabi:read", "payments:paystack:read"} <= customer_success_scopes
     assert "payments:verify" not in customer_success_scopes
     assert "students:course_access:grant" not in customer_success_scopes
+
+
+def test_business_support_scopes_are_explicitly_granted_to_business_support_and_ceo():
+    business_support_scopes = _business_support_scopes()
+
+    assert "business_support:dashboard:read" in business_support_scopes
+    assert business_support_scopes <= _explicit_scopes_for_role("business_support")
+    assert business_support_scopes <= _explicit_scopes_for_role("ceo")
