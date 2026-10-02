@@ -38,6 +38,7 @@ from app.models.payment_verification_event import PaymentVerificationEvent
 
 MIGRATION_PATH = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "0035_business_support_pilot_reviews.sql"
 PAYMENT_MIGRATION_PATH = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "0036_business_support_payment_verifications.sql"
+CONTRACT_MIGRATION_PATH = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "0037_business_support_contract_status_read.sql"
 
 
 def _route_scope(route) -> set[str]:
@@ -57,14 +58,35 @@ def test_business_support_overview_is_registered_and_permission_gated():
     assert "business_support:dashboard:read" in _route_scope(endpoint)
 
 
+def test_signaturely_contract_route_is_permission_gated():
+    endpoint = next(route for route in router.routes if route.path == "/contracts/signaturely")
+
+    assert "business_support:contracts:read" in _route_scope(endpoint)
+    assert require_business_support_enabled in {dependency.call for dependency in endpoint.dependant.dependencies}
+
+
 def test_business_support_overview_returns_only_read_only_metadata():
     endpoint = next(route for route in router.routes if route.path == "/overview")
     result = asyncio.run(endpoint.endpoint())
 
     assert result["mode"] == "read_only"
-    assert result["available_views"] == ["payment_records"]
+    assert "payment_records" in result["available_views"]
+    assert "pilot_reviews" in result["available_views"]
     assert "students" not in result
     assert "records" not in result
+
+
+def test_signaturely_view_is_advertised_only_when_api_key_is_configured(monkeypatch):
+    from app.core.config import settings
+    endpoint = next(route for route in router.routes if route.path == "/overview")
+
+    monkeypatch.setattr(settings, "SIGNATURELY_API_KEY", "")
+    without_provider = asyncio.run(endpoint.endpoint())
+    assert "contract_status" not in without_provider["available_views"]
+
+    monkeypatch.setattr(settings, "SIGNATURELY_API_KEY", "configured-test-key")
+    with_provider = asyncio.run(endpoint.endpoint())
+    assert "contract_status" in with_provider["available_views"]
 
 
 def test_pilot_review_routes_use_separate_read_and_write_scopes():
@@ -257,6 +279,20 @@ def test_programs_manager_receives_pilot_read_but_not_write_scope():
     assert "business_support:dashboard:read" in manager_scopes
     assert "business_support:pilot:read" in manager_scopes
     assert "business_support:pilot:write" not in manager_scopes
+
+
+def test_contract_read_migration_grants_only_approved_roles():
+    sql = CONTRACT_MIGRATION_PATH.read_text(encoding="utf-8")
+    role_grant = re.search(
+        r"where\s+r\.name\s+in\s*\(([^)]*)\).*?business_support:contracts:read",
+        sql,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    assert role_grant
+    assert set(re.findall(r"'([^']+)'", role_grant.group(1))) == {
+        "business_support", "ceo", "programs_manager",
+    }
 
 
 @pytest.mark.asyncio

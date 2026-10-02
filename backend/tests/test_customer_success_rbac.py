@@ -125,3 +125,17 @@ def test_business_support_scopes_are_explicitly_granted_to_business_support_and_
     assert "business_support:dashboard:read" in business_support_scopes
     assert business_support_scopes <= _explicit_scopes_for_role("business_support")
     assert business_support_scopes <= _explicit_scopes_for_role("ceo")
+
+
+def test_signaturely_contract_read_is_limited_to_business_support_ceo_and_programs_manager():
+    business_support_scopes = _explicit_scopes_for_role("business_support")
+    ceo_scopes = _explicit_scopes_for_role("ceo")
+    programs_manager_scopes = _explicit_scopes_for_role("programs_manager")
+    customer_success_scopes = _explicit_scopes_for_role("customer_success")
+
+    assert "business_support:contracts:read" in business_support_scopes
+    assert "business_support:contracts:read" in ceo_scopes
+    assert "business_support:contracts:read" in programs_manager_scopes
+    assert "business_support:contracts:read" not in customer_success_scopes
+    assert "business_support:contracts:write" not in business_support_scopes
+    assert "business_support:contracts:write" not in programs_manager_scopes

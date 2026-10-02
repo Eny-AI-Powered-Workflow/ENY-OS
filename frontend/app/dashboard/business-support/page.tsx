@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import BusinessSupportContracts from '@/components/BusinessSupportContracts'
 import BusinessSupportPilotReview from '@/components/BusinessSupportPilotReview'
 import StudentPayments from '@/components/StudentPayments'
 import { API_TIMEOUTS, describeHttpError, fetchWithTimeout } from '@/lib/api'
@@ -67,6 +68,7 @@ export default function BusinessSupportDashboard() {
         <>
           <p className="max-w-3xl text-sm text-slate-300">{overview.notice}</p>
           {overview.available_views.includes('payment_records') && <StudentPayments enableVerification />}
+          {overview.available_views.includes('contract_status') && <BusinessSupportContracts />}
           <BusinessSupportPilotReview />
         </>
       ) : null}

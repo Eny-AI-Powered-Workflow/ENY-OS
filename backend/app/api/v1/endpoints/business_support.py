@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.models.business_support_pilot_review import BusinessSupportPilotReview
 from app.models.payment_verification_event import PaymentVerificationEvent
 from app.services.student_payments_service import student_payments_service
+from app.services.signaturely_service import signaturely_service
 from app.services.workflow_registry import APPROVED_WORKFLOWS
 
 router = APIRouter()
@@ -60,12 +61,26 @@ def require_business_support_enabled() -> None:
 ])
 async def get_business_support_overview() -> dict[str, Any]:
     """Return read-only workspace metadata without duplicating provider records."""
+    available_views = ["payment_records", "pilot_reviews"]
+    if settings.SIGNATURELY_API_KEY:
+        available_views.append("contract_status")
     return {
         "department": "Business Support",
         "mode": "read_only",
-        "available_views": ["payment_records"],
-        "notice": "Provider-reported payment records only. Verify decisions in the system of record.",
+        "available_views": available_views,
+        "notice": "Provider-reported payment records and contract status only. External systems remain authoritative.",
     }
+
+
+@router.get("/contracts/signaturely", dependencies=[
+    Depends(require_permission("business_support:contracts:read")),
+    Depends(require_business_support_enabled),
+])
+async def get_signaturely_contracts(
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
+) -> dict[str, Any]:
+    return await signaturely_service.list_documents(page=page, limit=limit)
 
 
 def _serialize_pilot_review(review: BusinessSupportPilotReview) -> dict[str, Any]:

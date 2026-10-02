@@ -46,6 +46,9 @@ supabase/migrations/*
 !supabase/migrations/0034_business_support_phase_one_two_rbac.sql
 !supabase/migrations/0035_business_support_pilot_reviews.sql
 !supabase/migrations/0036_business_support_payment_verifications.sql
+!supabase/migrations/0037_business_support_contract_status_read.sql
+!supabase/migrations/0037_business_support_contract_status_read.sql
+!supabase/migrations/0037_business_support_contract_status_read.sql
 !supabase/migrations/0025_design_requests_assets_templates.sql
 !supabase/migrations/0008_enrollment_operations.sql
 !supabase/migrations/0009_sales_operations_fields.sql
