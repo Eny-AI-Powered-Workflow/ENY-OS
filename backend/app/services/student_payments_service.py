@@ -1,6 +1,8 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/services/student_payments_service.py
 from datetime import date, datetime, timezone
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import HTTPException
@@ -137,6 +139,53 @@ class StudentPaymentsService:
             "page": page,
             "per_page": per_page,
             "has_more": page < page_count if isinstance(page_count, int) else len(source_records) >= per_page,
+        }
+
+    async def verify_paystack_transaction(self, reference: str) -> dict[str, Any]:
+        """Recheck one Paystack transaction; Paystack remains the payment source of truth."""
+        if not re.fullmatch(r"[A-Za-z0-9.=-]{1,100}", reference):
+            raise HTTPException(status_code=422, detail="Invalid Paystack transaction reference")
+        if not settings.PAYSTACK_SECRET_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "provider_not_configured", "provider": "paystack"},
+            )
+
+        encoded_reference = quote(reference, safe="")
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{settings.PAYSTACK_BASE_URL.rstrip('/')}/transaction/verify/{encoded_reference}",
+                    headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
+                )
+                response.raise_for_status()
+            payload = response.json()
+            if payload.get("status") is not True:
+                raise HTTPException(status_code=404, detail="Paystack did not find this transaction reference")
+            transaction = payload.get("data")
+            if not isinstance(transaction, dict) or str(transaction.get("reference") or "") != reference:
+                raise HTTPException(status_code=502, detail="Paystack returned a mismatched transaction reference")
+        except HTTPException:
+            raise
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                raise HTTPException(status_code=503, detail="Paystack rate limit reached; retry later") from exc
+            if exc.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Paystack transaction reference was not found") from exc
+            raise HTTPException(status_code=502, detail="Paystack transaction verification failed") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=502, detail="Paystack is unavailable or returned an invalid response") from exc
+
+        currency = str(transaction.get("currency") or "").upper()
+        provider_status = self._text(transaction.get("status")) or "unknown"
+        return {
+            "provider": "paystack",
+            "reference": reference,
+            "provider_status": provider_status,
+            "currency": currency,
+            "amount_minor": self._amount_minor(transaction.get("amount")),
+            "transaction_date": self._text(transaction.get("paid_at") or transaction.get("created_at")),
+            "verification_status": "verified" if provider_status.lower() == "success" and currency == "NGN" else "not_confirmed",
         }
 
     async def _kajabi_token(self) -> str:

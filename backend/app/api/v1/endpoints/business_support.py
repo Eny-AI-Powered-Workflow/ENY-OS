@@ -12,6 +12,8 @@ from app.api.deps import require_permission
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.business_support_pilot_review import BusinessSupportPilotReview
+from app.models.payment_verification_event import PaymentVerificationEvent
+from app.services.student_payments_service import student_payments_service
 from app.services.workflow_registry import APPROVED_WORKFLOWS
 
 router = APIRouter()
@@ -36,6 +38,11 @@ class PilotReviewCreate(BaseModel):
     missing_data: bool | None = None
     processing_seconds: int | None = Field(default=None, ge=0, le=604800)
     escalation_quality: int | None = Field(default=None, ge=1, le=5)
+
+
+class PaystackPaymentVerificationCreate(BaseModel):
+    reference: str = Field(..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9.=-]+$")
+    idempotency_key: UUID
 
 
 @router.get("/overview", dependencies=[Depends(require_permission("business_support:dashboard:read"))])
@@ -80,6 +87,96 @@ def _matches_pilot_review(review: BusinessSupportPilotReview, payload: PilotRevi
 
 def _reviewer_id(current_user: Any) -> UUID:
     return current_user.get("id") if isinstance(current_user, dict) else current_user.id
+
+
+def _serialize_payment_verification(event: PaymentVerificationEvent) -> dict[str, Any]:
+    return {
+        "reference": event.transaction_reference,
+        "verification_status": event.verification_status,
+        "provider_status": event.provider_status,
+        "reviewer_id": str(event.reviewer_user_id),
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+    }
+
+
+def _same_payment_verification(event: PaymentVerificationEvent, reference: str, reviewer_id: UUID) -> bool:
+    return (
+        event.provider == "paystack"
+        and event.transaction_reference == reference
+        and event.reviewer_user_id == reviewer_id
+    )
+
+
+@router.get("/payments/verification-status", dependencies=[Depends(require_permission("payments:verify"))])
+def get_payment_verification_status(
+    references: list[str] = Query(default=[]),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    unique_references = list(dict.fromkeys(references))
+    if len(unique_references) > 100 or any(
+        not 1 <= len(reference) <= 100 or not all(char.isalnum() or char in ".=-" for char in reference)
+        for reference in unique_references
+    ):
+        raise HTTPException(status_code=422, detail="Invalid Paystack transaction references")
+    if not unique_references:
+        return {"verifications": {}}
+
+    events = (
+        db.query(PaymentVerificationEvent)
+        .filter(PaymentVerificationEvent.provider == "paystack")
+        .filter(PaymentVerificationEvent.transaction_reference.in_(unique_references))
+        .order_by(PaymentVerificationEvent.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    latest: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if event.transaction_reference not in latest:
+            latest[event.transaction_reference] = _serialize_payment_verification(event)
+    return {"verifications": latest}
+
+
+@router.post("/payments/verify", dependencies=[Depends(require_permission("payments:verify"))])
+async def verify_paystack_payment(
+    payload: PaystackPaymentVerificationCreate,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    reviewer_id = UUID(str(_reviewer_id(current_user)))
+    existing = (
+        db.query(PaymentVerificationEvent)
+        .filter(PaymentVerificationEvent.idempotency_key == payload.idempotency_key)
+        .first()
+    )
+    if existing:
+        if _same_payment_verification(existing, payload.reference, reviewer_id):
+            return {"verification": _serialize_payment_verification(existing), "duplicate": True}
+        raise HTTPException(status_code=409, detail="This payment verification request ID was already used")
+
+    provider_result = await student_payments_service.verify_paystack_transaction(payload.reference)
+    event = PaymentVerificationEvent(
+        provider="paystack",
+        transaction_reference=payload.reference,
+        verification_status=provider_result["verification_status"],
+        provider_status=provider_result["provider_status"],
+        reviewer_user_id=reviewer_id,
+        idempotency_key=payload.idempotency_key,
+    )
+    db.add(event)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        existing = (
+            db.query(PaymentVerificationEvent)
+            .filter(PaymentVerificationEvent.idempotency_key == payload.idempotency_key)
+            .first()
+        )
+        if existing and _same_payment_verification(existing, payload.reference, reviewer_id):
+            return {"verification": _serialize_payment_verification(existing), "duplicate": True}
+        raise HTTPException(status_code=409, detail="This payment verification request ID was already used") from exc
+    db.refresh(event)
+    return {"verification": _serialize_payment_verification(event), "duplicate": False}
 
 
 @router.get("/pilot/reviews", dependencies=[Depends(require_permission("business_support:pilot:read"))])

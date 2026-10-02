@@ -2,6 +2,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { API_TIMEOUTS, describeHttpError, fetchWithTimeout } from '@/lib/api'
+import { usePermissions } from '@/lib/permissions'
 import { supabase } from '@/lib/supabaseClient'
 
 type Provider = 'kajabi' | 'paystack'
@@ -18,6 +20,16 @@ type PaymentRecord = {
   customer_name: string | null
   customer_email: string | null
 }
+type PaymentVerification = {
+  reference: string
+  verification_status: 'verified' | 'not_confirmed'
+  provider_status: string
+  reviewer_id: string
+  created_at: string | null
+}
+type StudentPaymentsProps = {
+  enableVerification?: boolean
+}
 type ProviderState = {
   records: PaymentRecord[]
   page: number
@@ -32,6 +44,23 @@ const initialProviderState: ProviderState = {
   hasMore: false,
   loading: true,
   message: null,
+}
+
+async function loadPaymentVerifications(references: string[], accessToken?: string): Promise<Record<string, PaymentVerification>> {
+  if (references.length === 0) return {}
+  const params = new URLSearchParams()
+  references.forEach((reference) => params.append('references', reference))
+  const response = await fetchWithTimeout(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/v1/business-support/payments/verification-status?${params}`,
+    {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      credentials: 'include',
+    },
+    API_TIMEOUTS.standard,
+  )
+  if (!response.ok) throw new Error(await describeHttpError(response, 'Payment verification history is unavailable.'))
+  const payload = await response.json() as { verifications: Record<string, PaymentVerification> }
+  return payload.verifications ?? {}
 }
 
 function formatAmount(record: PaymentRecord) {
@@ -53,7 +82,9 @@ function formatDate(value: string | null) {
   return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString()
 }
 
-export default function StudentPayments() {
+export default function StudentPayments({ enableVerification = false }: StudentPaymentsProps) {
+  const { can } = usePermissions()
+  const canVerify = enableVerification && can('payments:verify')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [appliedRange, setAppliedRange] = useState({ from: '', to: '' })
@@ -61,6 +92,10 @@ export default function StudentPayments() {
     kajabi: initialProviderState,
     paystack: initialProviderState,
   })
+  const [verifications, setVerifications] = useState<Record<string, PaymentVerification>>({})
+  const [verificationErrors, setVerificationErrors] = useState<Record<string, string>>({})
+  const [verifyingReferences, setVerifyingReferences] = useState<string[]>([])
+  const [retryKeys, setRetryKeys] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -103,6 +138,17 @@ export default function StudentPayments() {
             message: null,
           },
         }))
+        if (provider === 'paystack' && canVerify) {
+          try {
+            const statuses = await loadPaymentVerifications(
+              (payload.records ?? []).map((record: PaymentRecord) => record.reference).filter((reference: string | null): reference is string => Boolean(reference)),
+              session?.access_token,
+            )
+            if (!cancelled) setVerifications((current) => ({ ...current, ...statuses }))
+          } catch {
+            if (!cancelled) setVerificationErrors((current) => ({ ...current, _list: 'Verification history is unavailable.' }))
+          }
+        }
       } catch (error) {
         if (cancelled) return
         setProviders((current) => ({
@@ -126,7 +172,46 @@ export default function StudentPayments() {
     return () => {
       cancelled = true
     }
-  }, [appliedRange])
+  }, [appliedRange, canVerify])
+
+  async function confirmPaystackPayment(reference: string) {
+    if (!canVerify) return
+    setVerifyingReferences((current) => [...current, reference])
+    setVerificationErrors((current) => ({ ...current, [reference]: '' }))
+    const idempotencyKey = retryKeys[reference] ?? crypto.randomUUID()
+    setRetryKeys((current) => ({ ...current, [reference]: idempotencyKey }))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetchWithTimeout(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/business-support/payments/verify`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify({ reference, idempotency_key: idempotencyKey }),
+        },
+        API_TIMEOUTS.standard,
+      )
+      if (!response.ok) throw new Error(await describeHttpError(response, 'Paystack could not confirm this payment.'))
+      const payload = await response.json() as { verification: PaymentVerification }
+      setVerifications((current) => ({ ...current, [reference]: payload.verification }))
+      setRetryKeys((current) => {
+        const next = { ...current }
+        delete next[reference]
+        return next
+      })
+    } catch (error) {
+      setVerificationErrors((current) => ({
+        ...current,
+        [reference]: error instanceof Error ? error.message : 'Paystack could not confirm this payment.',
+      }))
+    } finally {
+      setVerifyingReferences((current) => current.filter((item) => item !== reference))
+    }
+  }
 
   function renderProvider(provider: Provider, title: string, note: string) {
     const state = providers[provider]
@@ -144,7 +229,7 @@ export default function StudentPayments() {
           <p className="py-6 text-sm text-slate-600">No provider records in this date range.</p>
         ) : (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <table className={`w-full ${canVerify ? 'min-w-[920px]' : 'min-w-[760px]'} border-collapse text-left text-sm`}>
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
                   <th className="py-2 pr-4 font-medium">Date</th>
@@ -152,6 +237,7 @@ export default function StudentPayments() {
                   <th className="py-2 pr-4 font-medium">Reference</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
                   <th className="py-2 text-right font-medium">Amount</th>
+                  {canVerify && <th className="py-2 pl-4 font-medium">Payment review</th>}
                 </tr>
               </thead>
               <tbody>
@@ -168,6 +254,33 @@ export default function StudentPayments() {
                       {record.action && <span className="ml-2 text-xs text-slate-500">{record.action}</span>}
                     </td>
                     <td className="py-3 text-right font-medium text-slate-900">{formatAmount(record)} <span className="text-xs text-slate-500">{record.currency}</span></td>
+                    {canVerify && (
+                      <td className="py-3 pl-4 text-xs text-slate-700">
+                        {provider === 'paystack' && record.reference ? (
+                          <div className="grid justify-items-start gap-1">
+                            <span>
+                              {verifications[record.reference]
+                                ? `${verifications[record.reference].verification_status === 'verified' ? 'Confirmed paid' : 'Not confirmed'} by Paystack (${verifications[record.reference].provider_status})`
+                                : 'Not yet verified'}
+                            </span>
+                            {verifications[record.reference]?.created_at && (
+                              <span className="text-[11px] text-slate-500">
+                                Reviewed {formatDate(verifications[record.reference].created_at)}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              disabled={verifyingReferences.includes(record.reference)}
+                              onClick={() => void confirmPaystackPayment(record.reference as string)}
+                              className="border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-900 disabled:opacity-50"
+                            >
+                              {verifyingReferences.includes(record.reference) ? 'Checking...' : 'Confirm with Paystack'}
+                            </button>
+                            {verificationErrors[record.reference] && <span role="alert" className="max-w-48 text-rose-700">{verificationErrors[record.reference]}</span>}
+                          </div>
+                        ) : provider === 'kajabi' ? 'Kajabi remains read-only' : 'Provider reference unavailable'}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -204,6 +317,13 @@ export default function StudentPayments() {
                     message: null,
                   },
                 }))
+                if (provider === 'paystack' && canVerify) {
+                  const statuses = await loadPaymentVerifications(
+                    (payload.records ?? []).map((record: PaymentRecord) => record.reference).filter((reference: string | null): reference is string => Boolean(reference)),
+                    session?.access_token,
+                  )
+                  setVerifications((current) => ({ ...current, ...statuses }))
+                }
               }).catch(() => setProviders((current) => ({
                 ...current,
                 [provider]: { ...current[provider], loading: false, message: 'Payment data is unavailable' },

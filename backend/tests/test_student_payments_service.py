@@ -176,6 +176,74 @@ async def test_paystack_read_uses_bounded_page_and_filters_currency(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_paystack_verification_uses_exact_reference_and_confirms_ngn_success(monkeypatch):
+    FakeAsyncClient.responses = [FakeResponse({
+        "status": True,
+        "data": {
+            "reference": "payment.ref=7",
+            "status": "success",
+            "amount": 125000,
+            "currency": "NGN",
+            "paid_at": "2026-10-01T10:00:00Z",
+        },
+    })]
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "PAYSTACK_SECRET_KEY", "test-secret")
+
+    result = await StudentPaymentsService().verify_paystack_transaction("payment.ref=7")
+
+    assert result == {
+        "provider": "paystack",
+        "reference": "payment.ref=7",
+        "provider_status": "success",
+        "currency": "NGN",
+        "amount_minor": 125000,
+        "transaction_date": "2026-10-01T10:00:00Z",
+        "verification_status": "verified",
+    }
+    method, url, kwargs = FakeAsyncClient.calls[0]
+    assert method == "GET"
+    assert url.endswith("/transaction/verify/payment.ref%3D7")
+    assert kwargs["headers"]["Authorization"] == "Bearer test-secret"
+
+
+@pytest.mark.asyncio
+async def test_paystack_verification_does_not_mark_pending_transactions_paid(monkeypatch):
+    FakeAsyncClient.responses = [FakeResponse({
+        "status": True,
+        "data": {"reference": "payment-pending", "status": "pending", "currency": "NGN"},
+    })]
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "PAYSTACK_SECRET_KEY", "test-secret")
+
+    result = await StudentPaymentsService().verify_paystack_transaction("payment-pending")
+
+    assert result["verification_status"] == "not_confirmed"
+    assert result["provider_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_paystack_verification_rejects_malformed_and_mismatched_references(monkeypatch):
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "PAYSTACK_SECRET_KEY", "test-secret")
+
+    with pytest.raises(HTTPException) as invalid:
+        await StudentPaymentsService().verify_paystack_transaction("bad/ref")
+    assert invalid.value.status_code == 422
+    assert FakeAsyncClient.calls == []
+
+    FakeAsyncClient.responses = [FakeResponse({
+        "status": True,
+        "data": {"reference": "different", "status": "success", "currency": "NGN"},
+    })]
+    with pytest.raises(HTTPException) as mismatch:
+        await StudentPaymentsService().verify_paystack_transaction("expected-reference")
+    assert mismatch.value.status_code == 502
+
+
+@pytest.mark.asyncio
 async def test_kajabi_read_authenticates_and_filters_by_site(monkeypatch):
     FakeAsyncClient.responses = [
         FakeResponse({"access_token": "short-lived-token", "expires_in": 3600}),

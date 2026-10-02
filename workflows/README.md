@@ -81,6 +81,10 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Webhook protection**: configure the imported Webhook node with header authentication using the same secret as backend `N8N_WEBHOOK_TOKEN`.
 - **Important**: The channel adapter must actually trim the requested time range and return `{ "published": true, "url": "..." }` (or `{ "status": "published" }`). The included workflow is inactive until imported, configured, and activated. It deliberately does not report a simulated publish as complete.
 
+## Business Support Payment Verification
+
+Payment verification is a human-operated API flow, not an n8n workflow. Business Support uses the dashboard to request a server-side Paystack reference verification; the backend records the result and reviewer under an idempotency key. Only Paystack `success`/NGN responses are marked verified. The flow does not alter provider data or grant course access. Kajabi, payment lifecycle writes, and automated follow-up remain disabled until their provider contracts, approvals, and duplicate-side-effect recovery are validated.
+
 ## Development Notes
 
 - Workflows should be exported from n8n and placed in this directory with descriptive names
