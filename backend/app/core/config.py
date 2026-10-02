@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # Database Settings
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
+    BUSINESS_SUPPORT_ENABLED: bool = Field(False, env="BUSINESS_SUPPORT_ENABLED")
 
     # External Service Settings
     GHL_BASE_URL: str = Field("https://services.leadconnectorhq.com", env="GHL_BASE_URL")

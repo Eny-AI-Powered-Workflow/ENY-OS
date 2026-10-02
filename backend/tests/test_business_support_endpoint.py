@@ -26,10 +26,12 @@ from app.api.v1.endpoints.business_support import (
     PilotReviewCreate,
     create_pilot_review,
     get_pilot_reviews,
+    require_business_support_enabled,
     router,
     verify_paystack_payment,
 )
 from app.api.v1.router import api_router
+from app.core.config import settings
 from app.models.audit_log import AuditLog
 from app.models.business_support_pilot_review import BusinessSupportPilotReview
 from app.models.payment_verification_event import PaymentVerificationEvent
@@ -85,6 +87,26 @@ def test_payment_verification_routes_require_the_audited_payment_scope():
 
     assert "payments:verify" in _route_scope(routes[("/payments/verification-status", "GET")])
     assert "payments:verify" in _route_scope(routes[("/payments/verify", "POST")])
+
+
+def test_business_support_routes_are_default_off_and_audit_before_feature_gate(monkeypatch):
+    monkeypatch.setattr(settings, "BUSINESS_SUPPORT_ENABLED", False)
+    routes = [route for route in router.routes if hasattr(route, "dependant")]
+
+    with pytest.raises(HTTPException) as error:
+        require_business_support_enabled()
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "feature_disabled"
+
+    for route in routes:
+        dependencies = route.dependant.dependencies
+        assert dependencies[0].call.__name__ == "permission_checker"
+        assert dependencies[1].call is require_business_support_enabled
+
+
+def test_business_support_feature_gate_opens_only_when_enabled(monkeypatch):
+    monkeypatch.setattr(settings, "BUSINESS_SUPPORT_ENABLED", True)
+    assert require_business_support_enabled() is None
 
 
 def test_denied_business_support_scope_is_forbidden_and_audited():

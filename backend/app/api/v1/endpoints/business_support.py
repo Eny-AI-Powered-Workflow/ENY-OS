@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permission
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.business_support_pilot_review import BusinessSupportPilotReview
@@ -45,7 +46,18 @@ class PaystackPaymentVerificationCreate(BaseModel):
     idempotency_key: UUID
 
 
-@router.get("/overview", dependencies=[Depends(require_permission("business_support:dashboard:read"))])
+def require_business_support_enabled() -> None:
+    if not settings.BUSINESS_SUPPORT_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "feature_disabled", "feature": "business_support"},
+        )
+
+
+@router.get("/overview", dependencies=[
+    Depends(require_permission("business_support:dashboard:read")),
+    Depends(require_business_support_enabled),
+])
 async def get_business_support_overview() -> dict[str, Any]:
     """Return read-only workspace metadata without duplicating provider records."""
     return {
@@ -107,7 +119,10 @@ def _same_payment_verification(event: PaymentVerificationEvent, reference: str, 
     )
 
 
-@router.get("/payments/verification-status", dependencies=[Depends(require_permission("payments:verify"))])
+@router.get("/payments/verification-status", dependencies=[
+    Depends(require_permission("payments:verify")),
+    Depends(require_business_support_enabled),
+])
 def get_payment_verification_status(
     references: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
@@ -136,7 +151,10 @@ def get_payment_verification_status(
     return {"verifications": latest}
 
 
-@router.post("/payments/verify", dependencies=[Depends(require_permission("payments:verify"))])
+@router.post("/payments/verify", dependencies=[
+    Depends(require_permission("payments:verify")),
+    Depends(require_business_support_enabled),
+])
 async def verify_paystack_payment(
     payload: PaystackPaymentVerificationCreate,
     db: Session = Depends(get_db),
@@ -179,7 +197,10 @@ async def verify_paystack_payment(
     return {"verification": _serialize_payment_verification(event), "duplicate": False}
 
 
-@router.get("/pilot/reviews", dependencies=[Depends(require_permission("business_support:pilot:read"))])
+@router.get("/pilot/reviews", dependencies=[
+    Depends(require_permission("business_support:pilot:read")),
+    Depends(require_business_support_enabled),
+])
 def get_pilot_reviews(
     days: int = Query(7, ge=1, le=30),
     db: Session = Depends(get_db),
@@ -212,7 +233,10 @@ def get_pilot_reviews(
     }
 
 
-@router.post("/pilot/reviews", dependencies=[Depends(require_permission("business_support:pilot:write"))])
+@router.post("/pilot/reviews", dependencies=[
+    Depends(require_permission("business_support:pilot:write")),
+    Depends(require_business_support_enabled),
+])
 def create_pilot_review(
     payload: PilotReviewCreate,
     db: Session = Depends(get_db),

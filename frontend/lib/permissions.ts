@@ -39,12 +39,12 @@ export const MODULES: Module[] = [
     icon: 'GraduationCap',
     permissions: ['students:read']
   },
-  {
+  ...(process.env.NEXT_PUBLIC_BUSINESS_SUPPORT_ENABLED === 'true' ? [{
     name: 'Business Support',
     href: '/dashboard/business-support',
     icon: 'ClipboardList',
-    permissions: ['business_support:dashboard:read']
-  },
+    permissions: ['business_support:dashboard:read'],
+  }] : []),
   {
     name: 'Marketing',
     href: '/dashboard/marketing',
