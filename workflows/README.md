@@ -7,7 +7,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 | Workflow Name | Webhook Path | Description |
 |---------------|--------------|-------------|
 | ENY-SALES-SCORE | /webhook/eny-sales-score | Lead scoring workflow that analyzes leads and assigns scores based on engagement and fit criteria |
-| ENY-ENROLLMENT-FOLLOW-UP | /webhook/eny-enrollment-follow-up | Queues approved hot-lead follow-up for the Enrollment team |
+| ENY-ENROLLMENT-FOLLOW-UP | /webhook/eny-enrollment-follow-up | Exported, but not registered with the API gateway until partial-failure retries are idempotent |
 | ENY-VIDEO-PUBLISH | /webhook/eny-video-publish | Validates an approved clip and sends it to the configured publishing adapter |
 
 ## How to Use
@@ -65,6 +65,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 ### ENY-ENROLLMENT-FOLLOW-UP
 - **Webhook Path**: `/webhook/eny-enrollment-follow-up`
 - **Description**: Receives an approved, assigned hot lead and queues the configured Enrollment follow-up action.
+- **Gateway Status**: Disabled; the workflow is not registered in `backend/app/services/workflow_registry.py` until CRM and notification side effects are idempotent across partial failures.
 - **Trigger Type**: Webhook
 - **Expected Input**: `contact_id`, `result_id`, `approval_id`, `assigned_user_id`, `source`, `score`, and `category`
 - **Output**: Success after the GHL contact is loaded and tagged with `eny-follow-up-queued`. The inbox email is best-effort: the response includes `notification_sent` and `notification_error` if delivery fails after the tag succeeds.

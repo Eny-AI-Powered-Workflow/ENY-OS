@@ -76,6 +76,8 @@ async def trigger_agent_workflow(
             "result": result
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to trigger workflow {workflow_name}: {e}")
         db.rollback()
