@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import BusinessSupportPilotReview from '@/components/BusinessSupportPilotReview'
 import StudentPayments from '@/components/StudentPayments'
 import { API_TIMEOUTS, describeHttpError, fetchWithTimeout } from '@/lib/api'
 import { supabase } from '@/lib/supabaseClient'
@@ -66,6 +67,7 @@ export default function BusinessSupportDashboard() {
         <>
           <p className="max-w-3xl text-sm text-slate-300">{overview.notice}</p>
           {overview.available_views.includes('payment_records') && <StudentPayments />}
+          <BusinessSupportPilotReview />
         </>
       ) : null}
     </div>

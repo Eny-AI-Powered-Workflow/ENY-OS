@@ -44,6 +44,7 @@ supabase/migrations/*
 !supabase/migrations/0032_programs_manager_student_read.sql
 !supabase/migrations/0033_customer_success_least_privilege.sql
 !supabase/migrations/0034_business_support_phase_one_two_rbac.sql
+!supabase/migrations/0035_business_support_pilot_reviews.sql
 !supabase/migrations/0025_design_requests_assets_templates.sql
 !supabase/migrations/0008_enrollment_operations.sql
 !supabase/migrations/0009_sales_operations_fields.sql
