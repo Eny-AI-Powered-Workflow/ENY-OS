@@ -18,9 +18,7 @@ export default function WriterDashboard() {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <WriterMetrics />
-      </div>
+      <WriterMetrics />
 
       <SOPPublisher />
       <SOPLibrary />
