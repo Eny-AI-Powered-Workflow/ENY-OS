@@ -4,6 +4,12 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Bot, CheckCircle2, ClipboardCheck, ExternalLink, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { visit } from 'unist-util-visit'
+import type { PhrasingContent, Root, Strong } from 'mdast'
+import type { Properties } from 'hast'
+import type { Plugin } from 'unified'
 import { usePermissions } from '@/lib/permissions'
 import { supabase } from '@/lib/supabaseClient'
 import { describeHttpError, describeRequestFailure } from '@/lib/api'
@@ -123,6 +129,72 @@ const fallbackSuggestions = [
 function getRoleSuggestions(roles: string[]): string[] {
   const role = roles.find((assignedRole) => roleSuggestions[assignedRole])
   return (role && roleSuggestions[role]) || fallbackSuggestions
+}
+
+declare module 'mdast' {
+  interface Data {
+    hName?: string
+    hProperties?: Properties
+  }
+}
+
+const remarkHighlight: Plugin<[], Root> = () => (tree) => {
+  visit(tree, 'text', (node, index, parent) => {
+    if (index === undefined || !parent) return
+
+    const parts = node.value.split(/==(.*?)==/g)
+    if (parts.length === 1) return
+
+    const replacement: PhrasingContent[] = []
+    parts.forEach((part, partIndex) => {
+      if (!part) return
+      if (partIndex % 2 === 0) {
+        replacement.push({ type: 'text', value: part })
+        return
+      }
+
+      const highlight: Strong = {
+        type: 'strong',
+        data: {
+          hName: 'mark',
+          hProperties: { className: ['rounded', 'bg-amber-300/20', 'px-1', 'text-amber-100'] },
+        },
+        children: [{ type: 'text', value: part }],
+      }
+      replacement.push(highlight)
+    })
+
+    parent.children.splice(index, 1, ...replacement)
+    return index + replacement.length
+  })
+}
+
+const assistantMarkdownComponents: Components = {
+  h1: ({ children }) => <h1 className="mb-3 mt-5 text-xl font-bold tracking-tight text-white first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2.5 mt-5 border-b border-white/10 pb-2 text-lg font-semibold text-white">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-base font-semibold text-cyan-100">{children}</h3>,
+  p: ({ children }) => <p className="my-2.5 leading-7 text-slate-200">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic text-slate-100">{children}</em>,
+  mark: ({ children }) => <mark className="rounded bg-amber-300/20 px-1 text-amber-100">{children}</mark>,
+  ul: ({ children }) => <ul className="my-3 list-disc space-y-1.5 pl-6 marker:text-cyan-300">{children}</ul>,
+  ol: ({ children }) => <ol className="my-3 list-decimal space-y-1.5 pl-6 marker:font-semibold marker:text-cyan-200">{children}</ol>,
+  li: ({ children }) => <li className="pl-1 leading-6 text-slate-200">{children}</li>,
+  blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-cyan-300/50 pl-4 text-slate-300">{children}</blockquote>,
+  a: ({ children, href }) => <a href={href} className="font-medium text-cyan-200 underline decoration-cyan-200/40 underline-offset-4 hover:text-cyan-100">{children}</a>,
+  hr: () => <hr className="my-5 border-white/10" />,
+  pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-xl border border-white/10 bg-slate-950/80 p-4 text-xs leading-6 text-slate-200">{children}</pre>,
+  code: ({ children, className }) => (
+    <code className={className
+      ? 'font-mono text-[0.85em] text-cyan-100'
+      : 'rounded-md border border-white/10 bg-slate-950/70 px-1.5 py-0.5 font-mono text-[0.85em] text-cyan-100'}
+    >
+      {children}
+    </code>
+  ),
+  table: ({ children }) => <div className="my-4 overflow-x-auto rounded-xl border border-white/10"><table className="w-full border-collapse text-left text-xs">{children}</table></div>,
+  th: ({ children }) => <th className="border-b border-white/10 bg-white/5 px-3 py-2 font-semibold text-white">{children}</th>,
+  td: ({ children }) => <td className="border-b border-white/5 px-3 py-2 align-top text-slate-300">{children}</td>,
 }
 
 function formatApiError(detail: unknown, fallback: string): string {
@@ -432,7 +504,7 @@ export default function AIDeskPage() {
 
           <div className="flex-1 space-y-4 overflow-y-auto p-5 scrollbar-thin">
             {messages.length === 0 && <div className="flex h-full min-h-[330px] flex-col items-center justify-center text-center"><Sparkles className="h-7 w-7 text-cyan-200" /><p className="mt-4 text-sm text-slate-300">Your first brief is one prompt away.</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">The backend applies your authenticated department context before Claude responds.</p></div>}
-            {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`flex max-w-[88%] gap-3 rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/[0.05] text-slate-200'}`}>{message.role === 'assistant' && <Bot className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />}<span className="whitespace-pre-wrap">{message.content}</span>{message.role === 'user' && <UserRound className="mt-1 h-4 w-4 shrink-0" />}</div></div>)}
+            {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`flex min-w-0 max-w-[88%] gap-3 rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/[0.05] text-slate-200'}`}>{message.role === 'assistant' && <Bot className="mt-1 h-4 w-4 shrink-0 text-cyan-200" />}{message.role === 'assistant' ? <div className="min-w-0 flex-1 overflow-hidden"><ReactMarkdown remarkPlugins={[remarkGfm, remarkHighlight]} components={assistantMarkdownComponents}>{message.content}</ReactMarkdown></div> : <span className="whitespace-pre-wrap">{message.content}</span>}{message.role === 'user' && <UserRound className="mt-1 h-4 w-4 shrink-0" />}</div></div>)}
             {loading && <div className="flex items-center gap-3 text-sm text-slate-400"><Bot className="h-4 w-4 text-cyan-200" /> Thinking through the brief...</div>}
           </div>
 
