@@ -297,8 +297,8 @@ export default function AIDeskPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[1600px] min-h-[calc(100vh-9rem)] items-start gap-4">
-      <aside className="sticky top-4 hidden h-[calc(100vh-10rem)] w-72 shrink-0 flex-col overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/80 shadow-2xl shadow-slate-950/30 lg:flex">
+    <div className="mx-auto flex min-h-[calc(100vh-9rem)] w-full min-w-0 max-w-[1600px] items-start gap-4">
+      <aside className="sticky top-4 hidden h-[calc(100vh-10rem)] w-60 shrink-0 flex-col overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/80 shadow-2xl shadow-slate-950/30 lg:flex xl:w-64">
         <div className="border-b border-white/10 bg-white/[0.03] p-5">
           <div className="flex items-center justify-between">
             <div><p className="text-[10px] uppercase tracking-[0.24em] text-cyan-200/70">AI Desk</p><p className="mt-1 font-semibold text-white">Conversation inbox</p></div>
@@ -332,7 +332,7 @@ export default function AIDeskPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
+      <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
         <div className="space-y-4">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Start with a brief</p>
@@ -350,7 +350,7 @@ export default function AIDeskPage() {
           </button>
         </div>
 
-          <div className="flex h-[calc(100vh-19rem)] min-h-[620px] flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
+          <div className="flex h-[calc(100vh-18rem)] min-h-[420px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
           <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><Bot className="h-4 w-4" /></div>
             <div><p className="font-semibold text-white">Department copilot</p><p className="text-xs text-slate-400">Context follows your ENY role</p></div>
@@ -382,7 +382,7 @@ export default function AIDeskPage() {
 
     </main>
 
-      <aside className="sticky top-4 hidden w-[360px] shrink-0 space-y-4 xl:block">
+      <aside className="sticky top-4 hidden w-80 shrink-0 space-y-4 2xl:block">
         <section className="rounded-[24px] border border-amber-300/20 bg-gradient-to-b from-amber-300/[0.10] to-slate-950/80 p-5 text-slate-200 shadow-xl shadow-slate-950/20">
           <div className="flex items-start justify-between gap-4">
             <div><p className="text-[10px] uppercase tracking-[0.22em] text-amber-200">Operations rail</p><h2 className="mt-2 text-xl font-semibold text-white">Lead cohort review</h2></div>

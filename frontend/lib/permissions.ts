@@ -179,6 +179,7 @@ export function usePermissions() {
   }
 
   return {
+    session,
     permissions,
     userRoles,
     can,
