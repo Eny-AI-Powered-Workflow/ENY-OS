@@ -4,6 +4,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Bot, CheckCircle2, ClipboardCheck, ExternalLink, MessageSquarePlus, Send, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import Link from 'next/link'
+import { usePermissions } from '@/lib/permissions'
 import { supabase } from '@/lib/supabaseClient'
 import { describeHttpError, describeRequestFailure } from '@/lib/api'
 
@@ -55,11 +56,74 @@ type BatchApproval = {
   contacts: Array<{ id: string; name: string; source: string; tags: string[] }>
 }
 
-const suggestions = [
-  'Give me a concise view of our highest-impact priorities this week.',
-  'Turn the current lead-scoring result into a CEO action plan.',
-  'Draft a decision brief with risks, options, and a recommended next move.',
+const roleSuggestions: Record<string, string[]> = {
+  ceo: [
+    "Prepare an executive brief of this week's most important decisions and risks.",
+    'Compare our top priorities and recommend where leadership attention will have the greatest impact.',
+    'Draft a concise action plan for improving organizational performance this week.',
+  ],
+  programs_manager: [
+    'Summarize learner progress and identify the program issues that need my attention first.',
+    'Recommend practical interventions for learners who may be falling behind.',
+    'Build a weekly program operations checklist from the most urgent open work.',
+  ],
+  customer_success: [
+    'Help me prioritize learner follow-ups based on urgency and likely impact.',
+    'Draft a supportive check-in for a learner who has stopped making progress.',
+    'Suggest next steps for resolving a learner support issue while keeping their experience positive.',
+  ],
+  business_support: [
+    'Summarize the client and contract work that should be prioritized this week.',
+    'Draft a clear client update about a pending business support request.',
+    'Identify the key risks and follow-up actions in a business support pilot review.',
+  ],
+  executive_assistant: [
+    'Prepare a concise executive briefing with decisions, deadlines, and follow-ups.',
+    'Turn these meeting notes into an owner-based action list for the leadership team.',
+    'Research the options for an upcoming executive decision and summarize the trade-offs.',
+  ],
+  enrollment: [
+    'Help me prioritize lead follow-ups by readiness, urgency, and next best action.',
+    'Draft a personalized first-touch message for a prospective student.',
+    'Suggest ways to re-engage leads who have not responded to recent outreach.',
+  ],
+  marketing: [
+    'Suggest content ideas that fit our current campaign goals and audience.',
+    'Review these marketing results and recommend one practical optimization.',
+    'Draft a channel-specific post that supports this week’s marketing focus.',
+  ],
+  marketing_lead: [
+    'Summarize campaign performance and flag approvals or decisions needed from me.',
+    'Recommend how to balance this week’s content calendar across our active campaigns.',
+    'Review a campaign plan for audience fit, brand risks, and measurable outcomes.',
+  ],
+  videographer: [
+    'Help me prioritize the video production queue and identify likely delivery blockers.',
+    'Turn this video brief into a practical shoot-day checklist.',
+    'Suggest an editing and publishing plan for this video deliverable.',
+  ],
+  graphic_designer: [
+    'Turn this design request into a clear creative brief with deliverables and constraints.',
+    'Suggest visual directions for a funnel page that fits the target audience and goal.',
+    'Review this creative concept for brand consistency, clarity, and conversion opportunities.',
+  ],
+  developer: [
+    'Help me triage this platform issue into likely causes and safe diagnostic steps.',
+    'Review this implementation plan for integration risks and missing edge cases.',
+    'Suggest a focused test plan for verifying a workflow change without disrupting users.',
+  ],
+}
+
+const fallbackSuggestions = [
+  'Help me identify the most important priorities for my team this week.',
+  'Turn this work request into a clear plan with owners and next steps.',
+  'Review this decision and summarize the options, risks, and recommendation.',
 ]
+
+function getRoleSuggestions(roles: string[]): string[] {
+  const role = roles.find((assignedRole) => roleSuggestions[assignedRole])
+  return (role && roleSuggestions[role]) || fallbackSuggestions
+}
 
 function formatApiError(detail: unknown, fallback: string): string {
   if (!detail) return fallback
@@ -92,6 +156,8 @@ async function readApiPayload<T>(response: Response): Promise<T | null> {
 }
 
 export default function AIDeskPage() {
+  const { userRoles } = usePermissions()
+  const suggestions = getRoleSuggestions(userRoles)
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
