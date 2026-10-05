@@ -18,6 +18,7 @@ from app.services.ea_coordination_service import EACoordinationService
 
 class FakeAsyncClient:
     calls = []
+    calendar_status = 200
 
     def __init__(self, *args, **kwargs):
         self.options = kwargs
@@ -38,6 +39,13 @@ class FakeAsyncClient:
 
     async def get(self, url, **kwargs):
         self.calls.append(("GET", url, kwargs))
+        status = self.calendar_status if "calendar/v3" in url else 200
+        if status >= 400:
+            return httpx.Response(
+                status,
+                json={"error": {"code": status, "message": "Calendar access denied"}},
+                request=httpx.Request("GET", url),
+            )
         items = (
             [{"id": "event-1", "summary": "Planning", "start": {"dateTime": "2026-10-06T10:00:00Z"}}]
             if "calendar/v3" in url
@@ -49,6 +57,7 @@ class FakeAsyncClient:
 @pytest.mark.asyncio
 async def test_shared_oauth_token_reads_calendar_and_tasks(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.calendar_status = 200
     monkeypatch.setattr(coordination_module.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
     monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
@@ -103,3 +112,20 @@ async def test_service_does_not_expose_google_oauth_configuration_values(monkeyp
     assert result["error"] == "google_oauth_configuration_incomplete"
     assert "client-id" not in repr(result)
     assert "refresh-token" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_service_identifies_calendar_api_auth_failure_separately(monkeypatch):
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.calendar_status = 403
+    monkeypatch.setattr(coordination_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_REFRESH_TOKEN", "refresh-token")
+
+    result = await EACoordinationService().get_coordination()
+
+    assert result["calendar"]["status"] == "error"
+    assert result["calendar"]["error"] == "calendar_google_api_auth_failed"
+    assert result["tasks"]["status"] == "connected"
+    FakeAsyncClient.calendar_status = 200

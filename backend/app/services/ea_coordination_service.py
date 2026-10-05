@@ -41,7 +41,10 @@ class EACoordinationService:
                     "grant_type": "refresh_token",
                 },
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise ValueError("google_oauth_refresh_failed") from exc
             payload = response.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str):
                 raise ValueError("google_oauth_invalid_response")
@@ -58,6 +61,7 @@ class EACoordinationService:
         base_url: str,
         path: str,
         params: dict[str, str],
+        provider: str,
     ) -> dict[str, Any]:
         if not all((
             settings.GOOGLE_OAUTH_CLIENT_ID,
@@ -91,11 +95,11 @@ class EACoordinationService:
                 payload = response.json()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in {401, 403}:
-                error = "provider_auth_failed"
+                error = f"{provider}_google_api_auth_failed"
             elif exc.response.status_code == 429:
-                error = "provider_rate_limited"
+                error = "google_api_rate_limited"
             else:
-                error = "provider_request_failed"
+                error = "google_api_request_failed"
             return {"status": "error", "items": [], "confidence": "unavailable", "error": error}
         except httpx.HTTPError:
             return {
@@ -131,6 +135,7 @@ class EACoordinationService:
             settings.EA_CALENDAR_BASE_URL,
             settings.EA_CALENDAR_PATH,
             params,
+            "calendar",
         )
 
     async def get_tasks(self) -> dict[str, Any]:
@@ -144,6 +149,7 @@ class EACoordinationService:
             settings.EA_TASKS_BASE_URL,
             settings.EA_TASKS_PATH,
             params,
+            "tasks",
         )
 
     async def get_coordination(self) -> dict[str, Any]:

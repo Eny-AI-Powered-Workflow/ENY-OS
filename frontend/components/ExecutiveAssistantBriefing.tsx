@@ -15,7 +15,7 @@ type Briefing = {
   system_status: { crm: string; open_alerts: number; sop_chunks: number }
   approval_boundary: { message: string; requires_ceo_approval: boolean }
   playbooks: Array<{ name: string; status: string; requires_approval: boolean }>
-  coordination?: { calendar?: { status?: string; items?: unknown[] }; tasks?: { status?: string; items?: unknown[] }; conflicts?: unknown[] }
+  coordination?: { calendar?: { status?: string; error?: string; items?: unknown[] }; tasks?: { status?: string; error?: string; items?: unknown[] }; conflicts?: unknown[] }
   research?: Array<{ id: string; title: string; source_url: string; confidence: string; status: string; summary: string }>
   actions?: Array<{ id: string; title: string; action_type: string; status: string; priority: string; due_at: string | null }>
   action_history?: Array<{ id: string; event_type: string; details: Record<string, unknown>; created_at: string | null }>
@@ -26,6 +26,30 @@ export default function ExecutiveAssistantBriefing() {
   const [data, setData] = useState<Briefing | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const calendarStatusMessage = () => {
+    const calendar = data?.coordination?.calendar
+    if (calendar?.status === 'connected') {
+      return `${calendar.items?.length || 0} upcoming Google Calendar events loaded.`
+    }
+    switch (calendar?.error) {
+      case 'calendar_google_api_auth_failed':
+        return 'Google Calendar rejected the token. Check that the Calendar API is enabled and re-authorize with the calendar.events.readonly scope.'
+      case 'google_oauth_refresh_failed':
+        return 'Google OAuth could not refresh its access token. Check the Render OAuth client credentials and refresh token.'
+      case 'google_oauth_configuration_incomplete':
+        return 'Google OAuth credentials are incomplete in the backend environment.'
+      case 'google_api_rate_limited':
+        return 'Google Calendar rate limit reached; try refreshing shortly.'
+      case 'provider_unavailable':
+        return 'Google Calendar is temporarily unavailable.'
+      case 'google_api_request_failed':
+        return 'Google Calendar rejected the request. Check the API configuration and retry.'
+      case 'provider_invalid_response':
+        return 'Google Calendar returned an invalid response.'
+      default:
+        return data?.briefing.meetings.message || 'Calendar integration is not connected.'
+    }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -97,7 +121,7 @@ export default function ExecutiveAssistantBriefing() {
 
       <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-cyan-600" /><h2 className="font-semibold text-slate-900">Priority queue</h2></div><div className="mt-4 space-y-3">{data.briefing.priorities.length ? data.briefing.priorities.map((item, index) => <div key={`${item.title}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3"><div className="flex items-start gap-3"><AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${item.severity === 'critical' ? 'text-rose-600' : 'text-amber-600'}`} /><div className="min-w-0"><p className="text-sm font-semibold text-slate-900">{item.title}</p><p className="mt-1 text-xs text-slate-500">{item.reason}</p><p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">{item.source} · {item.confidence} confidence · {item.source_timestamp ? new Date(item.source_timestamp).toLocaleString() : 'No timestamp'}</p></div></div></div>) : <p className="text-sm text-slate-500">No active priorities.</p>}</div></section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-cyan-600" /><h2 className="font-semibold text-slate-900">Calendar and tasks</h2></div><div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-800">Calendar: {data.coordination?.calendar?.status || data.briefing.meetings.status}</p><p className="mt-1">{data.coordination?.calendar?.status === 'connected' ? `${data.coordination.calendar.items?.length || 0} upcoming Google Calendar events loaded.` : data.briefing.meetings.message}</p><p className="mt-2 font-semibold text-slate-800">Tasks: {data.coordination?.tasks?.status || 'internal activity'}</p><p className="mt-1">{data.coordination?.conflicts?.length || 0} scheduling conflicts detected.</p></div><div className="mt-3 space-y-2">{data.briefing.unresolved_tasks.map((task) => <div key={`${task.workflow}-${task.created_at}`} className="flex items-center gap-2 text-xs text-slate-600"><Clock3 className="h-3.5 w-3.5 text-amber-600" />{task.workflow} · {task.status}</div>)}</div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-cyan-600" /><h2 className="font-semibold text-slate-900">Calendar and tasks</h2></div><div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-800">Calendar: {data.coordination?.calendar?.status || data.briefing.meetings.status}</p><p className="mt-1">{calendarStatusMessage()}</p><p className="mt-2 font-semibold text-slate-800">Tasks: {data.coordination?.tasks?.status || 'internal activity'}</p>{data.coordination?.tasks?.error && <p className="mt-1">Google Tasks error: {data.coordination.tasks.error}</p>}<p className="mt-1">{data.coordination?.conflicts?.length || 0} scheduling conflicts detected.</p></div><div className="mt-3 space-y-2">{data.briefing.unresolved_tasks.map((task) => <div key={`${task.workflow}-${task.created_at}`} className="flex items-center gap-2 text-xs text-slate-600"><Clock3 className="h-3.5 w-3.5 text-amber-600" />{task.workflow} · {task.status}</div>)}</div></section>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
