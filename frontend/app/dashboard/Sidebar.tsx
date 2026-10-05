@@ -6,7 +6,7 @@ import { usePermissions } from '@/lib/permissions'
 import { MODULES } from '@/lib/permissions'
 import { AccessBadge } from '@/components/AccessBadge'
 import { usePathname } from 'next/navigation'
-import { Monitor, Users, GraduationCap, Megaphone, Settings, Pencil, LayoutDashboard, ClipboardList, MessagesSquare, BarChart3, LogOut } from 'lucide-react'
+import { Monitor, Users, GraduationCap, Megaphone, Settings, Pencil, LayoutDashboard, ClipboardList, MessagesSquare, BarChart3, CalendarDays, LogOut } from 'lucide-react'
 import { DashboardContent } from '@/components/DashboardContent'
 
 export function Sidebar() {
@@ -25,6 +25,7 @@ export function Sidebar() {
     'ClipboardList': ClipboardList,
     'MessagesSquare': MessagesSquare,
     'BarChart3': BarChart3,
+    'CalendarDays': CalendarDays,
     'LogOut': LogOut
   }
 

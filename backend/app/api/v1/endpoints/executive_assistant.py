@@ -187,21 +187,7 @@ async def get_ea_coordination(
     current_user: Any = Depends(get_current_user),
 ):
     """Read calendar and task providers through backend adapters only."""
-    calendar = await ea_coordination_service.get_calendar()
-    tasks = await ea_coordination_service.get_tasks()
-    events = calendar.get("items", [])
-    conflicts = []
-    for index, event in enumerate(events):
-        for other in events[index + 1:]:
-            if event.get("start") and event.get("start") == other.get("start"):
-                conflicts.append({"first": event, "second": other})
-    return {
-        "calendar": calendar,
-        "tasks": tasks,
-        "conflicts": conflicts,
-        "source": "backend_provider_adapters",
-        "external_actions": "disabled",
-    }
+    return await ea_coordination_service.get_coordination()
 
 
 @router.get("/research", dependencies=[Depends(require_permission("assistant:briefing:read"))])

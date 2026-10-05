@@ -98,6 +98,20 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    forwards `X-Forwarded-For`; this setting lets n8n and express-rate-limit
    trust that single proxy hop.
 
+   The shared, read-only Google Calendar & Tasks workspace uses backend-only
+   OAuth credentials. Apply
+   `supabase/migrations/0039_shared_calendar_read_permissions.sql` after 0038.
+   Add `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and
+   `GOOGLE_OAUTH_REFRESH_TOKEN` to the backend's Render environment. The
+   refresh token must be issued for both
+   `https://www.googleapis.com/auth/calendar.events.readonly` and
+   `https://www.googleapis.com/auth/tasks.readonly`; do not use a short-lived
+   access token or an OAuth Playground refresh token. For an external OAuth
+   consent screen, publish the app rather than leaving it in Testing (testing
+   refresh tokens expire after seven days). The Calendar UI and API grant read
+   access to the CEO, Executive Assistant, Marketing, and Marketing Lead roles
+   only.
+
    The Enrollment follow-up workflow reads its GHL configuration from n8n
    environment variables. Also set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`,
    `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, and
