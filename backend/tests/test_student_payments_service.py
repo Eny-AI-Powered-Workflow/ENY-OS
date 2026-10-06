@@ -8,7 +8,9 @@ os.environ.setdefault("SUPABASE_ANON_KEY", "test-placeholder")
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-placeholder")
 
+import httpx
 import pytest
+from unittest.mock import AsyncMock
 from fastapi import HTTPException
 from pydantic_core import PydanticUndefined
 
@@ -146,6 +148,36 @@ def test_normalize_kajabi_joins_minimal_customer_fields():
         "customer_name": "Ada Okafor",
         "customer_email": "ada@example.com",
     }]
+
+
+@pytest.mark.asyncio
+async def test_kajabi_upstream_forbidden_explains_provider_access_denial(monkeypatch):
+    class ForbiddenResponse:
+        status_code = 403
+
+        def raise_for_status(self):
+            request = httpx.Request("GET", "https://api.kajabi.com/v1/offers")
+            response = httpx.Response(403, request=request)
+            raise httpx.HTTPStatusError("Forbidden", request=request, response=response)
+
+    FakeAsyncClient.responses = [ForbiddenResponse()]
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    provider = StudentPaymentsService()
+    monkeypatch.setattr(provider, "_kajabi_token", AsyncMock(return_value="test-token"))
+
+    with pytest.raises(HTTPException) as error:
+        await provider._kajabi_get("/v1/offers", {})
+
+    assert error.value.status_code == 502
+    assert error.value.detail == {
+        "code": "provider_access_denied",
+        "provider": "kajabi",
+        "message": (
+            "Kajabi denied API access. Verify that the OAuth client is authorized "
+            "for this Kajabi account and the requested resources; a site ID alone "
+            "does not grant API access."
+        ),
+    }
 
 
 @pytest.mark.asyncio

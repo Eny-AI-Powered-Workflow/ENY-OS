@@ -94,6 +94,26 @@ function extractDetailMessage(body: unknown): string | null {
   return null
 }
 
+/** Return a user-facing message for known provider authorization/configuration failures. */
+export function getProviderErrorMessage(payload: unknown, provider: string): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const detail = (payload as { detail?: unknown }).detail
+  if (!detail || typeof detail !== 'object') return null
+
+  const providerDetail = detail as { code?: unknown; provider?: unknown; message?: unknown }
+  if (providerDetail.provider !== provider) return null
+
+  if (providerDetail.code === 'provider_not_configured') {
+    return `${provider === 'kajabi' ? 'Kajabi' : provider} is not configured in the backend environment.`
+  }
+  if (providerDetail.code === 'provider_access_denied') {
+    return typeof providerDetail.message === 'string'
+      ? providerDetail.message
+      : `${provider === 'kajabi' ? 'Kajabi' : provider} denied API access. Verify that the OAuth client is authorized for this account and the requested resources.`
+  }
+  return null
+}
+
 /**
  * Read the failure reason from a non-OK response. Falls back to a status-aware
  * message when the body is empty, HTML, or not JSON.

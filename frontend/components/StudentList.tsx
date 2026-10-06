@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { GraduationCap, Search } from 'lucide-react';
+import { getProviderErrorMessage } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 type Student = {
@@ -50,8 +51,8 @@ export default function StudentList({ offerId }: { offerId: string }) {
         const payload = await res.json().catch(() => ({}));
         if (res.status === 401) {
           setError('Your session has expired. Please log in again.');
-        } else if (res.status === 503 && payload?.detail?.code === 'provider_not_configured') {
-          setError('Kajabi is not configured in the backend environment.');
+        } else if (getProviderErrorMessage(payload, 'kajabi')) {
+          setError(getProviderErrorMessage(payload, 'kajabi'));
         } else if (res.status === 503 && payload?.detail?.code === 'source_not_configured') {
           setError('Student records are unavailable until the approved source is connected.');
         } else if (res.status === 403) {

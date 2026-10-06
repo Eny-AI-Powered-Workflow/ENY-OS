@@ -238,6 +238,19 @@ class StudentPaymentsService:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise HTTPException(status_code=503, detail="Kajabi rate limit reached; retry later") from exc
+            if exc.response.status_code == 403:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_access_denied",
+                        "provider": "kajabi",
+                        "message": (
+                            "Kajabi denied API access. Verify that the OAuth client is authorized "
+                            "for this Kajabi account and the requested resources; a site ID alone "
+                            "does not grant API access."
+                        ),
+                    },
+                ) from exc
             raise HTTPException(status_code=502, detail="Kajabi read failed") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid response") from exc

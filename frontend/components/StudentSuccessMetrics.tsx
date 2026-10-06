@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { MetricCard } from '@/components/MetricCard';
+import { getProviderErrorMessage } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 const formatLiveTimestamp = (date = new Date()) =>
@@ -41,9 +42,8 @@ export default function StudentSuccessMetrics({ offerId }: { offerId: string }) 
         const payload = await res.json().catch(() => ({}));
         if (res.status === 401) throw new Error('Your session has expired. Please log in again.');
         if (res.status === 403) throw new Error('You do not have permission to view student metrics.');
-        if (res.status === 503 && payload?.detail?.code === 'provider_not_configured') {
-          throw new Error('Kajabi is not configured in the backend environment.');
-        }
+        const providerError = getProviderErrorMessage(payload, 'kajabi');
+        if (providerError) throw new Error(providerError);
         throw new Error(`Failed to fetch metrics: ${res.status}`);
       }
 

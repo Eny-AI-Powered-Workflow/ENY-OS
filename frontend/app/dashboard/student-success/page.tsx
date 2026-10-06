@@ -6,6 +6,7 @@ import StudentList from '@/components/StudentList'
 import StudentProgress from '@/components/StudentProgress'
 import StudentPayments from '@/components/StudentPayments'
 import StudentLifecycleQueue from '@/components/StudentLifecycleQueue'
+import { getProviderErrorMessage } from '@/lib/api'
 import { supabase } from '@/lib/supabaseClient'
 
 type KajabiOffer = { id: string; title: string; currency: string }
@@ -29,7 +30,8 @@ export default function StudentSuccessDashboard() {
         if (!response.ok) {
           if (response.status === 401) throw new Error('Your session has expired. Please log in again.')
           if (response.status === 403) throw new Error('You do not have permission to view the Kajabi roster.')
-          if (payload?.detail?.code === 'provider_not_configured') throw new Error('Kajabi is not configured in the backend environment.')
+          const providerError = getProviderErrorMessage(payload, 'kajabi')
+          if (providerError) throw new Error(providerError)
           throw new Error('Kajabi offers are unavailable.')
         }
         if (!active) return

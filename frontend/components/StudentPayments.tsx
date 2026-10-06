@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { API_TIMEOUTS, describeHttpError, fetchWithTimeout } from '@/lib/api'
+import { API_TIMEOUTS, describeHttpError, fetchWithTimeout, getProviderErrorMessage } from '@/lib/api'
 import { usePermissions } from '@/lib/permissions'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -84,6 +84,8 @@ function formatDate(value: string | null) {
 
 export default function StudentPayments({ enableVerification = false }: StudentPaymentsProps) {
   const { can } = usePermissions()
+  const canReadKajabi = can('payments:kajabi:read')
+  const canReadPaystack = can('payments:paystack:read')
   const canVerify = enableVerification && can('payments:verify')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -119,12 +121,9 @@ export default function StudentPayments({ enableVerification = false }: StudentP
         )
         const payload = await response.json()
         if (!response.ok) {
-          const code = payload?.detail?.code
           const message = response.status === 403
             ? 'Permission not granted'
-            : code === 'provider_not_configured'
-              ? 'Provider connection is not configured'
-              : 'Payment data is unavailable'
+            : getProviderErrorMessage(payload, provider) || 'Payment data is unavailable'
           throw new Error(message)
         }
         if (cancelled) return
@@ -166,13 +165,13 @@ export default function StudentPayments({ enableVerification = false }: StudentP
       kajabi: { ...initialProviderState, records: [], page: 0 },
       paystack: { ...initialProviderState, records: [], page: 0 },
     })
-    void load('kajabi', 1, false)
-    void load('paystack', 1, false)
+    if (canReadKajabi) void load('kajabi', 1, false)
+    if (canReadPaystack) void load('paystack', 1, false)
 
     return () => {
       cancelled = true
     }
-  }, [appliedRange, canVerify])
+  }, [appliedRange, canReadKajabi, canReadPaystack, canVerify])
 
   async function confirmPaystackPayment(reference: string) {
     if (!canVerify) return
@@ -306,7 +305,13 @@ export default function StudentPayments({ enableVerification = false }: StudentP
                   { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' },
                 )
                 const payload = await response.json()
-                if (!response.ok) throw new Error('Payment data is unavailable')
+                if (!response.ok) {
+                  throw new Error(
+                    response.status === 403
+                      ? 'Permission not granted'
+                      : getProviderErrorMessage(payload, provider) || 'Payment data is unavailable',
+                  )
+                }
                 setProviders((current) => ({
                   ...current,
                   [provider]: {
@@ -324,9 +329,13 @@ export default function StudentPayments({ enableVerification = false }: StudentP
                   )
                   setVerifications((current) => ({ ...current, ...statuses }))
                 }
-              }).catch(() => setProviders((current) => ({
+              }).catch((error: unknown) => setProviders((current) => ({
                 ...current,
-                [provider]: { ...current[provider], loading: false, message: 'Payment data is unavailable' },
+                [provider]: {
+                  ...current[provider],
+                  loading: false,
+                  message: error instanceof Error ? error.message : 'Payment data is unavailable',
+                },
               })))
             }}
             className="mt-3 border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50"
@@ -342,6 +351,8 @@ export default function StudentPayments({ enableVerification = false }: StudentP
     event.preventDefault()
     setAppliedRange({ from: fromDate, to: toDate })
   }
+
+  if (!canReadKajabi && !canReadPaystack) return null
 
   return (
     <section className="space-y-4 border-y border-slate-300 py-5" aria-labelledby="student-payments-title">
@@ -362,8 +373,8 @@ export default function StudentPayments({ enableVerification = false }: StudentP
           <button type="submit" className="h-9 border border-slate-700 bg-slate-900 px-3 text-sm text-white">Apply</button>
         </form>
       </div>
-      {renderProvider('kajabi', 'Kajabi transactions', 'Original provider currency shown; USD expected.')}
-      {renderProvider('paystack', 'Paystack transactions', 'Only NGN transactions shown; amounts are not combined.')}
+      {canReadKajabi && renderProvider('kajabi', 'Kajabi transactions', 'Original provider currency shown; USD expected.')}
+      {canReadPaystack && renderProvider('paystack', 'Paystack transactions', 'Only NGN transactions shown; amounts are not combined.')}
     </section>
   )
 }
