@@ -212,7 +212,14 @@ class StudentPaymentsService:
             payload = response.json()
             token = payload.get("access_token")
             if not token:
-                raise HTTPException(status_code=502, detail="Kajabi did not return an access token")
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_response_invalid",
+                        "provider": "kajabi",
+                        "message": "Kajabi did not return an access token. Verify the OAuth client configuration.",
+                    },
+                )
             expires_in = int(payload.get("expires_in") or 3600)
             self._kajabi_access_token = str(token)
             self._kajabi_token_expires_at = now + max(expires_in - 60, 30)
@@ -220,9 +227,47 @@ class StudentPaymentsService:
         except HTTPException:
             raise
         except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=502, detail="Kajabi authentication failed") from exc
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid token response") from exc
+            status_code = exc.response.status_code
+            if status_code == 429:
+                raise HTTPException(status_code=503, detail="Kajabi rate limit reached; retry later") from exc
+            if status_code >= 500:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_unavailable",
+                        "provider": "kajabi",
+                        "message": f"Kajabi's OAuth service is unavailable (HTTP {status_code}). Retry later.",
+                    },
+                ) from exc
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_auth_failed",
+                    "provider": "kajabi",
+                    "message": (
+                        f"Kajabi rejected the OAuth client credentials (HTTP {status_code}). "
+                        "Check KAJABI_CLIENT_ID and KAJABI_CLIENT_SECRET in the backend service environment."
+                    ),
+                },
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_unavailable",
+                    "provider": "kajabi",
+                    "message": "Could not reach Kajabi's OAuth service. Check connectivity and retry.",
+                },
+            ) from exc
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_response_invalid",
+                    "provider": "kajabi",
+                    "message": "Kajabi returned an invalid OAuth token response.",
+                },
+            ) from exc
 
     async def _kajabi_get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         token = await self._kajabi_token()
@@ -236,24 +281,85 @@ class StudentPaymentsService:
                 response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
+            status_code = exc.response.status_code
+            if status_code == 429:
                 raise HTTPException(status_code=503, detail="Kajabi rate limit reached; retry later") from exc
-            if exc.response.status_code == 403:
+            if status_code in (401, 403):
+                message = (
+                    "Kajabi rejected the access token (HTTP 401). Check the backend OAuth credentials."
+                    if status_code == 401
+                    else (
+                        "Kajabi denied API access (HTTP 403). Verify that this OAuth client is authorized "
+                        "for the account and requested resources; a Site ID alone does not grant access."
+                    )
+                )
                 raise HTTPException(
                     status_code=502,
                     detail={
                         "code": "provider_access_denied",
                         "provider": "kajabi",
+                        "message": message,
+                    },
+                ) from exc
+            if status_code == 404:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_resource_not_found",
+                        "provider": "kajabi",
                         "message": (
-                            "Kajabi denied API access. Verify that the OAuth client is authorized "
-                            "for this Kajabi account and the requested resources; a site ID alone "
-                            "does not grant API access."
+                            "Kajabi could not find the requested API resource (HTTP 404). "
+                            "Check the API base URL, endpoint availability, and configured Site ID."
                         ),
                     },
                 ) from exc
-            raise HTTPException(status_code=502, detail="Kajabi read failed") from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise HTTPException(status_code=502, detail="Kajabi is unavailable or returned an invalid response") from exc
+            if status_code in (400, 422):
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_request_rejected",
+                        "provider": "kajabi",
+                        "message": (
+                            f"Kajabi rejected the request (HTTP {status_code}). "
+                            "Check the Site ID and the API resource/filter configuration."
+                        ),
+                    },
+                ) from exc
+            if status_code >= 500:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "provider_unavailable",
+                        "provider": "kajabi",
+                        "message": f"Kajabi's API is unavailable (HTTP {status_code}). Retry later.",
+                    },
+                ) from exc
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_request_failed",
+                    "provider": "kajabi",
+                    "message": f"Kajabi's API request failed (HTTP {status_code}).",
+                },
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_unavailable",
+                    "provider": "kajabi",
+                    "message": "Could not reach Kajabi's API. Check connectivity and retry.",
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_response_invalid",
+                    "provider": "kajabi",
+                    "message": "Kajabi returned an invalid API response.",
+                },
+            ) from exc
 
     async def list_kajabi_offers(self, page: int, per_page: int) -> dict[str, Any]:
         """Read non-archived offers from the configured Kajabi site."""

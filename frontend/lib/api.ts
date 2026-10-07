@@ -98,18 +98,20 @@ function extractDetailMessage(body: unknown): string | null {
 export function getProviderErrorMessage(payload: unknown, provider: string): string | null {
   if (!payload || typeof payload !== 'object') return null
   const detail = (payload as { detail?: unknown }).detail
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
   if (!detail || typeof detail !== 'object') return null
 
   const providerDetail = detail as { code?: unknown; provider?: unknown; message?: unknown }
   if (providerDetail.provider !== provider) return null
 
+  if (typeof providerDetail.message === 'string' && providerDetail.message.trim()) {
+    return providerDetail.message.trim()
+  }
   if (providerDetail.code === 'provider_not_configured') {
     return `${provider === 'kajabi' ? 'Kajabi' : provider} is not configured in the backend environment.`
   }
   if (providerDetail.code === 'provider_access_denied') {
-    return typeof providerDetail.message === 'string'
-      ? providerDetail.message
-      : `${provider === 'kajabi' ? 'Kajabi' : provider} denied API access. Verify that the OAuth client is authorized for this account and the requested resources.`
+    return `${provider === 'kajabi' ? 'Kajabi' : provider} denied API access. Verify that the OAuth client is authorized for this account and the requested resources.`
   }
   return null
 }

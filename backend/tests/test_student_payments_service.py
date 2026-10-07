@@ -173,9 +173,35 @@ async def test_kajabi_upstream_forbidden_explains_provider_access_denial(monkeyp
         "code": "provider_access_denied",
         "provider": "kajabi",
         "message": (
-            "Kajabi denied API access. Verify that the OAuth client is authorized "
-            "for this Kajabi account and the requested resources; a site ID alone "
-            "does not grant API access."
+            "Kajabi denied API access (HTTP 403). Verify that this OAuth client is authorized "
+            "for the account and requested resources; a Site ID alone does not grant access."
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_kajabi_upstream_400_identifies_rejected_site_or_request(monkeypatch):
+    class BadRequestResponse:
+        def raise_for_status(self):
+            request = httpx.Request("GET", "https://api.kajabi.com/v1/transactions")
+            response = httpx.Response(400, request=request)
+            raise httpx.HTTPStatusError("Bad Request", request=request, response=response)
+
+    FakeAsyncClient.responses = [BadRequestResponse()]
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    provider = StudentPaymentsService()
+    monkeypatch.setattr(provider, "_kajabi_token", AsyncMock(return_value="test-token"))
+
+    with pytest.raises(HTTPException) as error:
+        await provider._kajabi_get("/v1/transactions", {})
+
+    assert error.value.status_code == 502
+    assert error.value.detail == {
+        "code": "provider_request_rejected",
+        "provider": "kajabi",
+        "message": (
+            "Kajabi rejected the request (HTTP 400). "
+            "Check the Site ID and the API resource/filter configuration."
         ),
     }
 
