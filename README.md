@@ -79,6 +79,19 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    key on the backend only. Canva API credentials are not needed for this
    manual-template phase; store approved Canva template links in the workspace.
 
+   To enable the shared Canva Connect account, apply the next unapplied
+   migrations `0039_design_system_document_provider.sql` and
+   `0040_shared_canva_connection.sql` in order. Set
+   `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_ENCRYPTION_KEY`,
+   `CANVA_REDIRECT_URI`, and `CANVA_OAUTH_SCOPES` in the backend Render
+   environment. Register the exact `CANVA_REDIRECT_URI` in Canva Developers;
+   the suggested Render callback is
+   `https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback`.
+   Generate `CANVA_TOKEN_ENCRYPTION_KEY` using Fernet and preserve it across
+   deployments, since changing it makes stored tokens undecryptable. Tokens are
+   encrypted in a single shared database connection row and are never returned
+   by the browser-facing API.
+
 3. Seed test users, one per role:
 
        python scripts/seed_dev_data.py

@@ -100,7 +100,7 @@ export default function VideographerWorkspace() {
       setAssets(payload.assets || [])
       if (canUseCanva) {
         try {
-          const canva = await request('/videographer/canva/status', { headers: await headers() })
+          const canva = await request('/canva/status', { headers: await headers() })
           setCanvaConfigured(Boolean(canva.configured))
           setCanvaConnected(Boolean(canva.connected))
         } catch {
@@ -216,7 +216,7 @@ export default function VideographerWorkspace() {
 
   const connectCanva = async () => {
     try {
-      const result = await request('/designer/canva/connect', { method: 'POST', headers: await headers() })
+      const result = await request('/canva/connect', { method: 'POST', headers: await headers() })
       if (typeof result.authorization_url === 'string') window.location.assign(result.authorization_url)
       else setMessage('Canva did not return an authorization link.')
     } catch (error) {

@@ -25,7 +25,15 @@ class MarketingIntelligenceService:
             "slack": {"configured": bool(settings.SLACK_BOT_TOKEN), "source": "Slack"},
             "whisper": {"configured": bool(settings.OPENAI_API_KEY), "source": "OpenAI Whisper"},
             "private_video_storage": {"configured": bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY), "source": "Private Supabase Storage"},
-            "canva": {"configured": bool(settings.CANVA_ACCESS_TOKEN or (settings.CANVA_CLIENT_ID and settings.CANVA_CLIENT_SECRET)), "source": "Canva"},
+            "canva": {
+                "configured": bool(
+                    settings.CANVA_CLIENT_ID
+                    and settings.CANVA_CLIENT_SECRET
+                    and settings.CANVA_REDIRECT_URI
+                    and settings.CANVA_TOKEN_ENCRYPTION_KEY
+                ),
+                "source": "Canva",
+            },
         }
 
     def configured_sources(self, family: str) -> list[str]:

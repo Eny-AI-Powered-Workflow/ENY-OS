@@ -39,11 +39,11 @@ class CanvaService:
     def _decrypt(self, value: str) -> str:
         try:
             return self._fernet().decrypt(value.encode("ascii")).decode("utf-8")
-        except (InvalidToken, UnicodeEncodeError) as exc:
+        except (InvalidToken, UnicodeEncodeError, UnicodeDecodeError) as exc:
             raise HTTPException(status_code=503, detail="Stored Canva credentials could not be decrypted; reconnect Canva") from exc
 
     def connection_status(self, db: Session, user_id: UUID) -> dict[str, Any]:
-        connection = db.query(CanvaConnection).filter(CanvaConnection.user_id == user_id).first()
+        connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).first()
         return {
             "configured": self.configured(),
             "connected": bool(connection and connection.status == "connected"),
@@ -105,7 +105,13 @@ class CanvaService:
             raise HTTPException(status_code=502, detail="Canva token response was incomplete")
 
         expires_at = now + timedelta(seconds=int(tokens.get("expires_in") or 14400))
-        connection = db.query(CanvaConnection).filter(CanvaConnection.user_id == state_row.user_id).with_for_update().first()
+        connection = (
+            db.query(CanvaConnection)
+            .filter(CanvaConnection.shared_slot == 1)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
         values = {
             "access_token_encrypted": self._encrypt(tokens["access_token"]),
             "refresh_token_encrypted": self._encrypt(tokens["refresh_token"]),
@@ -117,24 +123,37 @@ class CanvaService:
         if connection:
             for key, value in values.items():
                 setattr(connection, key, value)
+            connection.user_id = state_row.user_id
             connection.connected_at = now
         else:
-            connection = CanvaConnection(user_id=state_row.user_id, **values)
+            connection = CanvaConnection(shared_slot=1, user_id=state_row.user_id, **values)
             db.add(connection)
         state_row.used_at = now
         db.commit()
         return state_row.user_id
 
     async def access_token(self, db: Session, user_id: UUID) -> str:
-        connection = db.query(CanvaConnection).filter(CanvaConnection.user_id == user_id).with_for_update().first()
+        connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).first()
         if not connection or connection.status != "connected":
-            raise HTTPException(status_code=409, detail="Connect Canva to this user before generating a design")
+            raise HTTPException(status_code=409, detail="Connect the shared Canva account before generating a design")
         now = datetime.now(timezone.utc)
         expires_at = connection.token_expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at > now + timedelta(seconds=90):
             return self._decrypt(connection.access_token_encrypted)
+
+        connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).with_for_update().first()
+        if not connection or connection.status != "connected":
+            raise HTTPException(status_code=409, detail="Connect the shared Canva account before generating a design")
+        now = datetime.now(timezone.utc)
+        expires_at = connection.token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at > now + timedelta(seconds=90):
+            token = self._decrypt(connection.access_token_encrypted)
+            db.commit()
+            return token
         if not self.configured():
             raise HTTPException(status_code=503, detail="Canva token refresh configuration is missing")
         try:
@@ -147,17 +166,29 @@ class CanvaService:
                 )
                 response.raise_for_status()
                 tokens = response.json()
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             connection.status = "error"
             db.commit()
             raise HTTPException(status_code=502, detail="Canva token refresh failed; reconnect Canva") from exc
-        if not tokens.get("access_token") or not tokens.get("refresh_token"):
+        if (
+            not isinstance(tokens, dict)
+            or not isinstance(tokens.get("access_token"), str)
+            or not tokens["access_token"]
+            or not isinstance(tokens.get("refresh_token"), str)
+            or not tokens["refresh_token"]
+        ):
             connection.status = "error"
             db.commit()
             raise HTTPException(status_code=502, detail="Canva refresh response was incomplete; reconnect Canva")
+        try:
+            expires_in = int(tokens.get("expires_in") or 14400)
+        except (TypeError, ValueError) as exc:
+            connection.status = "error"
+            db.commit()
+            raise HTTPException(status_code=502, detail="Canva refresh response had an invalid expiry; reconnect Canva") from exc
         connection.access_token_encrypted = self._encrypt(tokens["access_token"])
         connection.refresh_token_encrypted = self._encrypt(tokens["refresh_token"])
-        connection.token_expires_at = now + timedelta(seconds=int(tokens.get("expires_in") or 14400))
+        connection.token_expires_at = now + timedelta(seconds=expires_in)
         connection.scopes = str(tokens.get("scope") or " ".join(connection.scopes or [])).split()
         connection.status = "connected"
         connection.updated_at = now
@@ -188,6 +219,8 @@ class CanvaService:
             raise HTTPException(status_code=502, detail=detail) from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="Canva is currently unavailable") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="Canva returned an invalid response") from exc
 
     async def get_brand_template_dataset(self, db: Session, user_id: UUID, brand_template_id: str) -> dict[str, Any]:
         result = await self.api_request(db, user_id, "GET", f"brand-templates/{brand_template_id}/dataset")
@@ -244,7 +277,7 @@ class CanvaService:
             raise HTTPException(status_code=502, detail="Unable to download the Canva export") from exc
 
     async def revoke(self, db: Session, user_id: UUID) -> None:
-        connection = db.query(CanvaConnection).filter(CanvaConnection.user_id == user_id).first()
+        connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).with_for_update().first()
         if not connection:
             return
         connection.status = "revoked"

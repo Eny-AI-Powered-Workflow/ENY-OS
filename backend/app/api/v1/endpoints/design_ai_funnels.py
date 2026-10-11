@@ -288,9 +288,12 @@ def _template_for_canva(db: Session, template_id: UUID, user_id: UUID) -> Design
 
 
 def _require_canva_scopes(db: Session, user_id: UUID, required: set[str]) -> CanvaConnection:
-    connection = db.query(CanvaConnection).filter(CanvaConnection.user_id == user_id, CanvaConnection.status == "connected").first()
+    connection = db.query(CanvaConnection).filter(
+        CanvaConnection.shared_slot == 1,
+        CanvaConnection.status == "connected",
+    ).first()
     if not connection:
-        raise HTTPException(status_code=409, detail="Connect Canva for this user first")
+        raise HTTPException(status_code=409, detail="Connect the shared Canva account first")
     missing = required - set(connection.scopes or [])
     if missing:
         raise HTTPException(status_code=403, detail=f"Reconnect Canva with the required scopes: {', '.join(sorted(missing))}")

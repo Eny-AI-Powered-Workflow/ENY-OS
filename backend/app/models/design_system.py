@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ARRAY, BigInteger, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import ARRAY, BigInteger, Column, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -235,7 +235,8 @@ class CanvaConnection(Base):
     __tablename__ = "canva_connections"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    shared_slot = Column(SmallInteger, nullable=False, default=1, unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True)
     access_token_encrypted = Column(Text, nullable=False)
     refresh_token_encrypted = Column(Text, nullable=False)
     token_expires_at = Column(DateTime(timezone=True), nullable=False)
