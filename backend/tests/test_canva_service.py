@@ -16,8 +16,17 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.db.base import Base
+from app.models.design_system import CanvaOAuthState
 from app.services import canva_service as canva_module
 from app.services.canva_service import CanvaService
+
+
+def test_oauth_user_foreign_key_resolves_to_supabase_auth_users():
+    user_id = CanvaOAuthState.__table__.c.user_id
+    foreign_key = next(iter(user_id.foreign_keys))
+
+    assert foreign_key.column is Base.metadata.tables["auth.users"].c.id
 
 
 class FakeResponse:
