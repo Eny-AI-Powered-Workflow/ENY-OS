@@ -53,7 +53,12 @@ class CanvaService:
             "scopes": connection.scopes if connection else [],
         }
 
-    def authorization_url(self, db: Session, user_id: UUID) -> str:
+    def authorization_url(
+        self,
+        db: Session,
+        user_id: UUID,
+        post_connect_redirect: str | None = None,
+    ) -> str:
         if not self.configured():
             raise HTTPException(status_code=503, detail="Configure Canva OAuth client ID, secret, redirect URI, and token encryption key")
         state = secrets.token_urlsafe(32)
@@ -63,6 +68,7 @@ class CanvaService:
             state_hash=hashlib.sha256(state.encode("ascii")).hexdigest(),
             verifier_encrypted=self._encrypt(verifier),
             user_id=user_id,
+            post_connect_redirect=post_connect_redirect,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
         db.add(state_row)
@@ -78,7 +84,12 @@ class CanvaService:
         })
         return f"{CANVA_AUTHORIZE}?{query}"
 
-    async def complete_authorization(self, db: Session, code: str, state: str) -> UUID:
+    async def complete_authorization(
+        self,
+        db: Session,
+        code: str,
+        state: str,
+    ) -> tuple[UUID, str | None]:
         if not self.configured():
             raise HTTPException(status_code=503, detail="Canva OAuth is not configured")
         state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
@@ -129,8 +140,9 @@ class CanvaService:
             connection = CanvaConnection(shared_slot=1, user_id=state_row.user_id, **values)
             db.add(connection)
         state_row.used_at = now
+        post_connect_redirect = state_row.post_connect_redirect
         db.commit()
-        return state_row.user_id
+        return state_row.user_id, post_connect_redirect
 
     async def access_token(self, db: Session, user_id: UUID) -> str:
         connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).first()
@@ -143,7 +155,13 @@ class CanvaService:
         if expires_at > now + timedelta(seconds=90):
             return self._decrypt(connection.access_token_encrypted)
 
-        connection = db.query(CanvaConnection).filter(CanvaConnection.shared_slot == 1).with_for_update().first()
+        connection = (
+            db.query(CanvaConnection)
+            .filter(CanvaConnection.shared_slot == 1)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
         if not connection or connection.status != "connected":
             raise HTTPException(status_code=409, detail="Connect the shared Canva account before generating a design")
         now = datetime.now(timezone.utc)

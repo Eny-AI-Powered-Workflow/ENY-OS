@@ -67,6 +67,7 @@ supabase/migrations/*
 !supabase/migrations/0038_ai_chat_all_roles.sql
 !supabase/migrations/0039_design_system_document_provider.sql
 !supabase/migrations/0040_shared_canva_connection.sql
+!supabase/migrations/0041_canva_oauth_return_url.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md

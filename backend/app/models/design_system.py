@@ -226,6 +226,7 @@ class CanvaOAuthState(Base):
     state_hash = Column(String, nullable=False, unique=True)
     verifier_encrypted = Column(Text, nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), nullable=False, index=True)
+    post_connect_redirect = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

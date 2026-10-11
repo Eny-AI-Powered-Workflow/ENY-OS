@@ -98,16 +98,20 @@ export default function VideographerWorkspace() {
       const suffix = params.size ? `?${params.toString()}` : ''
       const payload = await request(`/videographer/assets${suffix}`, { headers: await headers() })
       setAssets(payload.assets || [])
+      let canvaStatusError: string | null = null
       if (canUseCanva) {
         try {
           const canva = await request('/canva/status', { headers: await headers() })
           setCanvaConfigured(Boolean(canva.configured))
           setCanvaConnected(Boolean(canva.connected))
-        } catch {
+        } catch (error) {
           setCanvaConnected(false)
+          canvaStatusError = error instanceof Error
+            ? `Unable to verify Canva connection: ${error.message}`
+            : 'Unable to verify Canva connection.'
         }
       }
-      setMessage(null)
+      setMessage(canvaStatusError)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to load video assets')
     } finally {

@@ -12,9 +12,12 @@ os.environ.setdefault("SUPABASE_ANON_KEY", "test-placeholder")
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-placeholder")
 
+from fastapi import HTTPException
 import pytest
 from cryptography.fernet import Fernet
+from starlette.requests import Request
 
+from app.api.v1.endpoints.canva import _post_connect_redirect
 from app.core.config import settings
 from app.db.base import Base
 from app.models.design_system import CanvaOAuthState
@@ -27,6 +30,43 @@ def test_oauth_user_foreign_key_resolves_to_supabase_auth_users():
     foreign_key = next(iter(user_id.foreign_keys))
 
     assert foreign_key.column is Base.metadata.tables["auth.users"].c.id
+
+
+def test_oauth_return_url_uses_allowed_frontend_origin(monkeypatch):
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", "https://eny-os.vercel.app")
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/canva/connect",
+        "headers": [(b"origin", b"https://eny-os.vercel.app")],
+        "query_string": b"",
+        "server": ("api.test", 443),
+        "client": ("127.0.0.1", 12345),
+        "scheme": "https",
+    })
+
+    assert _post_connect_redirect(request) == (
+        "https://eny-os.vercel.app/dashboard/videographer"
+    )
+
+
+def test_oauth_return_url_rejects_unapproved_origin(monkeypatch):
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", "https://eny-os.vercel.app")
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/canva/connect",
+        "headers": [(b"origin", b"https://attacker.example")],
+        "query_string": b"",
+        "server": ("api.test", 443),
+        "client": ("127.0.0.1", 12345),
+        "scheme": "https",
+    })
+
+    with pytest.raises(HTTPException) as error:
+        _post_connect_redirect(request)
+
+    assert error.value.status_code == 400
 
 
 class FakeResponse:
@@ -96,6 +136,9 @@ async def test_expired_shared_token_refreshes_under_lock_and_rotates_both_tokens
     received_refresh_token = []
 
     class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
         async def __aenter__(self):
             return self
 
@@ -135,6 +178,9 @@ async def test_canva_api_request_uses_access_token_only_for_provider_request(mon
         return "server-only-access-token"
 
     class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
         async def __aenter__(self):
             return self
 

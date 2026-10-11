@@ -80,18 +80,20 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    manual-template phase; store approved Canva template links in the workspace.
 
    To enable the shared Canva Connect account, apply the next unapplied
-   migrations `0039_design_system_document_provider.sql` and
-   `0040_shared_canva_connection.sql` in order. Set
+   migrations `0039_design_system_document_provider.sql`,
+   `0040_shared_canva_connection.sql`, and
+   `0041_canva_oauth_return_url.sql` in order. Set
    `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_ENCRYPTION_KEY`,
    `CANVA_REDIRECT_URI`, and `CANVA_OAUTH_SCOPES` in the backend Render
    environment. Register the exact `CANVA_REDIRECT_URI` in Canva Developers;
    the suggested Render callback is
    `https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback`.
-   Set `CANVA_POST_CONNECT_REDIRECT` to the production frontend URL where the
-   user started connecting, for example
-   `https://eny-os.vercel.app/dashboard/videographer`. Do not leave this set
-   to localhost in Render; the frontend's Supabase session is stored for its
-   own origin.
+   The OAuth flow returns to `/dashboard/videographer` on the approved frontend
+   origin that initiated Connect, preserving the frontend's Supabase session.
+   The API checks this origin against `BACKEND_CORS_ORIGINS`, `ALLOWED_ORIGINS`,
+   or `CORS_ORIGIN_REGEX`; include the deployed frontend origin there.
+   `CANVA_POST_CONNECT_REDIRECT` remains a fallback for OAuth states created
+   before this return URL change.
    Generate `CANVA_TOKEN_ENCRYPTION_KEY` using Fernet and preserve it across
    deployments, since changing it makes stored tokens undecryptable. Tokens are
    encrypted in a single shared database connection row and are never returned

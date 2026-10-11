@@ -326,10 +326,10 @@ async def start_canva_connection(db: Session = Depends(get_db), current_user: An
 
 @router.get("/canva/oauth/callback")
 async def complete_canva_connection(code: str = Query(..., min_length=8), state: str = Query(..., min_length=16), db: Session = Depends(get_db)):
-    user_id = await canva_service.complete_authorization(db, code, state)
+    user_id, post_connect_redirect = await canva_service.complete_authorization(db, code, state)
     _provider_event(db, "canva", "oauth", None, user_id, "connected", "success", {})
     db.commit()
-    redirect_url = settings.CANVA_POST_CONNECT_REDIRECT
+    redirect_url = post_connect_redirect or settings.CANVA_POST_CONNECT_REDIRECT
     separator = "&" if "?" in redirect_url else "?"
     return RedirectResponse(url=f"{redirect_url}{separator}canva=connected", status_code=303)
 
