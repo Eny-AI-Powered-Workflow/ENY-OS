@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     CANVA_CLIENT_ID: str = Field("", env="CANVA_CLIENT_ID")
     CANVA_CLIENT_SECRET: str = Field("", env="CANVA_CLIENT_SECRET")
     CANVA_REDIRECT_URI: str = Field("", env="CANVA_REDIRECT_URI")
-    CANVA_POST_CONNECT_REDIRECT: str = Field("http://localhost:3000/dashboard/designer", env="CANVA_POST_CONNECT_REDIRECT")
+    CANVA_POST_CONNECT_REDIRECT: str = Field("https://eny-os.vercel.app/dashboard/videographer", env="CANVA_POST_CONNECT_REDIRECT")
     CANVA_TOKEN_ENCRYPTION_KEY: str = Field("", env="CANVA_TOKEN_ENCRYPTION_KEY")
     CANVA_OAUTH_SCOPES: str = Field("brandtemplate:content:read design:content:write design:meta:read design:content:read", env="CANVA_OAUTH_SCOPES")
     WEBFLOW_ACCESS_TOKEN: str = Field("", env="WEBFLOW_ACCESS_TOKEN")

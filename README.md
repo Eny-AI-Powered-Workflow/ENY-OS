@@ -87,6 +87,11 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    environment. Register the exact `CANVA_REDIRECT_URI` in Canva Developers;
    the suggested Render callback is
    `https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback`.
+   Set `CANVA_POST_CONNECT_REDIRECT` to the production frontend URL where the
+   user started connecting, for example
+   `https://eny-os.vercel.app/dashboard/videographer`. Do not leave this set
+   to localhost in Render; the frontend's Supabase session is stored for its
+   own origin.
    Generate `CANVA_TOKEN_ENCRYPTION_KEY` using Fernet and preserve it across
    deployments, since changing it makes stored tokens undecryptable. Tokens are
    encrypted in a single shared database connection row and are never returned
