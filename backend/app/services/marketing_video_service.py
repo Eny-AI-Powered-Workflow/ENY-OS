@@ -96,7 +96,7 @@ class MarketingVideoService:
         bucket = quote(settings.SUPABASE_MARKETING_VIDEO_BUCKET, safe="")
         url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{bucket}/{quote(storage_path, safe='/')}"
         async with httpx.AsyncClient(timeout=180.0) as client:
-            if size_bytes <= self.whisper_max_bytes and mime_type != "video/quicktime":
+            if size_bytes <= self.whisper_max_bytes and not mime_type.startswith("video/"):
                 try:
                     media_response = await client.get(url, headers=self._storage_headers())
                     media_response.raise_for_status()
@@ -118,8 +118,34 @@ class MarketingVideoService:
             )
             response.raise_for_status()
             return response.json()
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Whisper transcription failed") from exc
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            provider_message = ""
+            try:
+                payload = exc.response.json()
+                error = payload.get("error", {}) if isinstance(payload, dict) else {}
+                if isinstance(error, dict):
+                    provider_message = str(error.get("message") or "")
+                elif isinstance(error, str):
+                    provider_message = error
+                if not provider_message and isinstance(payload, dict):
+                    provider_message = str(payload.get("message") or "")
+            except ValueError:
+                provider_message = ""
+
+            if status_code in {401, 403}:
+                detail = "OpenAI rejected the API key. Check OPENAI_API_KEY in the Render backend environment."
+            elif status_code == 429:
+                detail = "OpenAI Whisper rate limit or quota reached. Check the OpenAI project billing and limits."
+            else:
+                detail = f"OpenAI Whisper rejected the audio (HTTP {status_code})"
+                if provider_message:
+                    detail += f": {provider_message[:500]}"
+            raise HTTPException(status_code=502, detail=detail) from exc
+        except httpx.TimeoutException as exc:
+            raise HTTPException(status_code=504, detail="OpenAI Whisper transcription timed out; retry with a shorter recording.") from exc
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail="Could not reach OpenAI Whisper. Check the backend network and retry.") from exc
 
     async def _transcribe_in_chunks(self, client: httpx.AsyncClient, url: str, filename: str, mime_type: str) -> dict[str, Any]:
         extension = self.ffmpeg_input_extensions.get(mime_type)
@@ -167,7 +193,10 @@ class MarketingVideoService:
                     offsets.append(index * 600)
                 return self._transcript_result(payloads, offsets)
         except FileNotFoundError as exc:
-            return {"status": "not_configured", "message": "FFmpeg is required for recordings over 25 MB and QuickTime files. It is installed in the backend container."}
+            return {
+                "status": "not_configured",
+                "message": "FFmpeg is required to extract audio from videos and prepare media over 25 MB. Install FFmpeg in the backend runtime.",
+            }
 
     @staticmethod
     def _transcript_result(payloads: list[dict[str, Any]], offsets: list[int]) -> dict[str, Any]:

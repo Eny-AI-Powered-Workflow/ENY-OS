@@ -36,7 +36,7 @@ def _post_connect_redirect(request: Request) -> str:
         or (parsed_origin.scheme != "https" and parsed_origin.hostname not in {"localhost", "127.0.0.1"})
     ):
         raise HTTPException(status_code=400, detail="Canva must be connected from an approved frontend origin")
-    return f"{origin}/dashboard/videographer"
+    return f"{origin}/canva/oauth-complete"
 
 
 @router.get("/status", dependencies=[Depends(require_permission("design:canva"))])

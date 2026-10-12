@@ -10,6 +10,8 @@ export default function AuthRedirect() {
   const pathname = usePathname()
 
   useEffect(() => {
+    if (pathname === '/canva/oauth-complete') return
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {

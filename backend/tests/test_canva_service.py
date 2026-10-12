@@ -46,7 +46,7 @@ def test_oauth_return_url_uses_allowed_frontend_origin(monkeypatch):
     })
 
     assert _post_connect_redirect(request) == (
-        "https://eny-os.vercel.app/dashboard/videographer"
+        "https://eny-os.vercel.app/canva/oauth-complete"
     )
 
 

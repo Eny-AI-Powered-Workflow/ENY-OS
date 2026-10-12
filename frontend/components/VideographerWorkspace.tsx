@@ -219,11 +219,76 @@ export default function VideographerWorkspace() {
   }
 
   const connectCanva = async () => {
+    const popup = window.open(
+      'about:blank',
+      'eny-canva-oauth',
+      'popup,width=640,height=800',
+    )
+    if (!popup) {
+      setMessage('Your browser blocked the Canva sign-in window. Allow pop-ups for this site and try again.')
+      return
+    }
+
+    let finished = false
+    const cleanup = () => {
+      if (finished) return
+      finished = true
+      window.removeEventListener('message', handleMessage)
+      window.clearInterval(closePoll)
+      window.clearTimeout(timeout)
+    }
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== popup) return
+      if (!event.data || event.data.type !== 'eny-canva-oauth-complete') return
+
+      cleanup()
+      popup.close()
+      if (event.data.status !== 'connected') {
+        setMessage('Canva authorization did not complete. Close the sign-in window and try again.')
+        return
+      }
+
+      void (async () => {
+        try {
+          const status = await request('/canva/status', { headers: await headers() })
+          setCanvaConfigured(Boolean(status.configured))
+          setCanvaConnected(Boolean(status.connected))
+          setMessage(status.connected
+            ? 'Shared Canva account connected.'
+            : 'Canva authorization finished, but the backend has not confirmed a connection. Refresh and check the backend logs.')
+        } catch (error) {
+          setCanvaConnected(false)
+          setMessage(error instanceof Error
+            ? `Canva authorization finished, but connection status could not be checked: ${error.message}`
+            : 'Canva authorization finished, but connection status could not be checked.')
+        }
+      })()
+    }
+    const closePoll = window.setInterval(() => {
+      if (popup.closed) {
+        cleanup()
+        setMessage('Canva sign-in window was closed before authorization completed.')
+      }
+    }, 500)
+    const timeout = window.setTimeout(() => {
+      cleanup()
+      if (!popup.closed) {
+        popup.close()
+        setMessage('Canva sign-in timed out. Try connecting again.')
+      }
+    }, 10 * 60 * 1000)
+    window.addEventListener('message', handleMessage)
+
     try {
       const result = await request('/canva/connect', { method: 'POST', headers: await headers() })
-      if (typeof result.authorization_url === 'string') window.location.assign(result.authorization_url)
-      else setMessage('Canva did not return an authorization link.')
+      if (typeof result.authorization_url !== 'string') {
+        throw new Error('Canva did not return an authorization link.')
+      }
+      setMessage('Complete Canva authorization in the sign-in window.')
+      popup.location.assign(result.authorization_url)
     } catch (error) {
+      cleanup()
+      popup.close()
       setMessage(error instanceof Error ? error.message : 'Could not connect Canva')
     }
   }

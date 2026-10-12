@@ -59,7 +59,8 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    GHL email consent, and reporting thresholds. `OPENAI_API_KEY` enables both
    embeddings and Whisper transcription. Email scheduling requires
    `GHL_MARKETING_CONSENT_FIELD_ID` to identify a GHL custom field that contains
-   an explicit opt-in value.
+   an explicit opt-in value. The Render backend build installs FFmpeg; it is
+   required to extract audio from uploaded videos before Whisper transcription.
 
    The Graphic & Funnel Designer foundation uses
    `supabase/migrations/0024_graphic_designer_foundation.sql`. It adds the
