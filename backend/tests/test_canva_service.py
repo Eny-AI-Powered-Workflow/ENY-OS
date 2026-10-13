@@ -17,7 +17,7 @@ import pytest
 from cryptography.fernet import Fernet
 from starlette.requests import Request
 
-from app.api.v1.endpoints.canva import _post_connect_redirect
+from app.api.v1.endpoints.canva import _oauth_completion_url, _post_connect_redirect
 from app.core.config import settings
 from app.db.base import Base
 from app.models.design_system import CanvaOAuthState
@@ -48,6 +48,15 @@ def test_oauth_return_url_uses_allowed_frontend_origin(monkeypatch):
     assert _post_connect_redirect(request) == (
         "https://eny-os.vercel.app/canva/oauth-complete"
     )
+
+
+def test_oauth_completion_redirect_normalizes_previously_saved_dashboard_path(monkeypatch):
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", "https://eny-os.vercel.app")
+
+    assert _oauth_completion_url(
+        "https://eny-os.vercel.app/dashboard/videographer",
+        "connected",
+    ) == "https://eny-os.vercel.app/canva/oauth-complete?canva=connected"
 
 
 def test_oauth_return_url_rejects_unapproved_origin(monkeypatch):

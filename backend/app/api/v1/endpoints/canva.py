@@ -18,25 +18,40 @@ from app.services.canva_service import canva_service
 router = APIRouter()
 
 
-def _post_connect_redirect(request: Request) -> str:
-    origin = request.headers.get("origin", "").rstrip("/")
+def _approved_frontend_origin(origin: str) -> bool:
     parsed_origin = urlsplit(origin)
     allowed = origin in settings.cors_origins
     if not allowed and settings.cors_origin_regex:
         allowed = re.fullmatch(settings.cors_origin_regex, origin) is not None
-    if (
-        not allowed
-        or parsed_origin.scheme not in {"https", "http"}
-        or not parsed_origin.netloc
-        or parsed_origin.path
-        or parsed_origin.query
-        or parsed_origin.fragment
-        or parsed_origin.username
-        or parsed_origin.password
-        or (parsed_origin.scheme != "https" and parsed_origin.hostname not in {"localhost", "127.0.0.1"})
-    ):
+    return bool(
+        allowed
+        and parsed_origin.scheme in {"https", "http"}
+        and parsed_origin.netloc
+        and not parsed_origin.path
+        and not parsed_origin.query
+        and not parsed_origin.fragment
+        and not parsed_origin.username
+        and not parsed_origin.password
+        and (parsed_origin.scheme == "https" or parsed_origin.hostname in {"localhost", "127.0.0.1"})
+    )
+
+
+def _post_connect_redirect(request: Request) -> str:
+    origin = request.headers.get("origin", "").rstrip("/")
+    if not _approved_frontend_origin(origin):
         raise HTTPException(status_code=400, detail="Canva must be connected from an approved frontend origin")
     return f"{origin}/canva/oauth-complete"
+
+
+def _oauth_completion_url(redirect_url: str, status: str) -> str:
+    candidate = urlsplit(redirect_url)
+    origin = f"{candidate.scheme}://{candidate.netloc}"
+    if not _approved_frontend_origin(origin):
+        fallback = urlsplit(settings.CANVA_POST_CONNECT_REDIRECT)
+        origin = f"{fallback.scheme}://{fallback.netloc}"
+    if not _approved_frontend_origin(origin):
+        raise HTTPException(status_code=500, detail="Canva OAuth completion frontend origin is not configured")
+    return f"{origin}/canva/oauth-complete?canva={status}"
 
 
 @router.get("/status", dependencies=[Depends(require_permission("design:canva"))])
@@ -87,8 +102,7 @@ async def complete_canva_connection(
     ))
     db.commit()
     redirect_url = post_connect_redirect or settings.CANVA_POST_CONNECT_REDIRECT
-    separator = "&" if "?" in redirect_url else "?"
-    return RedirectResponse(url=f"{redirect_url}{separator}canva=connected", status_code=303)
+    return RedirectResponse(url=_oauth_completion_url(redirect_url, "connected"), status_code=303)
 
 
 @router.post("/disconnect", dependencies=[Depends(require_permission("design:canva"))])

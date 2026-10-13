@@ -230,20 +230,22 @@ export default function VideographerWorkspace() {
     }
 
     let finished = false
+    const channel = typeof BroadcastChannel === 'undefined'
+      ? null
+      : new BroadcastChannel('eny-canva-oauth')
     const cleanup = () => {
       if (finished) return
       finished = true
       window.removeEventListener('message', handleMessage)
+      if (channel) channel.close()
       window.clearInterval(closePoll)
       window.clearTimeout(timeout)
     }
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.source !== popup) return
-      if (!event.data || event.data.type !== 'eny-canva-oauth-complete') return
-
+    const complete = (status: unknown) => {
+      if (finished) return
       cleanup()
       popup.close()
-      if (event.data.status !== 'connected') {
+      if (status !== 'connected') {
         setMessage('Canva authorization did not complete. Close the sign-in window and try again.')
         return
       }
@@ -263,6 +265,16 @@ export default function VideographerWorkspace() {
             : 'Canva authorization finished, but connection status could not be checked.')
         }
       })()
+    }
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== popup) return
+      if (!event.data || event.data.type !== 'eny-canva-oauth-complete') return
+      complete(event.data.status)
+    }
+    if (channel) {
+      channel.onmessage = (event: MessageEvent) => {
+        if (event.data?.type === 'eny-canva-oauth-complete') complete(event.data.status)
+      }
     }
     const closePoll = window.setInterval(() => {
       if (popup.closed) {
