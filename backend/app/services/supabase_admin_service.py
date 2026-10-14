@@ -7,7 +7,7 @@ from app.core.config import settings
 
 
 class SupabaseAdminService:
-    """Read authenticated user directory data through the Supabase Auth admin API."""
+    """Use the Supabase Auth admin API for account-directory administration."""
 
     async def list_users(self) -> list[dict[str, Any]]:
         if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:

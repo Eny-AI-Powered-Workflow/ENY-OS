@@ -12,7 +12,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const router = useRouter()
+
+  async function handleGoogleSignIn() {
+    setError(null)
+    setGoogleLoading(true)
+
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    if (authError) {
+      setError(authError.message)
+      setGoogleLoading(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -27,7 +45,7 @@ export default function LoginPage() {
 
       if (authError) throw authError
 
-      router.push('/dashboard')
+      router.replace('/auth/callback')
     } catch (err: any) {
       setError(err.message || 'Login failed')
     } finally {
@@ -91,8 +109,33 @@ export default function LoginPage() {
         <div className="relative flex items-center justify-center p-6 sm:p-8 lg:p-12">
           <div className="w-full max-w-md">
             <div className="mb-8 text-center lg:text-left">
-              <p className="text-[10px] uppercase tracking-[0.28em] text-violet-200">Welcome back</p>
-              <h3 className="mt-3 text-3xl font-bold text-white">Sign in</h3>
+              <p className="text-[10px] uppercase tracking-[0.28em] text-violet-200">Welcome</p>
+              <h3 className="mt-3 text-3xl font-bold text-white">Sign in or sign up</h3>
+            </div>
+
+            <button
+              type="button"
+              disabled={googleLoading || loading}
+              onClick={handleGoogleSignIn}
+              className="mb-5 inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/15 bg-white/5 px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.09-1.92 3.27-4.74 3.27-8.1Z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.15v2.84A11 11 0 0 0 12 23Z" />
+                <path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.15a11 11 0 0 0 0 9.9l3.69-2.84Z" />
+                <path fill="#EA4335" d="M12 5.36c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.02 14.97 1 12 1a11 11 0 0 0-9.85 6.05l3.69 2.84C6.71 7.29 9.14 5.36 12 5.36Z" />
+              </svg>
+              {googleLoading ? 'Connecting to Google...' : 'Continue with Google'}
+            </button>
+
+            <p className="mb-5 text-center text-xs leading-5 text-slate-400">
+              New Google accounts are created automatically. A CEO must assign your role before you can access the platform.
+            </p>
+
+            <div className="mb-5 flex items-center gap-3 text-xs text-slate-500">
+              <div className="h-px flex-1 bg-white/10" />
+              <span>or sign in with email</span>
+              <div className="h-px flex-1 bg-white/10" />
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -140,7 +183,7 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || googleLoading}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 px-4 py-3.5 text-sm font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.45)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {loading ? 'Signing in...' : 'Sign in'}

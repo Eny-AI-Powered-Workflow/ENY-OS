@@ -4,6 +4,7 @@ import CEOAgentStatus from "@/components/CEOAgentStatus";
 import SOPLibrary from "@/components/SOPLibrary";
 import SalesOperationsPanel from "@/components/SalesOperationsPanel";
 import ExecutiveAssistantBriefing from "@/components/ExecutiveAssistantBriefing";
+import CEOSignupManagement from "@/components/CEOSignupManagement";
 
 export default function CEODashboard() {
   return (
@@ -20,6 +21,8 @@ export default function CEODashboard() {
 
       {/* Metrics Grid */}
       <CEOMetrics />
+
+      <CEOSignupManagement />
 
       {/* Heatmap and Agent Status */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

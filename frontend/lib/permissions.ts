@@ -104,32 +104,52 @@ export function usePermissions() {
   useEffect(() => {
     // Only run in browser environment
     if (typeof window !== 'undefined') {
-      // Get initial session
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      let active = true
+
+      const loadRoles = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
         setSession(session)
-        if (session?.user?.user_metadata?.roles) {
-          setUserRoles(session.user.user_metadata.roles as string[])
-        } else {
+        if (!session) {
           setUserRoles([])
+          return
         }
-      }).catch(() => {
-        setUserRoles([])
-      })
+
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/me`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+          if (!response.ok) {
+            throw new Error(`Unable to load account roles (${response.status})`)
+          }
+          const data = await response.json()
+          if (!Array.isArray(data.roles) || !data.roles.every((role: unknown) => typeof role === 'string')) {
+            throw new Error('The account roles response was invalid')
+          }
+          if (active) setUserRoles(data.roles)
+        } catch (error) {
+          console.error('Unable to load account roles:', error)
+          if (active) setUserRoles([])
+        }
+      }
+
+      supabase.auth.getSession()
+        .then(({ data: { session } }) => loadRoles(session))
+        .catch((error: unknown) => {
+          console.error('Unable to read the authentication session:', error)
+          if (active) setUserRoles([])
+        })
 
       // Listen for auth changes
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session)
-        if (session?.user?.user_metadata?.roles) {
-          setUserRoles(session.user.user_metadata.roles as string[])
-        } else {
-          setUserRoles([])
-        }
+        void loadRoles(session)
       })
 
       // Cleanup
-      return () => subscription.unsubscribe()
+      return () => {
+        active = false
+        subscription.unsubscribe()
+      }
     }
   }, [])
 

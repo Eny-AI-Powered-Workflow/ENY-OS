@@ -64,12 +64,11 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
 
    The Graphic & Funnel Designer foundation uses
    `supabase/migrations/0024_graphic_designer_foundation.sql`. It adds the
-   `graphic_designer` role and audience-scoped design permissions. Assign the
-   role through the existing Supabase RBAC/user-role workflow; no new API keys
-   or provider setup are required for phases 1–2. To grant a user this role,
-   add `graphic_designer` to that user's Supabase Auth `user_metadata.roles`
-   array; the existing backend token sync adds the corresponding `user_roles`
-   row at their next authenticated request. Start with
+   `graphic_designer` role and audience-scoped design permissions. After
+   applying `supabase/migrations/0042_ceo_user_management.sql`, the CEO assigns
+   this and other non-CEO roles from CEO Cockpit → Accounts and role approvals.
+   Roles are authoritative in `user_roles`; do not put them in user-editable
+   Supabase Auth metadata. Start with
    `GRAPHIC_DESIGN_FOUNDATION_TEMPLATE.md` and enter only approved source
    material in the Designer workspace. For Designer requests, private asset
    files, and manual template production, apply
@@ -79,6 +78,22 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    they are not secrets. Storage access uses the existing Supabase service-role
    key on the backend only. Canva API credentials are not needed for this
    manual-template phase; store approved Canva template links in the workspace.
+
+   Google sign-in also creates new Supabase Auth accounts. In Supabase
+   Authentication → Providers, enable Google and enter the OAuth client ID and
+   secret from Google Cloud Console. Add the Supabase Google callback URL shown
+   in that provider's settings to the Google OAuth client's authorized redirect
+   URIs. In Supabase Authentication → URL Configuration, allow the deployed
+   frontend origin and its `/auth/callback` path (and the local frontend
+   callback during development). After a first Google sign-in, accounts remain
+   pending until the CEO assigns at least one role in CEO Cockpit.
+
+   No new Render environment variable is required: the backend already requires
+   `SUPABASE_URL` and the server-only `SUPABASE_SERVICE_ROLE_KEY` in
+   `backend/.env.example`; ensure both are set on the Render backend service.
+   Never put the service-role key in frontend/`NEXT_PUBLIC_*` variables. The
+   frontend continues to use `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_API_URL`.
 
    To enable the shared Canva Connect account, apply the next unapplied
    migrations `0039_design_system_document_provider.sql`,

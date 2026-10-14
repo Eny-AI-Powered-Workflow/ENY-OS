@@ -139,3 +139,18 @@ def test_signaturely_contract_read_is_limited_to_business_support_ceo_and_progra
     assert "business_support:contracts:read" not in customer_success_scopes
     assert "business_support:contracts:write" not in business_support_scopes
     assert "business_support:contracts:write" not in programs_manager_scopes
+
+
+def test_account_role_management_is_granted_only_to_ceo():
+    assert "users:manage" in _explicit_scopes_for_role("ceo")
+    assert all(
+        "users:manage" not in _explicit_scopes_for_role(role)
+        for role in (
+            "programs_manager",
+            "customer_success",
+            "business_support",
+            "executive_assistant",
+            "enrollment",
+            "developer",
+        )
+    )
