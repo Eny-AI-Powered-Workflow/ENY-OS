@@ -5,7 +5,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 import httpx
@@ -24,6 +24,29 @@ CANVA_TOKEN = f"{CANVA_API}/oauth/token"
 class CanvaService:
     def configured(self) -> bool:
         return bool(settings.CANVA_CLIENT_ID and settings.CANVA_CLIENT_SECRET and settings.CANVA_REDIRECT_URI and settings.CANVA_TOKEN_ENCRYPTION_KEY)
+
+    def _redirect_uri(self) -> str:
+        redirect_uri = settings.CANVA_REDIRECT_URI.strip()
+        parsed = urlsplit(redirect_uri)
+        is_local_http = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
+        if (
+            not parsed.hostname
+            or (parsed.scheme != "https" and not is_local_http)
+            or parsed.path != "/api/v1/canva/oauth/callback"
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "CANVA_REDIRECT_URI must be the public HTTPS FastAPI callback URL "
+                    "ending in /api/v1/canva/oauth/callback (not the frontend URL). "
+                    "Register that exact URL in Canva Developers."
+                ),
+            )
+        return redirect_uri
 
     def _fernet(self) -> Fernet:
         if not settings.CANVA_TOKEN_ENCRYPTION_KEY:
@@ -61,6 +84,7 @@ class CanvaService:
     ) -> str:
         if not self.configured():
             raise HTTPException(status_code=503, detail="Configure Canva OAuth client ID, secret, redirect URI, and token encryption key")
+        redirect_uri = self._redirect_uri()
         state = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
@@ -80,7 +104,7 @@ class CanvaService:
             "response_type": "code",
             "client_id": settings.CANVA_CLIENT_ID,
             "state": state,
-            "redirect_uri": settings.CANVA_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
         })
         return f"{CANVA_AUTHORIZE}?{query}"
 
@@ -92,6 +116,7 @@ class CanvaService:
     ) -> tuple[UUID, str | None]:
         if not self.configured():
             raise HTTPException(status_code=503, detail="Canva OAuth is not configured")
+        redirect_uri = self._redirect_uri()
         state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
         state_row = db.query(CanvaOAuthState).filter(CanvaOAuthState.state_hash == state_hash).with_for_update().first()
         now = datetime.now(timezone.utc)
@@ -104,7 +129,7 @@ class CanvaService:
                     CANVA_TOKEN,
                     auth=(settings.CANVA_CLIENT_ID, settings.CANVA_CLIENT_SECRET),
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    data={"grant_type": "authorization_code", "code": code, "code_verifier": verifier, "redirect_uri": settings.CANVA_REDIRECT_URI},
+                    data={"grant_type": "authorization_code", "code": code, "code_verifier": verifier, "redirect_uri": redirect_uri},
                 )
                 response.raise_for_status()
                 tokens = response.json()

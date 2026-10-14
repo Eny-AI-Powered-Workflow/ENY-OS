@@ -86,11 +86,14 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    `0041_canva_oauth_return_url.sql` in order. Set
    `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_ENCRYPTION_KEY`,
    `CANVA_REDIRECT_URI`, and `CANVA_OAUTH_SCOPES` in the backend Render
-   environment. Register the exact `CANVA_REDIRECT_URI` in Canva Developers;
-   the suggested Render callback is
+   environment. `CANVA_REDIRECT_URI` must point to the backend, not the Vercel
+   frontend root. Register the exact callback URL in Canva Developers; the
+   suggested Render callback is
    `https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback`.
-   The OAuth flow returns to `/dashboard/videographer` on the approved frontend
-   origin that initiated Connect, preserving the frontend's Supabase session.
+   Canva must return first to the backend callback above so FastAPI can exchange
+   and save the tokens. FastAPI then returns the popup to
+   `/canva/oauth-complete` on the approved frontend origin; the opener refreshes
+   `/canva/status` and remains on `/dashboard/videographer`.
    The API checks this origin against `BACKEND_CORS_ORIGINS`, `ALLOWED_ORIGINS`,
    or `CORS_ORIGIN_REGEX`; include the deployed frontend origin there.
    `CANVA_POST_CONNECT_REDIRECT` remains a fallback for OAuth states created

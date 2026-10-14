@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
+from urllib.parse import parse_qs, urlsplit
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-placeholder")
@@ -76,6 +77,35 @@ def test_oauth_return_url_rejects_unapproved_origin(monkeypatch):
         _post_connect_redirect(request)
 
     assert error.value.status_code == 400
+
+
+def test_canva_authorization_uses_backend_callback_and_rejects_frontend_root(monkeypatch):
+    service = CanvaService()
+    monkeypatch.setattr(settings, "CANVA_CLIENT_ID", "client-id")
+    monkeypatch.setattr(settings, "CANVA_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(settings, "CANVA_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    monkeypatch.setattr(
+        settings,
+        "CANVA_REDIRECT_URI",
+        "https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback",
+    )
+
+    class OAuthDb:
+        def add(self, _row):
+            return None
+
+        def commit(self):
+            return None
+
+    authorization_url = service.authorization_url(OAuthDb(), uuid4())
+    query = parse_qs(urlsplit(authorization_url).query)
+    assert query["redirect_uri"] == [
+        "https://eny-consulting-backend.onrender.com/api/v1/canva/oauth/callback"
+    ]
+
+    monkeypatch.setattr(settings, "CANVA_REDIRECT_URI", "https://eny-os.vercel.app")
+    with pytest.raises(HTTPException, match="not the frontend URL"):
+        service.authorization_url(OAuthDb(), uuid4())
 
 
 class FakeResponse:
