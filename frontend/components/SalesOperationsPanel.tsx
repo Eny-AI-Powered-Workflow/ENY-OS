@@ -11,9 +11,12 @@ type Operation = {
   email: string | null
   source: string | null
   score: number | null
+  category: string | null
   score_origin: string
   queue_status: string
   assigned_user_id: string | null
+  last_comment?: string | null
+  lifecycle_stage?: string
   follow_up_status: string
   notification_status: string
   notification_error: string | null
@@ -60,22 +63,36 @@ type Payload = {
     open_alerts?: number
   }
   results: Operation[]
+  audit_events?: Array<{
+    id: string
+    result_id: string | null
+    user_id: string
+    event_type: string
+    details: Record<string, unknown>
+    created_at: string | null
+  }>
   quality?: { quality_status?: string; duplicate_groups?: unknown[]; contacts_checked?: number }
   adoption?: { policy?: { ownership?: string[]; follow_up?: string[]; escalation?: string[]; weekly_review?: string[] }; weekly_review?: { results_created?: number; audit_events?: number; open_escalations?: number; stale_active_work?: number } }
   performance?: { conversion_funnel?: Record<string, number>; hot_lead_aging?: Record<string, number>; blocked_queue?: Record<string, number>; exceptions?: Record<string, number> }
   persistentAlerts?: Array<{ id: string; type: string; severity: string; source: string; message: string; status: string; created_at: string | null }>
 }
 
+type TeamMember = { id: string; name: string; email: string | null }
+
 const statuses = ['all', 'new', 'assigned', 'contacted', 'qualified', 'closed']
 
 export default function SalesOperationsPanel() {
   const [data, setData] = useState<Payload>({ summary: {}, results: [] })
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [status, setStatus] = useState('all')
   const [scope, setScope] = useState('all')
+  const [activeTab, setActiveTab] = useState<'queue' | 'assigned' | 'unassigned' | 'audit'>('queue')
   const [source, setSource] = useState('all')
   const [score, setScore] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [assignmentError, setAssignmentError] = useState<string | null>(null)
+  const [assigningId, setAssigningId] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -85,6 +102,8 @@ export default function SalesOperationsPanel() {
       if (status !== 'all') params.set('status', status)
       if (scope === 'mine') params.set('mine', 'true')
       if (scope === 'unassigned') params.set('unassigned', 'true')
+      if (activeTab === 'assigned') params.set('assigned', 'true')
+      if (activeTab === 'unassigned') params.set('unassigned', 'true')
       if (source !== 'all') params.set('source', source)
       if (score === 'hot') params.set('min_score', '85')
       if (score === 'qualified') params.set('min_score', '70')
@@ -95,16 +114,24 @@ export default function SalesOperationsPanel() {
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load Sales operations')
-      const [qualityResponse, adoptionResponse, performanceResponse, alertsResponse] = await Promise.all([
+      const [qualityResponse, adoptionResponse, performanceResponse, alertsResponse, teamResponse] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/quality`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/adoption-policy`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/reporting`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/alerts`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/team-members`, { headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}, credentials: 'include' }),
       ])
       const quality = qualityResponse.ok ? await qualityResponse.json() : null
       const adoption = adoptionResponse.ok ? await adoptionResponse.json() : null
       const performance = performanceResponse.ok ? await performanceResponse.json() : null
       const persistentAlerts = alertsResponse.ok ? (await alertsResponse.json()).alerts || [] : []
+      if (teamResponse.ok) {
+        const team = await teamResponse.json()
+        setTeamMembers(team.members || [])
+        setAssignmentError(null)
+      } else {
+        setAssignmentError('Team assignment controls are unavailable. Refresh or contact an administrator.')
+      }
       setData({ ...payload, quality: quality?.quality, adoption, performance, persistentAlerts })
       setError(null)
     } catch (caught) {
@@ -118,7 +145,53 @@ export default function SalesOperationsPanel() {
     void load()
     const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
-  }, [status, scope, source, score])
+  }, [status, scope, source, score, activeTab])
+
+  const assignLead = async (row: Operation, assignedUserId: string) => {
+    if (!assignedUserId) return
+    setAssigningId(row.id)
+    setAssignmentError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads/${row.id}/assignment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ assigned_user_id: assignedUserId }),
+      })
+      const payload = await response.json()
+      if (!response.ok) {
+        const detail = payload.detail
+        throw new Error(typeof detail === 'string' ? detail : detail?.message || 'Unable to assign lead')
+      }
+      await load()
+      if (payload.warning) setAssignmentError(payload.warning)
+    } catch (caught) {
+      setAssignmentError(caught instanceof Error ? caught.message : 'Unable to assign lead')
+    } finally {
+      setAssigningId(null)
+    }
+  }
+
+  const acknowledgeAlert = async (alertId: string) => {
+    setAssignmentError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/alerts/${alertId}/acknowledge`, {
+        method: 'PATCH',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to acknowledge alert')
+      await load()
+    } catch (caught) {
+      setAssignmentError(caught instanceof Error ? caught.message : 'Unable to acknowledge alert')
+    }
+  }
 
   const sources = Array.from(new Set(data.results.map((row) => row.source).filter(Boolean))) as string[]
   const summary = data.summary
@@ -199,7 +272,7 @@ export default function SalesOperationsPanel() {
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Owner workload</p>
           <div className="mt-3 space-y-2 text-xs">
-            {(monitoring.owner_workload || []).slice(0, 4).map((owner) => <div key={owner.owner_id} className="flex items-center justify-between gap-3 text-slate-600"><span className="truncate">{owner.owner_id === 'unassigned' ? 'Unassigned' : `${owner.owner_id.slice(0, 8)}...`}</span><span className="font-semibold text-slate-900">{owner.active} active <span className={owner.stale ? 'text-rose-700' : 'text-slate-400'}>({owner.stale} stale)</span></span></div>)}
+            {(monitoring.owner_workload || []).slice(0, 4).map((owner) => <div key={owner.owner_id} className="flex items-center justify-between gap-3 text-slate-600"><span className="truncate">{owner.owner_id === 'unassigned' ? 'Unassigned' : teamMembers.find((member) => member.id === owner.owner_id)?.name || `Owner ${owner.owner_id.slice(0, 8)}`}</span><span className="font-semibold text-slate-900">{owner.active} active <span className={owner.stale ? 'text-rose-700' : 'text-slate-400'}>({owner.stale} stale)</span></span></div>)}
             {!monitoring.owner_workload?.length && <span className="text-slate-500">No assigned workload.</span>}
           </div>
         </div>
@@ -225,7 +298,7 @@ export default function SalesOperationsPanel() {
         </div>
       </div>
 
-      {data.persistentAlerts?.length ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-rose-600">Hard failure alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex items-start justify-between gap-3 text-xs"><span className="text-rose-800">{alert.message}</span><span className="shrink-0 font-semibold uppercase text-rose-600">{alert.source}</span></div>)}</div></div> : null}
+      {data.persistentAlerts?.length ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-rose-600">Hard failure alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-rose-800">{alert.message}</span><div className="flex items-center gap-2"><span className="shrink-0 font-semibold uppercase text-rose-600">{alert.source}</span>{alert.type === 'n8n_webhook_failure' && <button type="button" onClick={() => void acknowledgeAlert(alert.id)} className="rounded-md border border-rose-300 bg-white px-2 py-1 font-semibold text-rose-700 hover:bg-rose-100">Acknowledge to allow retry</button>}</div></div>)}</div></div> : null}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Performance review</p>
@@ -246,7 +319,47 @@ export default function SalesOperationsPanel() {
       </div>
 
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-      <div className="overflow-x-auto">
+      {assignmentError && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{assignmentError}</div>}
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Sales lead views">
+        {([
+          ['queue', 'All leads'],
+          ['assigned', 'Assigned leads'],
+          ['unassigned', 'Unassigned'],
+          ['audit', 'Audit trail'],
+        ] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            onClick={() => {
+              setActiveTab(tab)
+              if (tab === 'assigned' || tab === 'unassigned') setScope('all')
+            }}
+            className={`rounded-lg px-3 py-2 text-xs font-semibold ${activeTab === tab ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeTab === 'audit' ? (
+        <div className="space-y-2">
+          {(data.audit_events || []).map((event) => (
+            <article key={event.id} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-900">{event.event_type.replaceAll('_', ' ')}</p>
+                <time className="text-[11px] text-slate-500">{event.created_at ? new Date(event.created_at).toLocaleString() : 'Time unavailable'}</time>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                {String(event.details.reason || event.details.comment || event.details.next_step || 'Enrollment activity recorded')}
+                {event.result_id ? ` · Lead ${event.result_id.slice(0, 8)}` : ''}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-400">By {teamMembers.find((member) => member.id === event.user_id)?.name || `team member ${event.user_id.slice(0, 8)}`}</p>
+            </article>
+          ))}
+          {!data.audit_events?.length && <p className="rounded-xl border border-slate-200 p-6 text-center text-sm text-slate-500">No audit events found.</p>}
+        </div>
+      ) : <div className="overflow-x-auto">
         <table className="w-full min-w-[1200px] text-left text-xs">
           <thead className="bg-slate-50 uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-3">Lead</th><th className="px-3 py-3">Source / score</th><th className="px-3 py-3">Origin</th><th className="px-3 py-3">Queue</th><th className="px-3 py-3">Owner</th><th className="px-3 py-3">Follow-up</th><th className="px-3 py-3">Notification</th><th className="px-3 py-3">Last action</th><th className="px-3 py-3">Next action</th><th className="px-3 py-3">Result</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
@@ -255,8 +368,27 @@ export default function SalesOperationsPanel() {
               <td className="px-3 py-3"><p className="text-slate-700">{row.source || 'Unknown'}</p><p className="font-semibold text-slate-900">{row.score ?? '—'}</p></td>
               <td className="px-3 py-3 text-slate-600">{row.score_origin.replaceAll('_', ' ')}</td>
               <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">{row.queue_status}</span></td>
-              <td className="px-3 py-3 text-slate-600">{row.assigned_user_id ? <span className="inline-flex items-center gap-1"><UserRound className="h-3.5 w-3.5" /> Assigned</span> : 'Unassigned'}</td>
-              <td className="px-3 py-3"><span className={row.follow_up_status === 'tagged' ? 'text-emerald-700' : 'text-slate-600'}>{row.follow_up_status}</span></td>
+              <td className="px-3 py-3">
+                <div className="flex items-center gap-1">
+                  <UserRound className="h-3.5 w-3.5 text-slate-500" />
+                  <select
+                    aria-label={`Assign ${row.contact_name || row.contact_id}`}
+                    value={row.assigned_user_id || ''}
+                    disabled={row.category !== 'hot' || row.queue_status === 'closed' || assigningId === row.id || !teamMembers.length}
+                    onChange={(event) => void assignLead(row, event.target.value)}
+                    className="max-w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 disabled:bg-slate-50"
+                  >
+                    <option value="">{row.assigned_user_id ? 'Assignee unavailable' : 'Assign owner'}</option>
+                    {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                  </select>
+                </div>
+                {row.assigned_user_id && <span className="mt-1 inline-block rounded-full bg-violet-50 px-2 py-0.5 text-[10px] text-violet-700">{teamMembers.find((member) => member.id === row.assigned_user_id)?.name || `Owner ${row.assigned_user_id.slice(0, 8)}`}</span>}
+              </td>
+              <td className="px-3 py-3">
+                <span className={row.follow_up_status === 'tagged' ? 'text-emerald-700' : 'text-slate-600'}>{row.follow_up_status}</span>
+                {row.lifecycle_stage && <span className="ml-1 rounded-full bg-cyan-50 px-2 py-0.5 capitalize text-cyan-700">{row.lifecycle_stage.replaceAll('_', ' ')}</span>}
+                {row.last_comment && <p className="mt-1 max-w-48 truncate text-[10px] text-slate-500" title={row.last_comment}>Comment: {row.last_comment}</p>}
+              </td>
               <td className="px-3 py-3"><span className={row.notification_status === 'sent' ? 'text-emerald-700' : row.notification_status === 'failed' ? 'text-rose-700' : 'text-slate-600'}>{row.notification_status}</span>{row.notification_error && <p className="max-w-[150px] truncate text-rose-600" title={row.notification_error}>{row.notification_error}</p>}</td>
               <td className="px-3 py-3 text-slate-500">{row.last_action_at ? new Date(row.last_action_at).toLocaleString() : '—'}</td>
               <td className="px-3 py-3 font-medium text-slate-700">{row.next_action}</td>
@@ -265,7 +397,7 @@ export default function SalesOperationsPanel() {
           </tbody>
         </table>
         {!data.results.length && !loading && <p className="p-6 text-center text-sm text-slate-500">No leads match the current filters.</p>}
-      </div>
+      </div>}
     </section>
   )
 }

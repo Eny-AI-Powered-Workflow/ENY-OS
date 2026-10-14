@@ -15,11 +15,13 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
-from app.models.enrollment_audit import EnrollmentAudit
 from app.models.operational_alert import OperationalAlert
 from app.services.batch_execution_service import retry_batch_result
 from app.services.ghl_service import ghl_service
 from app.services.n8n_service import N8NService
+from app.models.role import Role
+from app.models.user_role import UserRole
+from app.services.supabase_admin_service import supabase_admin_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -87,6 +89,10 @@ class QueueStateRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=500)
 
 
+class LeadAssignmentRequest(BaseModel):
+    assigned_user_id: UUID
+
+
 class BatchDecisionRequest(BaseModel):
     decision: Literal["rerun", "hold", "escalate"]
     reason: str = Field(..., min_length=3, max_length=500)
@@ -148,6 +154,28 @@ def _create_operational_alert(
     return alert
 
 
+def _record_ghl_writeback_failure(
+    db: Session,
+    current_user: Any,
+    result: BatchExecutionResult,
+    writeback: dict[str, Any],
+) -> None:
+    _create_operational_alert(
+        db,
+        alert_type="ghl_writeback_failure",
+        source="ghl",
+        message="Enrollment activity was recorded in ENY but could not be synchronized to GHL.",
+        result_id=result.id,
+        details={"contact_id": result.contact_id, "writeback": writeback},
+    )
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=result.id,
+        event_type="ghl_writeback_failed",
+        details={"contact_id": result.contact_id, "writeback": writeback},
+    ))
+
+
 def _normalize_int(value: Any, default: int) -> int:
     if hasattr(value, "default"):
         value = getattr(value, "default")
@@ -155,6 +183,24 @@ def _normalize_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_bool(value: Any, default: bool = False) -> bool:
+    if hasattr(value, "default"):
+        value = getattr(value, "default")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return default
+
+
+def _query_default(value: Any) -> Any:
+    return getattr(value, "default", value)
 
 
 def _serialize_datetime(value: Any) -> Optional[str]:
@@ -284,6 +330,37 @@ async def get_enrollment_hot_leads(
             .all()
         )
 
+        result_ids = [row.id for row in rows]
+        audit_rows = (
+            db.query(EnrollmentAudit)
+            .filter(EnrollmentAudit.result_id.in_(result_ids))
+            .order_by(EnrollmentAudit.created_at.desc())
+            .all()
+        ) if result_ids else []
+        follow_up_alerts = (
+            db.query(OperationalAlert)
+            .filter(
+                OperationalAlert.result_id.in_(result_ids),
+                OperationalAlert.alert_type == "n8n_webhook_failure",
+                OperationalAlert.source == "eny-enrollment-follow-up",
+            )
+            .order_by(OperationalAlert.created_at.desc())
+            .all()
+        ) if result_ids else []
+        latest_comments: dict[str, str] = {}
+        retry_approved: dict[str, bool] = {}
+        for event in audit_rows:
+            result_key = str(getattr(event, "result_id", ""))
+            details = getattr(event, "details", {}) or {}
+            if result_key and result_key not in latest_comments and isinstance(details, dict):
+                comment = details.get("reason") or details.get("comment") or details.get("next_step")
+                if comment:
+                    latest_comments[result_key] = str(comment)
+        for alert in follow_up_alerts:
+            result_key = str(getattr(alert, "result_id", "") or "")
+            if result_key and result_key not in retry_approved:
+                retry_approved[result_key] = alert.status == "acknowledged"
+
         leads = [
             {
                 "id": str(row.contact_id),
@@ -302,6 +379,9 @@ async def get_enrollment_hot_leads(
                 "lifecycle_stage": getattr(row, "lifecycle_stage", "not_started"),
                 "next_step": getattr(row, "next_step", None),
                 "assigned_user_id": str(row.assigned_user_id) if row.assigned_user_id else None,
+                "last_comment": latest_comments.get(str(row.id)),
+                "follow_up_retry_approved": retry_approved.get(str(row.id), False),
+                "follow_up_status": getattr(row, "follow_up_status", "not_started"),
                 "assigned_to_current_user": (
                     str(row.assigned_user_id) == current_user_id
                     if row.assigned_user_id
@@ -319,6 +399,118 @@ async def get_enrollment_hot_leads(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch hot leads: {str(e)}",
         )
+
+
+@router.get("/team-members", dependencies=[Depends(require_permission("leads:write"))])
+async def get_enrollment_team_members(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Return eligible Sales & Enrollment assignees with safe display information."""
+    role_user_rows = (
+        db.query(UserRole.user_id)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(Role.name.in_(("enrollment", "sales")))
+        .all()
+    )
+    eligible_ids = {str(row[0]) for row in role_user_rows}
+    if not eligible_ids:
+        return {"members": []}
+
+    try:
+        auth_users = await supabase_admin_service.list_users()
+    except Exception as exc:
+        logger.error("Unable to load Sales & Enrollment team members from Supabase Auth: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to load Sales & Enrollment team members",
+        ) from exc
+
+    members = []
+    for user in auth_users:
+        user_id = str(user.get("id") or "")
+        if user_id not in eligible_ids:
+            continue
+        metadata = user.get("user_metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        email = str(user.get("email") or "")
+        name = (
+            metadata.get("full_name")
+            or metadata.get("name")
+            or metadata.get("display_name")
+            or email
+            or user_id
+        )
+        members.append({"id": user_id, "name": str(name), "email": email or None})
+
+    members.sort(key=lambda member: member["name"].casefold())
+    return {"members": members}
+
+
+@router.patch("/hot-leads/{result_id}/assignment", dependencies=[Depends(require_permission("leads:write"))])
+async def assign_hot_lead(
+    result_id: UUID,
+    request: LeadAssignmentRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Assign a hot lead to a Sales or Enrollment team member."""
+    result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hot lead not found")
+    if result.category != "hot" or result.queue_status == "closed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Lead is not available for assignment")
+
+    eligible_user = (
+        db.query(UserRole.user_id)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == request.assigned_user_id)
+        .filter(Role.name.in_(("enrollment", "sales")))
+        .first()
+    )
+    if not eligible_user:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Lead can only be assigned to a Sales or Enrollment team member",
+        )
+
+    assigned_user_id = str(request.assigned_user_id)
+    if str(result.assigned_user_id or "") == assigned_user_id:
+        return {
+            "status": result.queue_status,
+            "result_id": str(result.id),
+            "assigned_user_id": assigned_user_id,
+        }
+
+    target_state = "assigned" if result.queue_status == "new" else result.queue_status
+    writeback = await ghl_service.sync_enrollment_outcome(
+        str(result.contact_id),
+        queue_status=target_state,
+        note=f"ENY Enrollment lead assigned to team member {assigned_user_id}.",
+    )
+    if not writeback.get("success"):
+        _record_ghl_writeback_failure(db, current_user, result, writeback)
+
+    previous_owner_id = str(result.assigned_user_id) if result.assigned_user_id else None
+    if result.queue_status == "new":
+        _transition_queue_state(result, "assigned", current_user.id, "Assigned for active enrollment follow-up")
+    result.assigned_user_id = request.assigned_user_id
+    _audit(db, current_user, result.id, "hot_lead_assigned", {
+        "contact_id": result.contact_id,
+        "from_owner_id": previous_owner_id,
+        "assigned_user_id": assigned_user_id,
+        "actor_id": str(current_user.id),
+        "reason": "Lead assigned to a Sales & Enrollment team member",
+        "ghl_writeback": writeback,
+    })
+    return {
+        "status": result.queue_status,
+        "result_id": str(result.id),
+        "assigned_user_id": assigned_user_id,
+        "ghl_writeback": writeback,
+        "warning": None if writeback.get("success") else "Lead was assigned in ENY, but GHL synchronization failed.",
+    }
 
 
 @router.get("/batch-results", dependencies=[Depends(require_permission("leads:read"))])
@@ -388,6 +580,7 @@ async def get_enrollment_operations(
     status_filter: Optional[str] = Query(None, alias="status"),
     mine: bool = Query(False),
     unassigned: bool = Query(False),
+    assigned_only: bool = Query(False, alias="assigned"),
     source: Optional[str] = Query(None),
     min_score: Optional[int] = Query(None, ge=0, le=100),
     max_score: Optional[int] = Query(None, ge=0, le=100),
@@ -395,6 +588,10 @@ async def get_enrollment_operations(
     current_user: Any = Depends(get_current_user),
 ):
     """Return the shared Enrollment follow-up queue and its recent audit trail."""
+    status_filter = _query_default(status_filter)
+    source = _query_default(source)
+    min_score = _query_default(min_score)
+    max_score = _query_default(max_score)
     query = db.query(BatchExecutionResult)
     if status_filter:
         query = query.filter(BatchExecutionResult.queue_status == status_filter)
@@ -402,6 +599,8 @@ async def get_enrollment_operations(
         query = query.filter(BatchExecutionResult.assigned_user_id == current_user.id)
     if unassigned:
         query = query.filter(BatchExecutionResult.assigned_user_id.is_(None))
+    if _normalize_bool(assigned_only):
+        query = query.filter(BatchExecutionResult.assigned_user_id.is_not(None))
     if source:
         query = query.filter(BatchExecutionResult.source == source)
     if min_score is not None:
@@ -413,6 +612,14 @@ async def get_enrollment_operations(
     audits = db.query(EnrollmentAudit).order_by(
         EnrollmentAudit.created_at.desc()
     ).limit(limit).all()
+    latest_comments: dict[str, str] = {}
+    for event in audits:
+        result_key = str(getattr(event, "result_id", "") or "")
+        details = getattr(event, "details", {}) or {}
+        if result_key and result_key not in latest_comments and isinstance(details, dict):
+            comment = details.get("reason") or details.get("comment") or details.get("next_step")
+            if comment:
+                latest_comments[result_key] = str(comment)
 
     try:
         contacts, inventory = await ghl_service.get_all_contacts()
@@ -626,6 +833,7 @@ async def get_enrollment_operations(
                 "execution_status": row.status,
                 "queue_status": getattr(row, "queue_status", "new"),
                 "assigned_user_id": str(row.assigned_user_id) if getattr(row, "assigned_user_id", None) else None,
+                "last_comment": latest_comments.get(str(row.id)),
                 "follow_up_status": getattr(row, "follow_up_status", "not_started"),
                 "follow_up_at": _serialize_datetime(getattr(row, "follow_up_at", None)),
                 "lifecycle_stage": getattr(row, "lifecycle_stage", "not_started"),
@@ -654,6 +862,7 @@ async def get_enrollment_operations(
             {
                 "id": str(event.id),
                 "result_id": str(event.result_id) if event.result_id else None,
+                "user_id": str(event.user_id),
                 "event_type": event.event_type,
                 "details": event.details,
                 "created_at": _serialize_datetime(event.created_at),
@@ -805,10 +1014,7 @@ async def update_follow_up_lifecycle(
         note=f"ENY Enrollment lifecycle changed to {request.stage}: {request.reason}",
     )
     if not writeback.get("success"):
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail={
-            "message": "Follow-up lifecycle was not changed because GHL write-back failed",
-            "writeback": writeback,
-        })
+        _record_ghl_writeback_failure(db, current_user, result, writeback)
 
     result.lifecycle_stage = request.stage
     result.lifecycle_updated_at = now
@@ -845,6 +1051,7 @@ async def update_follow_up_lifecycle(
         "booked_at": _serialize_datetime(result.booked_at),
         "enrollment_outcome": result.enrollment_outcome,
         "ghl_writeback": writeback,
+        "warning": None if writeback.get("success") else "Lifecycle was saved in ENY, but GHL synchronization failed.",
     }
 
 
@@ -870,10 +1077,7 @@ async def claim_hot_lead(
         note=f"ENY Enrollment lead assigned to owner {current_user_id}.",
     )
     if not writeback.get("success"):
-        raise HTTPException(status_code=502, detail={
-            "message": "Lead was not assigned because GHL write-back failed",
-            "writeback": writeback,
-        })
+        _record_ghl_writeback_failure(db, current_user, result, writeback)
     previous_state = _transition_queue_state(result, "assigned", current_user.id, "Claimed for active enrollment follow-up")
     result.assigned_user_id = current_user.id
     _audit(db, current_user, result.id, "hot_lead_claimed", {
@@ -883,7 +1087,13 @@ async def claim_hot_lead(
         "reason": "Claimed for active enrollment follow-up",
         "ghl_writeback": writeback,
     })
-    return {"status": result.queue_status, "result_id": str(result.id), "assigned_user_id": str(current_user.id)}
+    return {
+        "status": result.queue_status,
+        "result_id": str(result.id),
+        "assigned_user_id": str(current_user.id),
+        "ghl_writeback": writeback,
+        "warning": None if writeback.get("success") else "Lead was assigned in ENY, but GHL synchronization failed.",
+    }
 
 
 @router.patch("/hot-leads/{result_id}/state", dependencies=[Depends(require_permission("leads:write"))])
@@ -911,10 +1121,7 @@ async def update_hot_lead_state(
         note=f"ENY Enrollment queue status changed to {request.state}: {request.reason}",
     )
     if not writeback.get("success"):
-        raise HTTPException(status_code=502, detail={
-            "message": "Queue state was not changed because GHL write-back failed",
-            "writeback": writeback,
-        })
+        _record_ghl_writeback_failure(db, current_user, result, writeback)
     _transition_queue_state(result, request.state, current_user.id, request.reason)
     _audit(db, current_user, result.id, "hot_lead_state_changed", {
         "contact_id": result.contact_id,
@@ -924,7 +1131,12 @@ async def update_hot_lead_state(
         "reason": request.reason,
         "ghl_writeback": writeback,
     })
-    return {"status": result.queue_status, "result_id": str(result.id), "ghl_writeback": writeback}
+    return {
+        "status": result.queue_status,
+        "result_id": str(result.id),
+        "ghl_writeback": writeback,
+        "warning": None if writeback.get("success") else "Queue state was saved in ENY, but GHL synchronization failed.",
+    }
 
 
 @router.post("/hot-leads/{result_id}/follow-up", dependencies=[Depends(require_permission("leads:write"))])
@@ -934,14 +1146,48 @@ async def follow_up_hot_lead(
     current_user: Any = Depends(get_current_user),
 ):
     """Trigger the registered n8n follow-up workflow for an owned hot lead."""
-    result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
+    result = (
+        db.query(BatchExecutionResult)
+        .filter(BatchExecutionResult.id == result_id)
+        .with_for_update()
+        .first()
+    )
     if not result:
         raise HTTPException(status_code=404, detail="Hot lead not found")
     if not result.assigned_user_id or str(result.assigned_user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Claim the lead before triggering follow-up")
     previous_state = result.queue_status
     if previous_state != "assigned":
-        raise HTTPException(status_code=409, detail="Follow-up requires an assigned lead")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Follow-up can only be triggered before the lead has been contacted",
+        )
+    if result.follow_up_status == "triggering" or result.follow_up_status == "tagged":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Follow-up has already been started or completed for this lead",
+        )
+    if result.follow_up_status == "failed":
+        latest_failure = db.query(OperationalAlert).filter(
+            OperationalAlert.result_id == result.id,
+            OperationalAlert.alert_type == "n8n_webhook_failure",
+            OperationalAlert.source == "eny-enrollment-follow-up",
+        ).order_by(OperationalAlert.created_at.desc()).first()
+        if not latest_failure or latest_failure.status != "acknowledged":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Review and acknowledge the workflow failure before retrying",
+            )
+
+    result.follow_up_status = "triggering"
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=result.id,
+        event_type="follow_up_attempt_started",
+        details={"contact_id": result.contact_id, "workflow": "eny-enrollment-follow-up"},
+    ))
+    db.commit()
+
     workflow = await N8NService().trigger_workflow("eny-enrollment-follow-up", {
         "contact_id": result.contact_id,
         "result_id": str(result.id),
@@ -961,6 +1207,12 @@ async def follow_up_hot_lead(
             result_id=result.id,
             details={"contact_id": result.contact_id, "workflow": workflow},
         )
+        db.add(EnrollmentAudit(
+            user_id=current_user.id,
+            result_id=result.id,
+            event_type="follow_up_workflow_failed",
+            details={"contact_id": result.contact_id, "workflow": workflow},
+        ))
         db.commit()
         raise HTTPException(
             status_code=502,
@@ -971,8 +1223,29 @@ async def follow_up_hot_lead(
                 "contact_id": result.contact_id,
             },
         )
+    now = datetime.now(timezone.utc)
     result.follow_up_status = "tagged"
-    result.follow_up_at = datetime.now(timezone.utc)
+    result.follow_up_at = now
+    _transition_queue_state(result, "contacted", current_user.id, "Follow-up workflow completed")
+    result.lifecycle_stage = "queued"
+    result.lifecycle_updated_at = now
+    result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
+    result.notification_error = workflow.get("notification_error")
+    if result.notification_status == "sent":
+        result.notification_sent_at = now
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=result.id,
+        event_type="follow_up_workflow_completed",
+        details={
+            "contact_id": result.contact_id,
+            "workflow": "eny-enrollment-follow-up",
+            "notification_sent": workflow.get("notification_sent"),
+            "notification_error": workflow.get("notification_error"),
+        },
+    ))
+    db.commit()
+
     writeback = await ghl_service.sync_enrollment_outcome(
         str(result.contact_id),
         queue_status="contacted",
@@ -980,29 +1253,22 @@ async def follow_up_hot_lead(
         note="ENY Enrollment follow-up completed and contact status synchronized.",
     )
     if not writeback.get("success"):
-        result.follow_up_status = "failed"
         result.notification_error = writeback.get("error")
-        _create_operational_alert(
-            db,
-            alert_type="ghl_writeback_failure",
-            source="ghl",
-            message="Follow-up completed in n8n but GHL write-back failed.",
-            result_id=result.id,
-            details={"contact_id": result.contact_id, "writeback": writeback},
-        )
-        db.commit()
-        raise HTTPException(status_code=502, detail={
-            "message": "Follow-up workflow completed but GHL write-back failed",
-            "writeback": writeback,
-        })
-    _transition_queue_state(result, "contacted", current_user.id, "Follow-up workflow completed")
-    result.last_action_at = result.follow_up_at
-    result.lifecycle_stage = "queued"
-    result.lifecycle_updated_at = result.follow_up_at
-    result.notification_status = "sent" if workflow.get("notification_sent") is True else "failed" if workflow.get("notification_error") else "unknown"
-    result.notification_error = workflow.get("notification_error")
-    if result.notification_status == "sent":
-        result.notification_sent_at = result.follow_up_at
+        _record_ghl_writeback_failure(db, current_user, result, writeback)
+    recovered_alert_ids = []
+    failed_workflow_alerts = db.query(OperationalAlert).filter(
+        OperationalAlert.result_id == result.id,
+        OperationalAlert.alert_type == "n8n_webhook_failure",
+        OperationalAlert.source == "eny-enrollment-follow-up",
+        OperationalAlert.status == "open",
+    ).all()
+    resolved_at = datetime.now(timezone.utc)
+    for alert in failed_workflow_alerts:
+        alert.status = "resolved"
+        alert.acknowledged_at = resolved_at
+        alert.acknowledged_by = current_user.id
+        recovered_alert_ids.append(str(alert.id))
+    result.last_action_at = now
     _audit(db, current_user, result.id, "follow_up_triggered", {
         "contact_id": result.contact_id,
         "workflow": "eny-enrollment-follow-up",
@@ -1011,6 +1277,7 @@ async def follow_up_hot_lead(
         "notification_sent": workflow.get("notification_sent"),
         "notification_error": workflow.get("notification_error"),
         "ghl_writeback": writeback,
+        "recovered_alert_ids": recovered_alert_ids,
     })
     notification_sent = workflow.get("notification_sent")
     notification_error = workflow.get("notification_error")
@@ -1020,11 +1287,14 @@ async def follow_up_hot_lead(
         message = f"GHL follow-up tag applied, but enrollment email failed: {notification_error}"
     else:
         message = "GHL follow-up tag applied; email delivery status was not reported."
+    if not writeback.get("success"):
+        message = f"{message} ENY recorded the follow-up, but the additional GHL synchronization failed."
     return {
         "status": result.follow_up_status,
         "queue_status": result.queue_status,
         "workflow": workflow,
         "ghl_writeback": writeback,
+        "warning": None if writeback.get("success") else "Follow-up completed and was recorded in ENY, but GHL synchronization failed.",
         "message": message,
     }
 

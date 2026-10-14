@@ -31,14 +31,16 @@ async def test_n8n_one_item_array_response_is_normalized():
 
 
 @pytest.mark.asyncio
-async def test_enrollment_followup_stays_blocked_until_side_effects_are_idempotent():
-    result = await N8NService().trigger_workflow(
+async def test_enrollment_followup_is_registered_for_operator_triggered_execution():
+    service = N8NService()
+    service.mock_mode = True
+    result = await service.trigger_workflow(
         "eny-enrollment-follow-up",
         {"approval_id": "approval-1"},
     )
 
-    assert result["status"] == "error"
-    assert "not registered" in result["error"].lower()
+    assert result["status"] == "success"
+    assert result["workflow"] == "eny-enrollment-follow-up"
 
 
 @pytest.mark.asyncio

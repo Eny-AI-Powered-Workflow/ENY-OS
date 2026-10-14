@@ -12,6 +12,7 @@ def test_customer_success_registry_only_allows_approved_workflows():
         "eny-prog-monitor",
         "eny-customer-success-checkin",
         "eny-customer-success-escalation",
+        "eny-enrollment-follow-up",
     ]
 
     for workflow_name in approved:

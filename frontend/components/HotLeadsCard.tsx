@@ -13,11 +13,21 @@ interface Lead {
   email: string;
   phone: string | null;
   tags: string[];
+  assigned_user_id?: string | null;
+  last_comment?: string | null;
+  follow_up_status?: string;
+  follow_up_retry_approved?: boolean;
   score?: number;
   status?: string;
   assigned_to_current_user?: boolean;
   lifecycle_stage?: string;
   next_step?: string | null;
+}
+
+interface TeamMember {
+  id: string;
+  name: string;
+  email: string | null;
 }
 
 function formatActionError(detail: unknown, action: string): string {
@@ -43,6 +53,8 @@ function formatResponseError(status: number, detail: unknown, action: string): s
 
 export default function HotLeadsCard() {
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [leadTab, setLeadTab] = useState<'all' | 'assigned' | 'mine' | 'unassigned'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -62,7 +74,8 @@ export default function HotLeadsCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatResponseError(res.status, data.detail, action));
-      setActionMessage(action === 'claim' ? 'Lead assigned to you.' : (data.message || 'GHL follow-up tag added.'));
+      const successMessage = action === 'claim' ? 'Lead assigned to you.' : (data.message || 'GHL follow-up tag added.');
+      setActionMessage(data.warning ? `${successMessage} ${data.warning}` : successMessage);
       await fetchLeads();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Lead action failed');
@@ -90,7 +103,9 @@ export default function HotLeadsCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatActionError(data.detail, `update lifecycle to ${stage}`));
-      setActionMessage(`Lifecycle updated to ${stage.replace('_', ' ')}.`);
+      setActionMessage(data.warning
+        ? `Lifecycle updated to ${stage.replace('_', ' ')}. ${data.warning}`
+        : `Lifecycle updated to ${stage.replace('_', ' ')}.`);
       await fetchLeads();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Lifecycle update failed');
@@ -138,11 +153,37 @@ export default function HotLeadsCard() {
     }
   };
 
+  const fetchTeamMembers = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/team-members`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Unable to load team assignments: ${res.status}`);
+      const data = await res.json();
+      setTeamMembers(data.members || []);
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : 'Unable to load team assignments');
+    }
+  };
+
   useEffect(() => {
     fetchLeads();
-    const interval = setInterval(fetchLeads, 30_000);
+    fetchTeamMembers();
+    const interval = setInterval(() => {
+      void fetchLeads();
+      void fetchTeamMembers();
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  const visibleLeads = leads.filter((lead) => {
+    if (leadTab === 'assigned') return Boolean(lead.assigned_user_id);
+    if (leadTab === 'mine') return lead.assigned_to_current_user === true;
+    if (leadTab === 'unassigned') return !lead.assigned_user_id;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -191,7 +232,7 @@ export default function HotLeadsCard() {
             </div>
           </div>
           <div className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">
-            {leads.length} active
+            {visibleLeads.length} leads
           </div>
         </div>
         <p className="mt-3 text-sm text-slate-300">
@@ -201,9 +242,30 @@ export default function HotLeadsCard() {
       </CardHeader>
 
       <CardContent className="space-y-3 p-4 md:p-5">
-        {leads.map((lead) => {
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter hot leads">
+          {([
+            ['all', 'All leads'],
+            ['assigned', 'Assigned'],
+            ['mine', 'My leads'],
+            ['unassigned', 'Unassigned'],
+          ] as const).map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={leadTab === tab}
+              onClick={() => setLeadTab(tab)}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${leadTab === tab ? 'bg-amber-400 text-slate-950' : 'border border-white/10 text-slate-300 hover:bg-white/5'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {!visibleLeads.length && <p className="rounded-xl border border-white/10 bg-slate-950/40 p-5 text-center text-sm text-slate-400">No leads match this view.</p>}
+        {visibleLeads.map((lead) => {
           const isExpanded = expandedId === lead.id;
           const scoreTone = (lead.score ?? 0) >= 85 ? 'text-emerald-300' : (lead.score ?? 0) >= 70 ? 'text-amber-300' : 'text-rose-300';
+          const assignedMember = teamMembers.find((member) => member.id === lead.assigned_user_id);
 
           return (
             <div
@@ -235,6 +297,22 @@ export default function HotLeadsCard() {
                     <span>{lead.email}</span>
                     {lead.phone && <span className="text-slate-500">•</span>}
                     {lead.phone && <span>{lead.phone}</span>}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="rounded-full bg-violet-500/15 px-2 py-1 text-[10px] font-medium text-violet-200">
+                      {assignedMember ? `Assigned: ${assignedMember.name}` : lead.assigned_user_id ? `Assigned: ${lead.assigned_user_id.slice(0, 8)}` : 'Unassigned'}
+                    </span>
+                    <span className="rounded-full bg-cyan-500/15 px-2 py-1 text-[10px] font-medium capitalize text-cyan-200">
+                      {lead.status || 'new'}
+                    </span>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-medium capitalize text-emerald-200">
+                      {(lead.lifecycle_stage || 'not_started').replaceAll('_', ' ')}
+                    </span>
+                    {lead.last_comment && (
+                      <span className="max-w-full truncate rounded-full bg-slate-700/80 px-2 py-1 text-[10px] text-slate-200" title={lead.last_comment}>
+                        Comment: {lead.last_comment}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -289,11 +367,19 @@ export default function HotLeadsCard() {
                             <Check className="h-3 w-3" /> Claim
                           </button>
                         )}
-                        {lead.assigned_to_current_user ? (
+                        {lead.assigned_to_current_user && lead.status === 'assigned' && !['triggering', 'tagged'].includes(lead.follow_up_status || '') && (lead.follow_up_status !== 'failed' || lead.follow_up_retry_approved) ? (
                           <button type="button" onClick={() => actOnLead(lead, 'follow-up')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950 disabled:opacity-60">
-                            Contact lead
+                            {lead.follow_up_status === 'failed' ? 'Retry follow-up' : 'Contact lead'}
                             <ArrowRight className="h-3 w-3" />
                           </button>
+                        ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'failed' ? (
+                          <span className="text-[10px] font-medium text-rose-200">Acknowledge the workflow alert before retrying</span>
+                        ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'triggering' ? (
+                          <span className="text-[10px] font-medium text-amber-200">Follow-up is in progress</span>
+                        ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'tagged' ? (
+                          <span className="text-[10px] font-medium text-emerald-200">Follow-up already completed</span>
+                        ) : lead.assigned_to_current_user && lead.status === 'contacted' ? (
+                          <span className="text-[10px] font-medium text-emerald-200">First contact complete</span>
                         ) : lead.status === 'assigned' ? (
                           <span className="text-[10px] font-medium text-slate-400">Assigned to another user</span>
                         ) : null}

@@ -47,7 +47,7 @@ async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch)
 @pytest.mark.asyncio
 async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):
     service = GHLService()
-    service.get_contact = AsyncMock(return_value={"id": "contact-1", "tags": ["existing"]})
+    service.get_contact = AsyncMock(return_value={"contact": {"id": "contact-1", "tags": ["existing", "customer"]}})
     service.update_contact = AsyncMock(return_value=True)
     service.add_contact_note = AsyncMock(return_value=True)
 
@@ -64,9 +64,49 @@ async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):
     payload = service.update_contact.await_args.args[1]
     assert "eny-score-hot" in payload["tags"]
     assert "eny-status-contacted" in payload["tags"]
-    assert payload["assignedTo"] == "owner-1"
+    assert payload["tags"][:2] == ["existing", "customer"]
+    assert "assignedTo" not in payload
+    assert result["assigned_user_id"] == "owner-1"
     assert {field["value"] for field in payload["customFields"]} >= {92, "hot", "contacted"}
     service.add_contact_note.assert_awaited_once_with("contact-1", "Follow-up completed")
+
+
+@pytest.mark.asyncio
+async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"]))
+            if url.endswith("/opportunities/search"):
+                return Response({"opportunities": []})
+            return Response({"pipelines": []})
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_contact_opportunity_context("contact-1")
+
+    assert result["status"] == "connected"
+    assert requests[0][1] == {"location_id": "location-1", "contact_id": "contact-1", "limit": 100}
 
 
 def test_contact_quality_report_normalizes_and_detects_duplicate_identity():

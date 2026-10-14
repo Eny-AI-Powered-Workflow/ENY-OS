@@ -43,7 +43,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const contact = $input.first().json;\nconst request = $('Validate Follow-up Payload').first().json;\nconst existingTags = Array.isArray(contact.tags) ? contact.tags : [];\nconst tags = [...new Set([...existingTags, 'eny-follow-up-queued'])];\n\nreturn [{ json: {\n  ...request,\n  contact_name: contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' '),\n  email: contact.email || null,\n  tags\n} }];"
+        "jsCode": "const response = $input.first().json || {};\nconst contact = response.contact || response;\nconst request = $('Validate Follow-up Payload').first().json;\nconst existingTags = Array.isArray(contact.tags) ? contact.tags : [];\nconst tags = [...new Set([...existingTags, 'eny-follow-up-queued'])];\n\nreturn [{ json: {\n  ...request,\n  contact_name: contact.name || [contact.firstName, contact.lastName].filter(Boolean).join(' '),\n  email: contact.email || null,\n  tags\n} }];"
       },
       "name": "Prepare Follow-up Tag",
       "type": "n8n-nodes-base.code",

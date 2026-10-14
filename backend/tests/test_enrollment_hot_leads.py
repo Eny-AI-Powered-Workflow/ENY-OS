@@ -1,12 +1,16 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.api.v1.endpoints.enrollment import (
     BatchDecisionRequest,
+    LeadAssignmentRequest,
     _transition_queue_state,
+    assign_hot_lead,
     decide_batch_result,
+    follow_up_hot_lead,
     get_enrollment_hot_leads,
     get_batch_execution_results,
     get_enrollment_operations,
@@ -265,6 +269,109 @@ def test_queue_transition_helper_rejects_skipped_states():
     previous = _transition_queue_state(result, "contacted", "user-1", "Contact completed")
     assert previous == "assigned"
     assert result.queue_status == "contacted"
+
+
+@pytest.mark.asyncio
+async def test_assign_hot_lead_assigns_team_member_and_audits_writeback(monkeypatch):
+    from uuid import UUID
+
+    assigned_user_id = UUID("00000000-0000-0000-0000-000000000002")
+    result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        contact_id="contact-1",
+        category="hot",
+        queue_status="new",
+        assigned_user_id=None,
+        last_action_at=None,
+    )
+
+    class Query:
+        def __init__(self, row):
+            self.row = row
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self.row
+
+    class Db:
+        def __init__(self):
+            self.added = []
+            self.committed = False
+
+        def query(self, model):
+            if model is BatchExecutionResult:
+                return Query(result)
+            return Query((assigned_user_id,))
+
+        def add(self, item):
+            self.added.append(item)
+
+        def commit(self):
+            self.committed = True
+
+    db = Db()
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.enrollment.ghl_service.sync_enrollment_outcome",
+        AsyncMock(return_value={"success": False, "error": "Contact not found in GHL"}),
+    )
+
+    response = await assign_hot_lead(
+        result_id=result.id,
+        request=LeadAssignmentRequest(assigned_user_id=assigned_user_id),
+        db=db,
+        current_user=SimpleNamespace(id="operator-1"),
+    )
+
+    assert response["status"] == "assigned"
+    assert "GHL synchronization failed" in response["warning"]
+    assert result.assigned_user_id == assigned_user_id
+    assert db.committed is True
+    audit_events = [item for item in db.added if isinstance(item, EnrollmentAudit)]
+    assert any(item.event_type == "ghl_writeback_failed" for item in audit_events)
+    assert any(item.event_type == "hot_lead_assigned" for item in audit_events)
+
+
+@pytest.mark.asyncio
+async def test_completed_follow_up_cannot_be_triggered_twice(monkeypatch):
+    from uuid import UUID
+    from fastapi import HTTPException
+
+    result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        contact_id="contact-1",
+        approval_id=None,
+        assigned_user_id="user-1",
+        queue_status="assigned",
+        follow_up_status="tagged",
+    )
+
+    class Query:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def first(self):
+            return result
+
+    db = SimpleNamespace(query=lambda model: Query())
+    trigger = AsyncMock()
+    monkeypatch.setattr("app.api.v1.endpoints.enrollment.N8NService.trigger_workflow", trigger)
+
+    with pytest.raises(HTTPException, match="already been started or completed"):
+        await follow_up_hot_lead(
+            result_id=result.id,
+            db=db,
+            current_user=SimpleNamespace(id="user-1"),
+        )
+
+    trigger.assert_not_awaited()
 
 
 class MagicMockQuery:

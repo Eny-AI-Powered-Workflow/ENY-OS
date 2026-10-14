@@ -269,7 +269,7 @@ class GHLService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.base_url}/opportunities/search",
-                    params={"location_id": self.location_id, "contact_id": contact_id, "status": "all", "limit": 100},
+                    params={"location_id": self.location_id, "contact_id": contact_id, "limit": 100},
                     headers={**self.headers, "Version": "v3"},
                     timeout=30.0,
                 )
@@ -333,9 +333,9 @@ class GHLService:
     ) -> Dict[str, Any]:
         """Write one auditable Enrollment outcome to GHL.
 
-        Score/category tags, queue status, and native assignedTo ownership are written
-        together. The optional note is recorded separately because GHL exposes
-        notes through its contact notes endpoint rather than contact update.
+        Score/category tags and queue status are written to the CRM. ENY assignment
+        uses Supabase user IDs, so it is recorded locally rather than sent as a
+        GHL-native owner ID. Notes use GHL's separate contact notes endpoint.
         """
         tags: list[str] = []
         if category:
@@ -357,21 +357,31 @@ class GHLService:
         if tags:
             contact = await self.get_contact(contact_id)
             if not contact:
-                return {"success": False, "contact_updated": False, "note_recorded": False, "error": "Contact not found in GHL"}
+                return {
+                    "success": False,
+                    "contact_updated": False,
+                    "note_recorded": False,
+                    "error": "Contact not found or unavailable in GHL",
+                }
+            contact = contact.get("contact", contact)
+            if not isinstance(contact, dict):
+                return {
+                    "success": False,
+                    "contact_updated": False,
+                    "note_recorded": False,
+                    "error": "GHL returned an invalid contact response",
+                }
             payload["tags"] = list(dict.fromkeys((contact.get("tags") or []) + tags))
-        if owner_id:
-            payload["assignedTo"] = owner_id
         contact_updated = await self.update_contact(contact_id, payload) if payload else True
         note_recorded = await self.add_contact_note(contact_id, note) if note else True
-        opportunity_context = await self.get_contact_opportunity_context(contact_id)
         return {
             "success": contact_updated and note_recorded,
             "contact_updated": contact_updated,
             "note_recorded": note_recorded,
             "tags": tags,
             "fields_written": [field["id"] for field in custom_fields],
-            "assigned_to": owner_id,
-            "opportunity_context": opportunity_context,
+            "assigned_user_id": owner_id,
+            "opportunity_context": {"status": "not_requested"},
             "error": None if contact_updated and note_recorded else "GHL write-back incomplete",
         }
 
@@ -400,7 +410,7 @@ class GHLService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.base_url}/opportunities/search",
-                    params={"locationId": self.location_id, "status": "all", "limit": 100},
+                    params={"location_id": self.location_id, "limit": 100},
                     headers=opportunity_headers,
                     timeout=30.0,
                 )

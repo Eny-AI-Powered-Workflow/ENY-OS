@@ -47,6 +47,16 @@ APPROVED_WORKFLOWS: dict[str, dict[str, Any]] = {
         "phase": "8",
         "status": "requires_human_approval",
     },
+    "eny-enrollment-follow-up": {
+        "name": "ENY-ENROLLMENT-FOLLOW-UP",
+        "route": "/webhook/eny-enrollment-follow-up",
+        "owner": "enrollment",
+        "mode": "operator-triggered",
+        "requires_human_approval": False,
+        "description": "Run the approved follow-up workflow for an assigned Enrollment lead.",
+        "phase": "8",
+        "status": "approved",
+    },
 }
 
 
