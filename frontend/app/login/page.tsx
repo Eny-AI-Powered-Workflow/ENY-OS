@@ -19,15 +19,29 @@ export default function LoginPage() {
     setError(null)
     setGoogleLoading(true)
 
-    const { error: authError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+    const redirectTo = siteUrl
+      ? `${siteUrl.replace(/\/+$/, '')}/auth/callback`
+      : process.env.NODE_ENV === 'development'
+        ? `${window.location.origin}/auth/callback`
+        : null
 
-    if (authError) {
-      setError(authError.message)
+    if (!redirectTo) {
+      setError('Google sign-in is not configured for this deployment. Please contact support.')
+      setGoogleLoading(false)
+      return
+    }
+
+    try {
+      const { error: authError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo },
+      })
+
+      if (authError) throw authError
+    } catch (cause) {
+      console.error('Unable to start Google sign-in:', cause)
+      setError(cause instanceof Error ? cause.message : 'Unable to start Google sign-in')
       setGoogleLoading(false)
     }
   }

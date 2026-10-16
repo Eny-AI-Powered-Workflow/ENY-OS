@@ -82,11 +82,20 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    Google sign-in also creates new Supabase Auth accounts. In Supabase
    Authentication → Providers, enable Google and enter the OAuth client ID and
    secret from Google Cloud Console. Add the Supabase Google callback URL shown
-   in that provider's settings to the Google OAuth client's authorized redirect
-   URIs. In Supabase Authentication → URL Configuration, allow the deployed
-   frontend origin and its `/auth/callback` path (and the local frontend
-   callback during development). After a first Google sign-in, accounts remain
-   pending until the CEO assigns at least one role in CEO Cockpit.
+   in that provider's settings (usually
+   `https://<project-ref>.supabase.co/auth/v1/callback`) to the Google OAuth
+   client's authorized redirect URIs. In Supabase Authentication → URL
+   Configuration, set **Site URL** to the canonical production frontend origin
+   (for example, `https://eny-os.vercel.app`) and add the exact
+   `https://<production-host>/auth/callback` URL under **Redirect URLs**. Add
+   `http://localhost:3000/auth/callback` there only for local development. Set
+   Vercel's `NEXT_PUBLIC_SITE_URL` to the same canonical production origin
+   without a trailing slash, then redeploy the frontend; the checked-in local
+   example uses `http://localhost:3000`. Production Google sign-in fails
+   explicitly if this variable is missing instead of silently redirecting to a
+   development origin. The frontend uses PKCE for OAuth callbacks. After a
+   first Google sign-in, accounts remain pending until the CEO assigns at least
+   one role in CEO Cockpit.
 
    No new Render environment variable is required: the backend already requires
    `SUPABASE_URL` and the server-only `SUPABASE_SERVICE_ROLE_KEY` in
