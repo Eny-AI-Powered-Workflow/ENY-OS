@@ -47,14 +47,14 @@ APPROVED_WORKFLOWS: dict[str, dict[str, Any]] = {
         "phase": "8",
         "status": "requires_human_approval",
     },
-    "eny-enrollment-follow-up": {
-        "name": "ENY-ENROLLMENT-FOLLOW-UP",
-        "route": "/webhook/eny-enrollment-follow-up",
-        "owner": "enrollment",
-        "mode": "operator-triggered",
-        "requires_human_approval": False,
-        "description": "Run the approved follow-up workflow for an assigned Enrollment lead.",
-        "phase": "8",
+    "eny-video-publish": {
+        "name": "ENY-VIDEO-PUBLISH",
+        "route": "/webhook/eny-video-publish",
+        "owner": "videographer",
+        "mode": "approval-gated",
+        "requires_human_approval": True,
+        "description": "Publish only a clip approved through the video workflow.",
+        "phase": "6",
         "status": "approved",
     },
 }

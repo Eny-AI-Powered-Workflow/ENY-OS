@@ -25,10 +25,10 @@ from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
 from app.models.operational_alert import OperationalAlert
+from app.models.ghl_lead_intake import GHLLeadIntake
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
-from app.services.n8n_service import N8NService
 from app.services.embedding_service import (
     EmbeddingError,
     EmbeddingRateLimitError,
@@ -77,7 +77,8 @@ class CohortReviewRequest(BaseModel):
 class CohortApprovalRequest(BaseModel):
     cohort_name: str = Field(..., min_length=1, max_length=120)
     source_filter: str = Field(..., min_length=1, max_length=200)
-    batch_size: int = Field(25, ge=1, le=100)
+    batch_size: int = Field(25, ge=1, le=25)
+    contact_ids: list[str] | None = Field(None, min_length=1, max_length=25)
 
 
 class CohortDecisionRequest(BaseModel):
@@ -457,7 +458,7 @@ async def review_lead_cohorts(
 ):
     """Propose lead cohorts for human approval; this endpoint never changes GHL."""
     roles = get_user_roles(current_user, db)
-    if not set(roles).intersection({"ceo", "enrollment", "programs_manager"}):
+    if not set(roles).intersection({"ceo", "enrollment", "sales"}):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cohort review is not available for this role")
 
     inventory = await ghl_service.get_cohort_inventory()
@@ -538,10 +539,45 @@ async def approve_cohort_batch(
 ):
     """Approve an exact, capped cohort for later scoring without changing GHL."""
     roles = get_user_roles(current_user, db)
-    if not set(roles).intersection({"ceo", "enrollment", "programs_manager"}):
+    if not set(roles).intersection({"ceo", "enrollment", "sales"}):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cohort approval is not available for this role")
 
-    contacts = await ghl_service.get_unscored_source_contacts(request.source_filter, request.batch_size)
+    intake_rows: list[GHLLeadIntake] = []
+    if request.contact_ids:
+        contact_ids = list(dict.fromkeys(contact_id.strip() for contact_id in request.contact_ids if contact_id.strip()))
+        if len(contact_ids) != len(request.contact_ids):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selected contact IDs must be non-empty and unique")
+        intake_rows = (
+            db.query(GHLLeadIntake)
+            .filter(
+                GHLLeadIntake.contact_id.in_(contact_ids),
+                GHLLeadIntake.status == "pending_review",
+            )
+            .with_for_update()
+            .all()
+        )
+        if len(intake_rows) != len(contact_ids):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="One or more selected leads are no longer awaiting review")
+        contacts = []
+        for contact_id in contact_ids:
+            payload = await ghl_service.get_contact(contact_id)
+            contact = payload.get("contact", payload) if isinstance(payload, dict) else None
+            if not isinstance(contact, dict) or str(contact.get("id")) != contact_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"GHL contact {contact_id} is unavailable")
+            custom_fields = contact.get("customFields") or []
+            if isinstance(custom_fields, dict):
+                custom_fields = [custom_fields]
+            already_scored = any(
+                isinstance(field, dict)
+                and str(field.get("id")) == settings.GHL_SALES_SCORE_FIELD_ID
+                and field.get("value") not in (None, "")
+                for field in custom_fields
+            )
+            if already_scored:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"GHL contact {contact_id} already has a score")
+            contacts.append(contact)
+    else:
+        contacts = await ghl_service.get_unscored_source_contacts(request.source_filter, request.batch_size)
     if not contacts:
         inventory = await ghl_service.get_cohort_inventory()
         available_sources = [group.get("source") for group in inventory.get("source_groups", [])]
@@ -566,6 +602,9 @@ async def approve_cohort_batch(
         decided_at=datetime.now(timezone.utc),
     )
     db.add(approval)
+    for intake_row in intake_rows:
+        intake_row.status = "approved_for_scoring"
+        intake_row.approval_id = approval.id
     db.commit()
     db.refresh(approval)
     return {
@@ -630,6 +669,11 @@ def _record_batch_result(
     status: str,
     score: int | None = None,
     category: str | None = None,
+    score_reasoning: str | None = None,
+    score_factors: dict[str, int] | None = None,
+    score_evidence: list[str] | None = None,
+    score_unknowns: list[str] | None = None,
+    next_best_action: str | None = None,
     error: str | None = None,
     retry_count: int = 0,
     score_origin: str = "approved_batch",
@@ -649,6 +693,11 @@ def _record_batch_result(
         phone=contact.get("phone"),
         source=contact.get("source") or "unknown",
         score=score,
+        score_reasoning=score_reasoning,
+        score_factors=score_factors,
+        score_evidence=score_evidence,
+        score_unknowns=score_unknowns,
+        next_best_action=next_best_action,
         category=category,
         status=status,
         error=error,
@@ -681,7 +730,7 @@ async def execute_approved_batch(
     approval = db.query(CohortApproval).filter(
         CohortApproval.id == approval_uuid,
         CohortApproval.user_id == current_user.id,
-    ).first()
+    ).with_for_update().first()
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval record not found")
     if getattr(approval, "decision", "approved") != "approved" or approval.status not in {
@@ -692,20 +741,35 @@ async def execute_approved_batch(
             status_code=status.HTTP_409_CONFLICT,
             detail="This approval is not executable under the current operating policy",
         )
+    approved_ids = [str(contact_id) for contact_id in (approval.contact_ids or [])]
+    intake_rows = (
+        db.query(GHLLeadIntake)
+        .filter(GHLLeadIntake.contact_id.in_(approved_ids))
+        .with_for_update()
+        .all()
+    ) if approved_ids else []
+    intake_by_contact = {str(row.contact_id): row for row in intake_rows}
+    for row in intake_rows:
+        if row.approval_id and str(row.approval_id) != str(approval.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"GHL contact {row.contact_id} is already claimed by another approved batch",
+            )
+        row.approval_id = approval.id
+        row.status = "scoring"
     approval.status = "executing"
 
     contacts, _ = await ghl_service.get_all_contacts()
     contact_map = {str(contact.get("id")): contact for contact in contacts if contact.get("id")}
-    approved_ids = [str(contact_id) for contact_id in (approval.contact_ids or [])]
 
     results: list[dict[str, Any]] = []
     processed_count = 0
     failed_count = 0
-    n8n_service = N8NService()
-
     for contact_id in approved_ids:
         contact = contact_map.get(contact_id)
         if not contact:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = "failed"
             missing_contact = {"id": contact_id, "source": "unknown", "tags": []}
             _record_batch_result(
                 db,
@@ -727,6 +791,10 @@ async def execute_approved_batch(
                 BatchExecutionResult.contact_id == contact_id,
             ).first()
         if existing_result:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = (
+                    "scored" if existing_result.status in {"scored", "already_scored"} else "failed"
+                )
             results.append({
                 "contact_id": contact_id,
                 "status": existing_result.status,
@@ -757,6 +825,8 @@ async def execute_approved_batch(
 
         existing_score = field_lookup.get(settings.GHL_SALES_SCORE_FIELD_ID)
         if existing_score is not None:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = "scored"
             _record_batch_result(
                 db,
                 approval,
@@ -784,54 +854,59 @@ async def execute_approved_batch(
             "customFields": custom_fields,
         }
 
-        workflow_payload = {
-            "contact_id": str(contact_id),
-            "lead_data": lead_data,
-            "approval_id": str(approval.id),
-            "source": lead_data["source"],
-            "tags": lead_data["tags"],
-        }
-        workflow_result = await n8n_service.trigger_workflow("eny-sales-score", workflow_payload)
-        if workflow_result.get("status") == "success":
-            score_origin = "n8n"
-            score_value = workflow_result.get("score", 0)
-            scoring = {"score": score_value, "category": _derive_score_category(score_value), "reasoning": workflow_result.get("message", "Workflow-driven scoring"), "next_best_action": "Follow up with the lead", "recommended_tags": workflow_result.get("tags", [])}
-        else:
-            score_origin = "deterministic_fallback"
-            scoring = ClaudeService().deterministic_score_lead(lead_data)
-            score_value = scoring.get("score", 50)
-
         try:
-            score_int = int(score_value)
-        except (TypeError, ValueError):
-            score_int = 50
+            scoring = await ClaudeService().score_lead(lead_data)
+        except Exception as exc:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = "failed"
+            message = f"Lead scoring failed: {exc}"
+            result_row = _record_batch_result(
+                db,
+                approval,
+                contact,
+                status="failed",
+                error=message,
+                score_origin="claude",
+                failure_class="workflow",
+                operating_decision="hold",
+            )
+            db.add(BatchRetry(
+                result_id=result_row.id,
+                attempt_number=1,
+                error_message=message,
+                status="retry_pending",
+                next_attempt_at=datetime.now(timezone.utc),
+                failure_class="workflow",
+                operating_decision="hold",
+            ))
+            db.add(OperationalAlert(
+                alert_type="sales_scoring_failure",
+                source="claude",
+                message="Lead scoring failed and needs operator review.",
+                result_id=result_row.id,
+                details={"contact_id": contact_id, "approval_id": str(approval.id), "error": str(exc)},
+            ))
+            results.append({"contact_id": contact_id, "status": "failed", "error": message})
+            failed_count += 1
+            continue
 
-        category = scoring.get("category") or _derive_score_category(score_int)
-        combined_tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch", category]))
-
+        score_int = int(scoring["score"])
+        category = _derive_score_category(score_int)
         writeback = await ghl_service.sync_enrollment_outcome(
             str(contact_id),
             queue_status="new",
             score=score_int,
             category=category,
-            note=f"ENY Enrollment scoring completed: {category} ({score_int}/100).",
+            note=(
+                f"ENY AI scoring: {category} ({score_int}/100). "
+                f"{scoring['reasoning']} Next action: {scoring['next_best_action']}"
+            ),
         )
         write_ok = bool(writeback.get("success"))
         if write_ok:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = "scored"
             processed_count += 1
-            enrollment_notification = None
-            if category == "hot":
-                enrollment_notification = await n8n_service.trigger_workflow(
-                    "eny-enrollment-hot-leads",
-                    {
-                        "contact_id": str(contact_id),
-                        "score": score_int,
-                        "category": category,
-                        "source": lead_data["source"],
-                        "tags": combined_tags,
-                        "approval_id": str(approval.id),
-                    },
-                )
             result_row = _record_batch_result(
                 db,
                 approval,
@@ -839,31 +914,42 @@ async def execute_approved_batch(
                 status="scored",
                 score=score_int,
                 category=category,
-                score_origin=score_origin,
+                score_reasoning=scoring["reasoning"],
+                score_factors=scoring["score_factors"],
+                score_evidence=scoring["evidence"],
+                score_unknowns=scoring["unknowns"],
+                next_best_action=scoring["next_best_action"],
+                score_origin="claude",
             )
             result_row.queue_status = "new" if category == "hot" else "new"
-            if category == "hot" and enrollment_notification and enrollment_notification.get("status") != "success":
+            if category == "hot":
                 db.add(OperationalAlert(
-                    alert_type="hot_lead_notification_failure",
-                    source="n8n",
-                    message="Hot lead scoring succeeded but Enrollment notification failed.",
-                    result_id=result_row.id,
-                    details={"contact_id": contact_id, "workflow": enrollment_notification},
-                ))
-            if score_origin == "deterministic_fallback":
-                db.add(OperationalAlert(
-                    alert_type="scoring_workflow_failure",
-                    source="n8n",
-                    message="ENY-SALES-SCORE failed; deterministic fallback scoring was used.",
-                    result_id=result_row.id,
-                    details={"contact_id": contact_id, "workflow": workflow_result},
+                    alert_type="hot_lead_ready",
+                    source="sales_scoring",
                     severity="warning",
+                    message="A newly scored hot lead is ready for Sales & Enrollment review.",
+                    result_id=result_row.id,
+                    details={
+                        "contact_id": contact_id,
+                        "score": score_int,
+                        "category": category,
+                        "next_best_action": scoring["next_best_action"],
+                    },
                 ))
             db.add(EnrollmentAudit(
                 user_id=approval.user_id,
                 result_id=result_row.id,
                 event_type="ghl_writeback_succeeded",
-                details={"contact_id": contact_id, "outcome": "scored", "writeback": writeback},
+                details={
+                    "contact_id": contact_id,
+                    "outcome": "scored",
+                    "score_origin": "claude",
+                    "score": score_int,
+                    "category": category,
+                    "score_factors": scoring["score_factors"],
+                    "reasoning": scoring["reasoning"],
+                    "writeback": writeback,
+                },
             ))
             if category == "hot":
                 db.add(BatchRetry(
@@ -883,12 +969,17 @@ async def execute_approved_batch(
                 "status": "scored",
                 "score": score_int,
                 "category": category,
-                "reasoning": scoring.get("reasoning", ""),
-                "next_best_action": scoring.get("next_best_action", ""),
-                "enrollment_notification": enrollment_notification,
+                "score_origin": "claude",
+                "reasoning": scoring["reasoning"],
+                "score_factors": scoring["score_factors"],
+                "evidence": scoring["evidence"],
+                "unknowns": scoring["unknowns"],
+                "next_best_action": scoring["next_best_action"],
                 "ghl_writeback": writeback,
             })
         else:
+            if contact_id in intake_by_contact:
+                intake_by_contact[contact_id].status = "failed"
             failed_count += 1
             result_row = _record_batch_result(
                 db,
@@ -897,6 +988,11 @@ async def execute_approved_batch(
                 status="failed",
                 score=score_int,
                 category=category,
+                score_reasoning=scoring["reasoning"],
+                score_factors=scoring["score_factors"],
+                score_evidence=scoring["evidence"],
+                score_unknowns=scoring["unknowns"],
+                next_best_action=scoring["next_best_action"],
                 error="GHL update failed",
                 retry_count=1,
                 failure_class="crm_write",

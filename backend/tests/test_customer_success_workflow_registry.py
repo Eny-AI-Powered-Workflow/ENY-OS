@@ -12,13 +12,14 @@ def test_customer_success_registry_only_allows_approved_workflows():
         "eny-prog-monitor",
         "eny-customer-success-checkin",
         "eny-customer-success-escalation",
-        "eny-enrollment-follow-up",
+        "eny-video-publish",
     ]
 
     for workflow_name in approved:
         result = service.trigger_workflow_sync(workflow_name, {"approved": True})
         assert result["status"] in {"success", "mocked"}
 
-    blocked = service.trigger_workflow_sync("eny-bad-workflow", {"approved": False})
-    assert blocked["status"] == "error"
-    assert "not registered" in blocked["error"].lower()
+    for retired in ("eny-sales-score", "eny-enrollment-follow-up"):
+        blocked = service.trigger_workflow_sync(retired, {"approved": False})
+        assert blocked["status"] == "error"
+        assert "not registered" in blocked["error"].lower()

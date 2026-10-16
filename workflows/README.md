@@ -6,8 +6,6 @@ This directory contains exported n8n workflow JSON files that can be imported in
 
 | Workflow Name | Webhook Path | Description |
 |---------------|--------------|-------------|
-| ENY-SALES-SCORE | /webhook/eny-sales-score | Lead scoring workflow that analyzes leads and assigns scores based on engagement and fit criteria |
-| ENY-ENROLLMENT-FOLLOW-UP | /webhook/eny-enrollment-follow-up | Operator-triggered follow-up for an assigned, approved hot lead |
 | ENY-VIDEO-PUBLISH | /webhook/eny-video-publish | Validates an approved clip and sends it to the configured publishing adapter |
 
 ## How to Use
@@ -17,9 +15,9 @@ This directory contains exported n8n workflow JSON files that can be imported in
    - Select the JSON file from this directory
    - Activate the workflow
 
-2. To trigger a workflow from the frontend/backend:
+2. To trigger a registered workflow from the frontend/backend:
    - Use the `/api/v1/agents/trigger/{workflow_name}` endpoint
-   - Example: `POST /api/v1/agents/trigger/eny-sales-score`
+   - The Sales scoring and notification paths do not use this endpoint.
 
 ## Available Workflows
 
@@ -55,22 +53,22 @@ This directory contains exported n8n workflow JSON files that can be imported in
 - **Expected Input**: `student_id`, `case_type`, `reason`, `priority`, and `assigned_owner`
 - **Output**: Escalation queue item and operational log only.
 
-### ENY-SALES-SCORE
-- **Webhook Path**: `/webhook/eny-sales-score`
-- **Description**: Analyzes incoming leads and assigns a score based on predefined criteria (engagement, demographic fit, behavioral signals)
-- **Trigger Type**: Webhook
-- **Expected Input**: Lead data object with contact information and engagement metrics
-- **Output**: Updated lead record with score and appropriate tags (hot, warm, cold, follow-up)
+### Sales & Enrollment intake and scoring
 
-### ENY-ENROLLMENT-FOLLOW-UP
-- **Webhook Path**: `/webhook/eny-enrollment-follow-up`
-- **Description**: Receives an approved, assigned hot lead and queues the configured Enrollment follow-up action.
-- **Gateway Status**: Registered for authenticated, operator-triggered follow-up on an assigned, approved hot lead. The API persists an in-progress attempt before dispatch, prevents duplicate dispatches, and requires an operator to acknowledge a failed attempt before retrying because an n8n timeout can occur after an email was sent.
-- **Trigger Type**: Webhook
-- **Expected Input**: `contact_id`, `result_id`, `approval_id`, `assigned_user_id`, `source`, `score`, and `category`
-- **Output**: Success after the GHL contact is loaded and tagged with `eny-follow-up-queued`. The inbox email is best-effort: the response includes `notification_sent` and `notification_error` if delivery fails after the tag succeeds. The workflow expects GHL contact responses either as a contact object or in a `contact` envelope.
-- **Required n8n environment variables**: `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, `GHL_NOTIFICATION_FROM_EMAIL`
-- **Recommended webhook protection**: configure the Webhook node with a dedicated header secret and set the same value as backend `N8N_WEBHOOK_TOKEN`.
+GHL contact-created events are received by the FastAPI route
+`POST /api/v1/enrollment/ghl-webhook`, authenticated with the
+`X-GHL-Webhook-Token` shared secret. The event is deduplicated by GHL contact
+ID and displayed in the AI Desk for human batch approval. Scoring is a
+separate explicit action and runs through `ClaudeService`; it is not an n8n
+workflow. The weighted score uses intent (40%), offer fit (30%), and
+engagement (30%), with unsupported/unknown evidence scored as zero. Hot is
+85+, warm 70–84, follow-up 50–69, and cold below 50.
+
+Hot-lead and "Notify Sales & Enrollment" actions create internal
+`operational_alerts`; the latter also tags the GHL contact as queued. It never
+sends an email or SMS to the lead and never marks outreach as sent. If the
+legacy `eny-enrollment-follow-up.json` workflow was imported into n8n, disable
+it: its previous email behavior is retired and the backend no longer calls it.
 
 ### ENY-VIDEO-PUBLISH
 - **Webhook Path**: `/webhook/eny-video-publish`
@@ -83,7 +81,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 
 ## Business Support Payment Verification
 
-Payment verification is a human-operated API flow, not an n8n workflow. Business Support uses the dashboard to request a server-side Paystack reference verification; the backend records the result and reviewer under an idempotency key. Only Paystack `success`/NGN responses are marked verified. The flow does not alter provider data or grant course access. Kajabi, payment lifecycle writes, and automated follow-up remain disabled until their provider contracts, approvals, and duplicate-side-effect recovery are validated.
+Payment verification is a human-operated API flow, not an n8n workflow. Business Support uses the dashboard to request a server-side Paystack reference verification; the backend records the result and reviewer under an idempotency key. Only Paystack `success`/NGN responses are marked verified. The flow does not alter provider data, grant course access, or trigger Programs onboarding. Kajabi, payment lifecycle writes, and automated follow-up remain disabled until their provider contracts, approvals, and duplicate-side-effect recovery are validated.
 
 ## Development Notes
 
@@ -94,8 +92,12 @@ Payment verification is a human-operated API flow, not an n8n workflow. Business
 
 ## Example Usage in Code
 
+No Sales scoring example is provided: intake and scoring use the human-approved
+AI Desk flow described above, not a registered n8n scorer.
+
+<!-- Historical example retained only for migration history; not an active workflow.
 ```typescript
-// Trigger the ENY-SALES-SCORE workflow
+// Retired: ENY-SALES-SCORE is not an approved workflow.
 const res = await fetch('/api/v1/agents/trigger/eny-sales-score', {
   method: 'POST',
   headers: {
@@ -109,3 +111,4 @@ const res = await fetch('/api/v1/agents/trigger/eny-sales-score', {
   })
 });
 ```
+-->

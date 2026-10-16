@@ -57,11 +57,11 @@ async def get_operations_recent_tasks(
             },
             {
                 "id": "2",
-                "title": "ENY-SALES-SCORE Workflow Triggered",
-                "description": "Lead scoring workflow executed for new leads",
-                "timeAgo": "45 minutes ago",
-                "status": "success",
-                "type": "workflow"
+                "title": "Sales & Enrollment intake review",
+                "description": "GHL contacts wait for an approved scoring batch; no arrival-triggered scoring is configured.",
+                "timeAgo": "manual review",
+                "status": "pending",
+                "type": "review"
             },
             {
                 "id": "3",

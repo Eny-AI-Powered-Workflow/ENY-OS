@@ -166,6 +166,7 @@ export function usePermissions() {
     graphic_designer: ['ai:chat', 'design:workspace', 'design:manage', 'design:write', 'design:templates', 'design:funnels', 'design:analytics', 'design:request', 'design:ai', 'design:canva'],
     executive_assistant: ['pipeline:read', 'agents:trigger', 'ai:chat', 'calendar:read', 'assistant:briefing:read', 'assistant:briefing:write', 'assistant:automation:trigger', 'assistant:research:write'],
     enrollment: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
+    sales: ['leads:read', 'leads:write', 'pipeline:read', 'ai:chat'],
     developer: ['agents:trigger', 'agents:configure', 'ai:chat']
   }
 

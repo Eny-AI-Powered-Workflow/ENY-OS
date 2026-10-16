@@ -128,10 +128,10 @@ async def get_writer_agent_templates(
             {
                 "id": "template_1",
                 "name": "ENY-SALES-SCORE",
-                "description": "Lead qualification and scoring automation.",
+                "description": "Human-approved batch lead scoring through the Sales & Enrollment AI Desk.",
                 "category": "sales",
                 "type": "workflow",
-                "status": "active",
+                "status": "human_gated",
                 "version": "1.9",
                 "usageCount": 12,
             },

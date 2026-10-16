@@ -160,8 +160,22 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    access to the CEO, Executive Assistant, Marketing, and Marketing Lead roles
    only.
 
-   The Enrollment follow-up workflow reads its GHL configuration from n8n
-   environment variables. Also set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`,
-   `GHL_BASE_URL`, `GHL_LOCATION_ID`, `GHL_PRIVATE_TOKEN`, and
-   `GHL_NOTIFICATION_FROM_EMAIL` in the n8n service, then redeploy n8n.
+   For GHL lead intake, apply the next unapplied migration,
+   `supabase/migrations/0043_sales_lead_intake.sql`, and set
+   `GHL_INBOUND_WEBHOOK_TOKEN` in the backend environment to a long random
+   secret. Configure GHL's contact-created webhook to POST to
+   `/api/v1/enrollment/ghl-webhook` with that value in the
+   `X-GHL-Webhook-Token` header. The platform queues each contact once for
+   human batch review; it does not score or message leads on arrival.
+
+   The AI Desk approval step creates a batch only; a team member must then
+   explicitly execute it to score leads. Scoring uses Claude at temperature 0
+   with intent (40%), offer fit (30%), and engagement (30%); missing evidence
+   scores zero. The platform calculates the weighted score and categories:
+   hot >= 85, warm >= 70, follow-up >= 50, otherwise cold. A hot-lead alert
+   appears in Sales & Enrollment operations. "Notify Sales & Enrollment"
+   creates an internal alert and a GHL queue tag; it does not send email/text
+   or mark the lead contacted. Staff must record actual outreach in the UI.
+   If the old ENY-ENROLLMENT-FOLLOW-UP workflow was imported in n8n, deactivate
+   it; the API no longer invokes it.
     

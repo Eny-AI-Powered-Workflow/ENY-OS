@@ -18,6 +18,12 @@ interface Lead {
   follow_up_status?: string;
   follow_up_retry_approved?: boolean;
   score?: number;
+  score_origin?: string;
+  score_reasoning?: string | null;
+  score_factors?: Record<string, number> | null;
+  score_evidence?: string[] | null;
+  score_unknowns?: string[] | null;
+  next_best_action?: string | null;
   status?: string;
   assigned_to_current_user?: boolean;
   lifecycle_stage?: string;
@@ -74,7 +80,7 @@ export default function HotLeadsCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatResponseError(res.status, data.detail, action));
-      const successMessage = action === 'claim' ? 'Lead assigned to you.' : (data.message || 'GHL follow-up tag added.');
+      const successMessage = action === 'claim' ? 'Lead assigned to you.' : (data.message || 'Sales & Enrollment notified; the lead was not contacted.');
       setActionMessage(data.warning ? `${successMessage} ${data.warning}` : successMessage);
       await fetchLeads();
     } catch (err) {
@@ -86,7 +92,9 @@ export default function HotLeadsCard() {
 
   const updateLifecycle = async (lead: Lead, stage: 'outreach_sent' | 'responded' | 'next_step' | 'booked' | 'enrolled' | 'lost') => {
     if (!lead.result_id) return;
-    const reason = window.prompt(`Reason for ${stage.replace('_', ' ')}:`);
+    const reason = window.prompt(stage === 'enrolled'
+      ? 'Verify payment and Programs onboarding in their source systems, then enter the confirmation references/details:'
+      : `Reason for ${stage.replace('_', ' ')}:`);
     if (!reason?.trim()) return;
     setActingId(lead.result_id);
     setActionMessage(null);
@@ -103,9 +111,10 @@ export default function HotLeadsCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(formatActionError(data.detail, `update lifecycle to ${stage}`));
-      setActionMessage(data.warning
-        ? `Lifecycle updated to ${stage.replace('_', ' ')}. ${data.warning}`
-        : `Lifecycle updated to ${stage.replace('_', ' ')}.`);
+      const message = stage === 'enrolled'
+        ? 'Enrollment outcome recorded in ENY. Payment was not verified and Programs onboarding was not triggered by this action.'
+        : `Lifecycle updated to ${stage.replace('_', ' ')}.`;
+      setActionMessage(data.warning ? `${message} ${data.warning}` : message);
       await fetchLeads();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Lifecycle update failed');
@@ -125,7 +134,7 @@ export default function HotLeadsCard() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads?limit=20&min_score=80`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/hot-leads?limit=20&min_score=85`, {
         headers,
         credentials: 'include',
       });
@@ -344,7 +353,7 @@ export default function HotLeadsCard() {
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Priority</p>
                       <div className="mt-2 flex items-center gap-2">
                         <Sparkles className="h-4 w-4 text-amber-300" />
-                        <span className="font-medium text-white">{(lead.score ?? 0) >= 80 ? 'High Intent' : 'Qualified'}</span>
+                        <span className="font-medium text-white">{(lead.score ?? 0) >= 85 ? 'Hot lead' : 'Qualified'}</span>
                       </div>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -359,25 +368,31 @@ export default function HotLeadsCard() {
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Next step</p>
-                      <p className="mt-2 text-xs font-medium text-cyan-200">{lead.lifecycle_stage?.replaceAll('_', ' ') || 'not started'}</p>
+                      <p className="mt-2 text-xs font-medium text-cyan-200">{lead.next_best_action || lead.lifecycle_stage?.replaceAll('_', ' ') || 'not started'}</p>
                       {lead.next_step && <p className="mt-1 text-xs text-slate-400">{lead.next_step}</p>}
+                      {lead.score_reasoning && <p className="mt-2 text-xs leading-5 text-slate-300">{lead.score_reasoning}</p>}
+                      {lead.score_factors && <p className="mt-2 text-[10px] text-slate-400">AI score · intent {lead.score_factors.intent_score ?? 0} · fit {lead.score_factors.fit_score ?? 0} · engagement {lead.score_factors.engagement_score ?? 0} ({lead.score_origin || 'unknown'})</p>}
+                      {lead.score_evidence?.length ? <p className="mt-1 text-[10px] text-slate-400">Evidence: {lead.score_evidence.join('; ')}</p> : null}
+                      {lead.score_unknowns?.length ? <p className="mt-1 text-[10px] text-amber-200">Unknown: {lead.score_unknowns.join('; ')}</p> : null}
                       <div className="mt-2 flex flex-wrap gap-2">
                         {lead.status !== 'assigned' && lead.status !== 'contacted' && (
                           <button type="button" onClick={() => actOnLead(lead, 'claim')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">
                             <Check className="h-3 w-3" /> Claim
                           </button>
                         )}
-                        {lead.assigned_to_current_user && lead.status === 'assigned' && !['triggering', 'tagged'].includes(lead.follow_up_status || '') && (lead.follow_up_status !== 'failed' || lead.follow_up_retry_approved) ? (
+                        {lead.assigned_to_current_user && lead.status === 'assigned' && !['triggering', 'tagged', 'team_notified'].includes(lead.follow_up_status || '') && (lead.follow_up_status !== 'failed' || lead.follow_up_retry_approved) ? (
                           <button type="button" onClick={() => actOnLead(lead, 'follow-up')} disabled={actingId === lead.result_id} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2.5 py-1.5 text-[10px] font-semibold text-slate-950 disabled:opacity-60">
-                            {lead.follow_up_status === 'failed' ? 'Retry follow-up' : 'Contact lead'}
+                            {lead.follow_up_status === 'failed' ? 'Retry team notification' : 'Notify Sales & Enrollment'}
                             <ArrowRight className="h-3 w-3" />
                           </button>
                         ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'failed' ? (
-                          <span className="text-[10px] font-medium text-rose-200">Acknowledge the workflow alert before retrying</span>
+                          <span className="text-[10px] font-medium text-rose-200">Review the GHL tag alert before retrying</span>
                         ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'triggering' ? (
                           <span className="text-[10px] font-medium text-amber-200">Follow-up is in progress</span>
                         ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'tagged' ? (
-                          <span className="text-[10px] font-medium text-emerald-200">Follow-up already completed</span>
+                          <span className="text-[10px] font-medium text-emerald-200">Team notified; lead not contacted</span>
+                        ) : lead.assigned_to_current_user && lead.status === 'assigned' && lead.follow_up_status === 'team_notified' ? (
+                          <span className="text-[10px] font-medium text-emerald-200">Team notified; human outreach pending</span>
                         ) : lead.assigned_to_current_user && lead.status === 'contacted' ? (
                           <span className="text-[10px] font-medium text-emerald-200">First contact complete</span>
                         ) : lead.status === 'assigned' ? (
@@ -387,7 +402,7 @@ export default function HotLeadsCard() {
                         {lead.assigned_to_current_user && ['queued', 'outreach_sent'].includes(lead.lifecycle_stage || '') && <button type="button" onClick={() => void updateLifecycle(lead, 'responded')} disabled={actingId === lead.result_id} className="rounded-full border border-emerald-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-60">Mark responded</button>}
                         {lead.assigned_to_current_user && lead.lifecycle_stage === 'responded' && <button type="button" onClick={() => void updateLifecycle(lead, 'next_step')} disabled={actingId === lead.result_id} className="rounded-full border border-cyan-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-cyan-200 disabled:opacity-60">Set next step</button>}
                         {lead.assigned_to_current_user && ['responded', 'next_step'].includes(lead.lifecycle_stage || '') && <button type="button" onClick={() => void updateLifecycle(lead, 'booked')} disabled={actingId === lead.result_id} className="rounded-full border border-violet-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-violet-200 disabled:opacity-60">Mark booked</button>}
-                        {lead.assigned_to_current_user && lead.lifecycle_stage === 'booked' && <button type="button" onClick={() => void updateLifecycle(lead, 'enrolled')} disabled={actingId === lead.result_id} className="rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">Mark enrolled</button>}
+                        {lead.assigned_to_current_user && lead.lifecycle_stage === 'booked' && <button type="button" onClick={() => void updateLifecycle(lead, 'enrolled')} disabled={actingId === lead.result_id} className="rounded-full border border-amber-300/30 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-60">Record enrolled (manual)</button>}
                       </div>
                     </div>
                   </div>

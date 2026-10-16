@@ -13,6 +13,11 @@ type Operation = {
   score: number | null
   category: string | null
   score_origin: string
+  score_reasoning?: string | null
+  score_factors?: Record<string, number> | null
+  score_evidence?: string[] | null
+  score_unknowns?: string[] | null
+  next_best_action?: string | null
   queue_status: string
   assigned_user_id: string | null
   last_comment?: string | null
@@ -298,7 +303,7 @@ export default function SalesOperationsPanel() {
         </div>
       </div>
 
-      {data.persistentAlerts?.length ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-rose-600">Hard failure alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-rose-800">{alert.message}</span><div className="flex items-center gap-2"><span className="shrink-0 font-semibold uppercase text-rose-600">{alert.source}</span>{alert.type === 'n8n_webhook_failure' && <button type="button" onClick={() => void acknowledgeAlert(alert.id)} className="rounded-md border border-rose-300 bg-white px-2 py-1 font-semibold text-rose-700 hover:bg-rose-100">Acknowledge to allow retry</button>}</div></div>)}</div></div> : null}
+      {data.persistentAlerts?.length ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-amber-700">Sales & Enrollment alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-amber-950">{alert.message}</span><div className="flex items-center gap-2"><span className="shrink-0 font-semibold uppercase text-amber-700">{alert.source}</span>{['n8n_webhook_failure', 'follow_up_tag_failure', 'sales_team_notification', 'hot_lead_ready'].includes(alert.type) && <button type="button" onClick={() => void acknowledgeAlert(alert.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100">{alert.type === 'follow_up_tag_failure' ? 'Acknowledge to allow retry' : 'Mark reviewed'}</button>}</div></div>)}</div></div> : null}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Performance review</p>
@@ -366,7 +371,7 @@ export default function SalesOperationsPanel() {
             {data.results.map((row) => <tr key={row.id} className="hover:bg-slate-50">
               <td className="px-3 py-3"><p className="font-semibold text-slate-900">{row.contact_name || row.contact_id}</p><p className="text-slate-500">{row.email || row.contact_id}</p></td>
               <td className="px-3 py-3"><p className="text-slate-700">{row.source || 'Unknown'}</p><p className="font-semibold text-slate-900">{row.score ?? '—'}</p></td>
-              <td className="px-3 py-3 text-slate-600">{row.score_origin.replaceAll('_', ' ')}</td>
+              <td className="px-3 py-3 text-slate-600"><p>{row.score_origin.replaceAll('_', ' ')}</p>{row.score_factors && <p className="mt-1 text-[10px]">Intent {row.score_factors.intent_score ?? 0} · fit {row.score_factors.fit_score ?? 0} · engagement {row.score_factors.engagement_score ?? 0}</p>}{row.score_reasoning && <p className="mt-1 max-w-xs text-[10px] leading-4">{row.score_reasoning}</p>}{row.score_evidence?.length ? <p className="mt-1 max-w-xs text-[10px]">Evidence: {row.score_evidence.join('; ')}</p> : null}{row.score_unknowns?.length ? <p className="mt-1 max-w-xs text-[10px] text-amber-700">Unknown: {row.score_unknowns.join('; ')}</p> : null}{row.next_best_action && <p className="mt-1 max-w-xs text-[10px] font-medium text-cyan-800">Next: {row.next_best_action}</p>}</td>
               <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">{row.queue_status}</span></td>
               <td className="px-3 py-3">
                 <div className="flex items-center gap-1">

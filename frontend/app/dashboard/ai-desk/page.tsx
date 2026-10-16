@@ -62,6 +62,16 @@ type BatchApproval = {
   contacts: Array<{ id: string; name: string; source: string; tags: string[] }>
 }
 
+type PendingIntakeLead = {
+  contact_id: string
+  name: string
+  email: string | null
+  phone: string | null
+  source: string
+  received_at: string | null
+  ghl_available: boolean
+}
+
 const roleSuggestions: Record<string, string[]> = {
   ceo: [
     "Prepare an executive brief of this week's most important decisions and risks.",
@@ -242,6 +252,8 @@ export default function AIDeskPage() {
   const [cohortLoading, setCohortLoading] = useState(false)
   const [batchApproval, setBatchApproval] = useState<BatchApproval | null>(null)
   const [batchExecution, setBatchExecution] = useState<{ status: string; processed_count?: number; failed_count?: number; approval_id?: string } | null>(null)
+  const [pendingIntake, setPendingIntake] = useState<PendingIntakeLead[]>([])
+  const [selectedIntakeIds, setSelectedIntakeIds] = useState<string[]>([])
 
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -258,6 +270,20 @@ export default function AIDeskPage() {
     } catch (error) {
       throw new Error(describeRequestFailure(error, 'The AI desk could not reach the API.'))
     }
+  }
+
+  const loadPendingIntake = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/enrollment/intake/pending`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      credentials: 'include',
+    })
+    if (!response.ok) throw new Error(await describeHttpError(response, 'Unable to load incoming GHL leads.'))
+    const payload = await response.json()
+    const leads: PendingIntakeLead[] = payload.leads || []
+    setPendingIntake(leads)
+    setSelectedIntakeIds((selected) => selected.filter((id) => leads.some((lead) => lead.contact_id === id)))
   }
 
   const loadConversation = async (id: string) => {
@@ -284,6 +310,15 @@ export default function AIDeskPage() {
   useEffect(() => {
     void loadConversations()
   }, [])
+
+  useEffect(() => {
+    if (!userRoles.some((role) => ['ceo', 'enrollment', 'sales'].includes(role))) return
+    void loadPendingIntake().catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load incoming GHL leads.'))
+    const interval = window.setInterval(() => {
+      void loadPendingIntake().catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to refresh incoming GHL leads.'))
+    }, 60_000)
+    return () => window.clearInterval(interval)
+  }, [userRoles])
 
   const createConversation = async () => {
     const response = await authFetch('/conversations', { method: 'POST' })
@@ -341,6 +376,34 @@ export default function AIDeskPage() {
       if (!response.ok) throw new Error(formatApiError(payload.detail, 'Batch approval failed.'))
       setBatchApproval(payload)
       setBatchExecution(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Batch approval failed.')
+    } finally {
+      setCohortLoading(false)
+    }
+  }
+
+  const approveIncomingBatch = async () => {
+    const chosen = pendingIntake.filter((lead) => selectedIntakeIds.includes(lead.contact_id)).slice(0, 25)
+    if (!chosen.length) return
+    setCohortLoading(true)
+    setError(null)
+    try {
+      const response = await authFetch('/cohort-batch/approve', {
+        method: 'POST',
+        body: JSON.stringify({
+          cohort_name: `GHL inbound batch ${new Date().toISOString().slice(0, 10)}`,
+          source_filter: 'GHL inbound review',
+          batch_size: chosen.length,
+          contact_ids: chosen.map((lead) => lead.contact_id),
+        }),
+      })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(formatApiError(payload.detail, 'Batch approval failed.'))
+      setBatchApproval(payload)
+      setBatchExecution(null)
+      setSelectedIntakeIds([])
+      await loadPendingIntake()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Batch approval failed.')
     } finally {
@@ -483,6 +546,31 @@ export default function AIDeskPage() {
               </button>
             ))}
           </div>
+          {userRoles.some((role) => ['ceo', 'enrollment', 'sales'].includes(role)) && <section className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.05] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-200">GHL intake · human approval required</p>
+                <h3 className="mt-1 text-sm font-semibold text-white">Incoming leads</h3>
+              </div>
+              <span className="rounded-full bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">{pendingIntake.length}</span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">New GHL contacts wait here for the team to approve a batch. Nothing is scored or messaged on arrival.</p>
+            {pendingIntake.length > 0 && <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+              {pendingIntake.map((lead) => <label key={lead.contact_id} className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-slate-950/50 p-3 text-xs">
+                <input type="checkbox" checked={selectedIntakeIds.includes(lead.contact_id)} onChange={(event) => setSelectedIntakeIds((selected) => event.target.checked
+                  ? selected.length < 25 ? [...selected, lead.contact_id] : selected
+                  : selected.filter((id) => id !== lead.contact_id))} className="mt-0.5 accent-cyan-300" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold text-white">{lead.name || lead.contact_id}</span>
+                  <span className="mt-1 block truncate text-slate-400">{lead.email || lead.phone || 'No contact channel'} · {lead.source}</span>
+                  {!lead.ghl_available && <span className="mt-1 block text-amber-200">Contact could not be loaded from GHL</span>}
+                </span>
+              </label>)}
+            </div>}
+            {pendingIntake.length > 0 && <button type="button" onClick={() => void approveIncomingBatch()} disabled={!selectedIntakeIds.length || cohortLoading || pendingIntake.some((lead) => selectedIntakeIds.includes(lead.contact_id) && !lead.ghl_available)} className="mt-3 w-full rounded-xl bg-cyan-300 px-3 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">
+              {cohortLoading ? 'Creating approved batch...' : `Approve selected (${selectedIntakeIds.length}/25)`}
+            </button>}
+          </section>}
           <button type="button" onClick={() => void reviewCohorts()} disabled={cohortLoading} className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm font-medium text-amber-100 transition hover:bg-amber-300/20 disabled:opacity-50">
             <ClipboardCheck className="h-4 w-4" /> {cohortLoading ? 'Reviewing contacts...' : 'Review lead cohorts'}
           </button>

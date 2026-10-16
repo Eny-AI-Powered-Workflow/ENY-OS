@@ -14,6 +14,7 @@ from app.api.v1.endpoints.enrollment import (
     get_enrollment_hot_leads,
     get_batch_execution_results,
     get_enrollment_operations,
+    ingest_ghl_contact,
 )
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
@@ -361,17 +362,101 @@ async def test_completed_follow_up_cannot_be_triggered_twice(monkeypatch):
             return result
 
     db = SimpleNamespace(query=lambda model: Query())
-    trigger = AsyncMock()
-    monkeypatch.setattr("app.api.v1.endpoints.enrollment.N8NService.trigger_workflow", trigger)
-
-    with pytest.raises(HTTPException, match="already been started or completed"):
+    with pytest.raises(HTTPException, match="already been notified"):
         await follow_up_hot_lead(
             result_id=result.id,
             db=db,
             current_user=SimpleNamespace(id="user-1"),
         )
 
-    trigger.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_notify_sales_action_creates_internal_alert_without_contact_email(monkeypatch):
+    from uuid import UUID
+    from app.models.operational_alert import OperationalAlert
+
+    result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000002"),
+        contact_id="contact-2",
+        approval_id=None,
+        assigned_user_id="user-1",
+        queue_status="assigned",
+        follow_up_status="not_started",
+        score=91,
+        source="webinar",
+    )
+
+    class Query:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def first(self):
+            return result
+
+    db = SimpleNamespace(
+        query=lambda model: Query(),
+        added=[],
+        add=lambda value: db.added.append(value),
+        commit=lambda: None,
+    )
+    tag_contact = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.api.v1.endpoints.enrollment.ghl_service.tag_contact", tag_contact)
+
+    response = await follow_up_hot_lead(
+        result_id=result.id,
+        db=db,
+        current_user=SimpleNamespace(id="user-1"),
+    )
+
+    tag_contact.assert_awaited_once_with("contact-2", ["eny-follow-up-queued"])
+    assert response["status"] == "team_notified"
+    assert response["lead_contacted"] is False
+    assert "No email or text" in response["message"]
+    assert result.queue_status == "assigned"
+    assert result.lifecycle_stage == "queued"
+    assert any(
+        isinstance(item, OperationalAlert) and item.alert_type == "sales_team_notification"
+        for item in db.added
+    )
+
+
+@pytest.mark.asyncio
+async def test_ghl_intake_duplicate_is_reported_even_while_pending(monkeypatch):
+    from unittest.mock import MagicMock
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "GHL_INBOUND_WEBHOOK_TOKEN", "test-token")
+    intake = SimpleNamespace(contact_id="contact-3", status="pending_review")
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = None
+    db.query.return_value.filter.return_value.first.return_value = intake
+
+    response = await ingest_ghl_contact(
+        {"contact": {"id": "contact-3", "source": "webinar"}},
+        x_ghl_webhook_token="test-token",
+        db=db,
+    )
+
+    assert response["duplicate"] is True
+    assert response["status"] == "pending_review"
+    db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ghl_intake_rejects_missing_webhook_token(monkeypatch):
+    from fastapi import HTTPException
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "GHL_INBOUND_WEBHOOK_TOKEN", "test-token")
+    db = SimpleNamespace(execute=AsyncMock())
+
+    with pytest.raises(HTTPException) as error:
+        await ingest_ghl_contact({"contact": {"id": "contact-4"}}, None, db)
+
+    assert error.value.status_code == 401
 
 
 class MagicMockQuery:

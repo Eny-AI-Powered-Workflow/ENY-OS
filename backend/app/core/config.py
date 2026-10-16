@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     GHL_API_KEY: str = Field("", env="GHL_API_KEY")
     GHL_LOCATION_ID: str = Field("", env="GHL_LOCATION_ID")
     GHL_PRIVATE_TOKEN: str = Field("", env="GHL_PRIVATE_TOKEN")
+    GHL_INBOUND_WEBHOOK_TOKEN: str = Field("", env="GHL_INBOUND_WEBHOOK_TOKEN")
     KAJABI_API_BASE_URL: str = Field("https://api.kajabi.com", env="KAJABI_API_BASE_URL")
     KAJABI_CLIENT_ID: str = Field("", env="KAJABI_CLIENT_ID")
     KAJABI_CLIENT_SECRET: str = Field("", env="KAJABI_CLIENT_SECRET")

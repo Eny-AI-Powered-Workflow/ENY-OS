@@ -13,6 +13,9 @@ class FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def with_for_update(self):
+        return self
+
     def order_by(self, *args, **kwargs):
         return self
 
@@ -26,7 +29,7 @@ class FakeDb:
         self.added = []
 
     def query(self, model):
-        return FakeQuery(self.pending)
+        return FakeQuery(self.pending if model.__name__ == "BatchRetry" else None)
 
     def add(self, item):
         self.added.append(item)
@@ -45,6 +48,7 @@ async def test_retry_batch_result_retries_approved_contact(monkeypatch):
         error="GHL update failed",
         score=None,
         category=None,
+        queue_status="assigned",
         email=None,
         phone=None,
         source=None,
@@ -66,14 +70,27 @@ async def test_retry_batch_result_retries_approved_contact(monkeypatch):
         }),
     )
     monkeypatch.setattr(
-        "app.services.batch_execution_service.ghl_service.update_contact",
-        AsyncMock(return_value=True),
+        "app.services.batch_execution_service.ghl_service.sync_enrollment_outcome",
+        AsyncMock(return_value={"success": True}),
     )
 
-    async def fake_trigger(self, workflow_name, data):
-        return {"status": "success", "score": 92, "tags": ["hot"]}
+    class FakeClaudeService:
+        async def score_lead(self, lead_data):
+            return {
+                "score": 92,
+                "category": "hot",
+                "reasoning": "Explicit interest and fit evidence.",
+                "score_factors": {
+                    "intent_score": 100,
+                    "fit_score": 80,
+                    "engagement_score": 90,
+                },
+                "evidence": ["Requested a consultation"],
+                "unknowns": ["Budget"],
+                "next_best_action": "Book a consultation.",
+            }
 
-    monkeypatch.setattr("app.services.batch_execution_service.N8NService.trigger_workflow", fake_trigger)
+    monkeypatch.setattr("app.services.batch_execution_service.ClaudeService", FakeClaudeService)
 
     response = await retry_batch_result(result, approval, db)
 

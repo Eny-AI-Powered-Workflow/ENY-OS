@@ -99,9 +99,10 @@ async def get_available_agents():
         "agents": [
             {
                 "name": "ENY-SALES-SCORE",
-                "description": "Lead scoring workflow",
-                "trigger": "webhook",
-                "nodes": ["Claude API", "GHL Contact Update", "Slack Notification"]
+                "description": "Human-approved batch scoring through the Sales & Enrollment AI Desk.",
+                "trigger": "Approve and execute a batch in /dashboard/ai-desk",
+                "nodes": ["GHL intake review", "ClaudeService scoring", "GHL writeback", "Internal team alert"],
+                "status": "human_gated",
             }
         ]
     }

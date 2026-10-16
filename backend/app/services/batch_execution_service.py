@@ -7,9 +7,10 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.ghl_lead_intake import GHLLeadIntake
+from app.models.operational_alert import OperationalAlert
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
-from app.services.n8n_service import N8NService
 
 
 def derive_score_category(score: int | float) -> str:
@@ -96,39 +97,55 @@ async def retry_batch_result(
         "customFields": custom_fields,
     }
 
-    workflow_result = await N8NService().trigger_workflow(
-        "eny-sales-score",
-        {
-            "contact_id": str(result.contact_id),
-            "lead_data": lead_data,
-            "approval_id": str(approval.id),
-            "source": lead_data["source"],
-            "tags": lead_data["tags"],
-        },
-    )
-    if workflow_result.get("status") == "success":
-        score_value = workflow_result.get("score", 0)
-        scoring = {
-            "score": score_value,
-            "category": derive_score_category(score_value),
-            "tags": workflow_result.get("tags", []),
-        }
-    else:
-        scoring = ClaudeService().deterministic_score_lead(lead_data)
-        score_value = scoring.get("score", 50)
-
     try:
-        score = int(score_value)
-    except (TypeError, ValueError):
-        score = 50
-    category = scoring.get("category") or derive_score_category(score)
+        scoring = await ClaudeService().score_lead(lead_data)
+    except Exception as exc:
+        error = f"Lead scoring failed: {exc}"
+        result.status = "failed"
+        result.error = error
+        result.retry_count = attempt_number
+        result.failure_class = "workflow"
+        result.operating_decision = "hold"
+        result.recovery_status = "unassigned"
+        db.add(BatchRetry(
+            result_id=result.id,
+            attempt_number=attempt_number,
+            error_message=error,
+            status="retry_pending" if attempt_number < settings.BATCH_MAX_RETRIES else "exhausted",
+            next_attempt_at=next_attempt_at if attempt_number < settings.BATCH_MAX_RETRIES else None,
+            failure_class="workflow",
+            operating_decision="hold",
+        ))
+        db.add(OperationalAlert(
+            alert_type="sales_scoring_failure",
+            source="claude",
+            message="Lead scoring retry failed and needs operator review.",
+            result_id=result.id,
+            details={"contact_id": result.contact_id, "approval_id": str(approval.id), "error": str(exc)},
+        ))
+        if attempt_number >= settings.BATCH_MAX_RETRIES:
+            result.status = "exhausted"
+        db.commit()
+        return {
+            "status": result.status,
+            "result_id": str(result.id),
+            "contact_id": result.contact_id,
+            "error": error,
+            "retry_count": attempt_number,
+        }
+
+    score = int(scoring["score"])
+    category = derive_score_category(score)
     tags = list(dict.fromkeys((contact.get("tags") or []) + ["lead-scored", "approved-batch", category]))
     writeback = await ghl_service.sync_enrollment_outcome(
         str(result.contact_id),
         queue_status=result.queue_status or "new",
         score=score,
         category=category,
-        note=f"ENY Enrollment scoring completed: {category} ({score}/100).",
+        note=(
+            f"ENY AI scoring: {category} ({score}/100). "
+            f"{scoring['reasoning']} Next action: {scoring['next_best_action']}"
+        ),
     )
     write_ok = bool(writeback.get("success"))
 
@@ -165,7 +182,12 @@ async def retry_batch_result(
     result.error = None
     result.score = score
     result.category = category
-    result.score_origin = "n8n" if workflow_result.get("status") == "success" else "deterministic_fallback"
+    result.score_origin = "claude"
+    result.score_reasoning = scoring["reasoning"]
+    result.score_factors = scoring["score_factors"]
+    result.score_evidence = scoring["evidence"]
+    result.score_unknowns = scoring["unknowns"]
+    result.next_best_action = scoring["next_best_action"]
     result.operating_decision = "complete"
     result.recovery_status = "resolved"
     result.email = contact.get("email")
@@ -174,6 +196,20 @@ async def retry_batch_result(
     result.tags = tags
     result.queue_status = "new" if category == "hot" else result.queue_status
     result.follow_up_status = "not_started"
+    if category == "hot":
+        db.add(OperationalAlert(
+            alert_type="hot_lead_ready",
+            source="sales_scoring",
+            severity="warning",
+            message="A newly scored hot lead is ready for Sales & Enrollment review.",
+            result_id=result.id,
+            details={
+                "contact_id": result.contact_id,
+                "score": score,
+                "category": category,
+                "next_best_action": scoring["next_best_action"],
+            },
+        ))
     db.add(BatchRetry(
         result_id=result.id,
         attempt_number=attempt_number,
@@ -188,21 +224,13 @@ async def retry_batch_result(
             event_type="retry_succeeded",
                 details={"contact_id": result.contact_id, "attempt_number": attempt_number, "writeback": writeback},
         ))
+    intake_row = db.query(GHLLeadIntake).filter(
+        GHLLeadIntake.contact_id == str(result.contact_id),
+        GHLLeadIntake.approval_id == approval.id,
+    ).with_for_update().first()
+    if intake_row:
+        intake_row.status = "scored"
     db.commit()
-
-    notification = None
-    if category == "hot":
-        notification = await N8NService().trigger_workflow(
-            "eny-enrollment-hot-leads",
-            {
-                "contact_id": str(result.contact_id),
-                "score": score,
-                "category": category,
-                "source": result.source,
-                "tags": tags,
-                "approval_id": str(approval.id),
-            },
-        )
 
     return {
         "status": "scored",
@@ -211,6 +239,11 @@ async def retry_batch_result(
         "score": score,
         "category": category,
         "retry_count": attempt_number,
-        "enrollment_notification": notification,
+        "score_origin": "claude",
+        "score_reasoning": scoring["reasoning"],
+        "score_factors": scoring["score_factors"],
+        "score_evidence": scoring["evidence"],
+        "score_unknowns": scoring["unknowns"],
+        "next_best_action": scoring["next_best_action"],
         "ghl_writeback": writeback,
     }

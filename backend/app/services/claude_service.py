@@ -7,8 +7,8 @@ The role_context ensures agent output is genuinely personalized per role.
 """
 import os
 import logging
-import re
-from typing import AsyncGenerator, Optional, Dict, Any
+import json
+from typing import AsyncGenerator, Dict, Any
 import anthropic
 
 logger = logging.getLogger(__name__)
@@ -105,129 +105,77 @@ When providing advice or analysis, frame it within the context of {role_context}
             logger.error(f"Error streaming Claude response: {exc}")
             raise
 
-    def deterministic_score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply a deterministic score for ENY sales routing with no randomness or model drift."""
-        source = str(lead_data.get("source") or "unknown").lower().strip()
-        tags = [str(tag).lower() for tag in (lead_data.get("tags") or [])]
-        name = str(lead_data.get("name") or "")
-        email = str(lead_data.get("email") or "")
-        phone = str(lead_data.get("phone") or "")
+    async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Score a lead from supplied evidence; callers must handle model/API failures."""
+        prompt = f"""Evaluate this prospective lead using only the supplied data. Do not infer missing facts.
+Use component scores from 0 to 100:
+- intent_score (40%): explicit interest, inquiry, or purchase-intent evidence
+- fit_score (30%): explicit evidence of fit with ENY's business-analysis, AI-strategy, training, or consulting offers
+- engagement_score (30%): explicit recent engagement evidence such as attendance, clicks, replies, or visits
+If a component has no evidence, score that component 0 and say it is unknown; do not reward contact completeness.
+Calculate the final score as round(intent_score * 0.4 + fit_score * 0.3 + engagement_score * 0.3).
+The server will derive the category: hot >= 85, warm >= 70, follow-up >= 50, otherwise cold.
+Return only JSON with integer component scores, a concise evidence-based reasoning string,
+an evidence array, an unknowns array, and a human next_best_action. Do not return a category.
 
-        score = 35
+Lead data:
+{json.dumps(lead_data, ensure_ascii=True, default=str)}
+"""
+        response = await self.async_client.messages.create(
+            model=self.model,
+            max_tokens=700,
+            temperature=0,
+            system=self._system_prompt("sales and enrollment"),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next(
+            (block.text for block in response.content if getattr(block, "type", None) == "text"),
+            None,
+        )
+        if not text:
+            raise ValueError("Claude returned an empty lead-scoring response")
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Claude returned invalid JSON for lead scoring") from exc
+        if not isinstance(result, dict):
+            raise ValueError("Claude lead-scoring response must be a JSON object")
 
-        high_intent_sources = {"bootcamp", "free training", "bas", "waitlist", "consulting offer", "workshop", "webinar"}
-        if source in high_intent_sources:
-            score += 25
-        elif source in {"referral", "linkedin", "organic", "social"}:
-            score += 15
-        elif source in {"unknown", "cold"}:
-            score += 5
+        component_names = ("intent_score", "fit_score", "engagement_score")
+        components: dict[str, int] = {}
+        for name in component_names:
+            value = result.get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100:
+                raise ValueError(f"Claude returned an invalid {name}")
+            components[name] = round(value)
+        reasoning = result.get("reasoning")
+        action = result.get("next_best_action")
+        evidence = result.get("evidence")
+        unknowns = result.get("unknowns")
+        if not isinstance(reasoning, str) or not reasoning.strip():
+            raise ValueError("Claude omitted the scoring reasoning")
+        if not isinstance(action, str) or not action.strip():
+            raise ValueError("Claude omitted the recommended next action")
+        if not isinstance(evidence, list) or not all(isinstance(item, str) for item in evidence):
+            raise ValueError("Claude returned invalid scoring evidence")
+        if not isinstance(unknowns, list) or not all(isinstance(item, str) for item in unknowns):
+            raise ValueError("Claude returned invalid scoring unknowns")
 
-        if any(token in " ".join(tags) for token in ["hot", "vip", "high intent", "booked", "qualified"]):
-            score += 20
-        elif any(token in " ".join(tags) for token in ["warm", "follow-up", "nurture"]):
-            score += 10
-
-        if email and "@" in email:
-            score += 10
-        if phone and re.search(r"\d{7,}", phone):
-            score += 10
-        if name and len(name.split()) >= 2:
-            score += 5
-
-        if any(keyword in source for keyword in ["bootcamp", "training", "consulting"]):
-            score += 5
-
-        score = max(1, min(99, score))
-
-        if score >= 85:
-            category = "hot"
-            next_best_action = "Route immediately to enrollment and book a discovery call"
-        elif score >= 70:
-            category = "warm"
-            next_best_action = "Send a focused follow-up and confirm fit"
-        elif score >= 50:
-            category = "follow-up"
-            next_best_action = "Keep in nurture queue and monitor engagement"
-        else:
-            category = "cold"
-            next_best_action = "Leave in low-priority nurture"
-
-        recommended_tags = list(dict.fromkeys(tags + [category, "lead-scored", "approved-batch"]))
+        score = round(
+            components["intent_score"] * 0.4
+            + components["fit_score"] * 0.3
+            + components["engagement_score"] * 0.3
+        )
         return {
             "score": score,
-            "category": category,
-            "reasoning": f"Deterministic score based on source quality, contact completeness, and prior tags for {source}.",
-            "recommended_tags": recommended_tags,
-            "next_best_action": next_best_action,
-            "source": source,
+            "category": "hot" if score >= 85 else "warm" if score >= 70 else "follow-up" if score >= 50 else "cold",
+            "reasoning": reasoning.strip(),
+            "evidence": evidence,
+            "unknowns": unknowns,
+            "score_factors": components,
+            "next_best_action": action.strip(),
+            "score_origin": "claude",
         }
-
-    async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Specialized method for lead scoring (used by ENY-SALES-SCORE agent).
-        """
-        prompt = f"""
-        Score the following lead on a scale of 1-100 based on engagement, demographics, and intent signals.
-        Consider factors like:
-        - Lead source and quality
-        - Engagement history (emails opened, clicks, website visits)
-        - Demographic fit with ideal customer profile
-        - Expressed interest and timing
-        - Budget and authority indicators
-
-        Lead Data:
-        {lead_data}
-
-        Return your response in JSON format:
-        {{
-            "score": <number between 1-100>,
-            "reasoning": "<brief explanation of the score>",
-            "recommended_tags": [<list of suggested tags for this lead>],
-            "next_best_action": "<suggested immediate action>"
-        }}
-        """
-
-        try:
-            response = await self.invoke(
-                prompt=prompt,
-                role_context="sales",
-                max_tokens=500,
-                temperature=0.3  # Lower temperature for more consistent scoring
-            )
-
-            # Try to parse JSON response
-            import json
-            try:
-                result = json.loads(response)
-                # Validate required fields
-                if "score" not in result:
-                    result["score"] = 50  # Default middle score
-                if "reasoning" not in result:
-                    result["reasoning"] = "Score calculated based on lead data"
-                if "recommended_tags" not in result:
-                    result["recommended_tags"] = []
-                if "next_best_action" not in result:
-                    result["next_best_action"] = "Review lead manually"
-                return result
-            except json.JSONDecodeError:
-                logger.warning(f"Claude did not return valid JSON for lead scoring: {response}")
-                # Fallback response
-                return {
-                    "score": 50,
-                    "reasoning": "Unable to parse scoring response",
-                    "recommended_tags": [],
-                    "next_best_action": "Review lead manually"
-                }
-
-        except Exception as e:
-            logger.error(f"Error in lead scoring: {e}")
-            return {
-                "score": 0,
-                "reasoning": f"Error occurred: {str(e)}",
-                "recommended_tags": ["error"],
-                "next_best_action": "Review lead manually"
-            }
 
     async def generate_content(
         self,

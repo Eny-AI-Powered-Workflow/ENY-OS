@@ -26,10 +26,11 @@ async def test_execute_approved_batch_scores_only_approved_contacts(monkeypatch)
         contact_ids=["contact-1", "contact-2"],
         batch_size=2,
         status="approved_for_scoring",
+        decision="approved",
     )
 
     db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = approval
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = approval
 
     current_user = SimpleNamespace(id="12345678-89ab-cdef-0123-456789abcdef")
 
@@ -41,16 +42,29 @@ async def test_execute_approved_batch_scores_only_approved_contacts(monkeypatch)
         ], ({"status": "connected"})
 
     monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.get_all_contacts", fake_get_all_contacts)
-    monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.update_contact", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.ai.ghl_service.sync_enrollment_outcome",
+        AsyncMock(return_value={"success": True}),
+    )
 
-    async def fake_trigger_workflow(self, workflow_name, data):
-        if workflow_name == "eny-sales-score":
-            return {"status": "success", "score": 84, "tags": ["hot", "bootcamp"], "message": "Workflow executed successfully"}
-        if workflow_name == "eny-enrollment-hot-leads":
-            return {"status": "success", "notified": True, "message": "Enrollment notification queued"}
-        return {"status": "success", "message": "ok"}
+    class FakeClaudeService:
+        async def score_lead(self, lead_data):
+            return {
+                "score": 90,
+                "category": "hot",
+                "score_origin": "claude",
+                "score_factors": {
+                    "intent_score": 98,
+                    "fit_score": 80,
+                    "engagement_score": 90,
+                },
+                "reasoning": "Explicit interest and recent engagement are present.",
+                "evidence": ["Requested a consultation", "Attended a webinar"],
+                "unknowns": ["Budget"],
+                "next_best_action": "Confirm program fit.",
+            }
 
-    monkeypatch.setattr("app.api.v1.endpoints.ai.N8NService.trigger_workflow", fake_trigger_workflow)
+    monkeypatch.setattr("app.api.v1.endpoints.ai.ClaudeService", FakeClaudeService)
 
     result = await execute_approved_batch(
         approval_id="01234567-89ab-cdef-0123-456789abcdef",
@@ -63,4 +77,12 @@ async def test_execute_approved_batch_scores_only_approved_contacts(monkeypatch)
     assert result["failed_count"] == 0
     assert len(result["results"]) == 2
     assert result["results"][0]["contact_id"] == "contact-1"
-    assert result["results"][0]["score"] == 84
+    assert result["results"][0]["score"] == 90
+    assert result["results"][0]["category"] == "hot"
+
+    from app.models.operational_alert import OperationalAlert
+    alerts = [call.args[0] for call in db.add.call_args_list if call.args]
+    assert any(
+        isinstance(alert, OperationalAlert) and alert.alert_type == "hot_lead_ready"
+        for alert in alerts
+    )

@@ -69,9 +69,6 @@ class N8NService:
         webhook_url = f"{self.base_url}/webhook/{normalized_name}"
 
         allowed = {
-            "eny-sales-score",
-            "eny-enrollment-hot-leads",
-            "eny-enrollment-follow-up",
             "eny-ea-daily-briefing",
             "eny-ea-meeting-preparation",
             "eny-ea-task-reminders",
@@ -104,29 +101,6 @@ class N8NService:
             await asyncio.sleep(0.1)
 
             # Return mock response based on workflow type
-            if normalized_name == "eny-sales-score":
-                score = int(data.get("score", 85))
-                return {
-                    "status": "success",
-                    "workflow": normalized_name,
-                    "score": score,
-                    "tags": ["hot", "follow-up"] if score >= 85 else ["warm", "follow-up"],
-                    "message": "Workflow executed successfully"
-                }
-            if normalized_name == "eny-enrollment-hot-leads":
-                return {
-                    "status": "success",
-                    "workflow": normalized_name,
-                    "message": "Enrollment notification queued",
-                    "notified": True,
-                }
-            if normalized_name == "eny-enrollment-follow-up":
-                return {
-                    "status": "success",
-                    "workflow": normalized_name,
-                    "message": "Enrollment follow-up queued",
-                    "queued": True,
-                }
             if normalized_name.startswith("eny-ea-"):
                 return {
                     "status": "success",
