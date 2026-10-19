@@ -22,17 +22,19 @@ async def retrieve_knowledge(db: Session, roles: list[str], query: str, limit: i
     if embedding_service.enabled:
         try:
             embedding = await embedding_service.embed(query)
-            result = db.execute(
-                text("""
-                    select title, department, content, source, metadata, similarity
-                    from match_knowledge_documents(cast(:query_embedding as extensions.vector), :roles, :limit)
-                """),
-                {"query_embedding": _vector_literal(embedding), "roles": roles, "limit": limit},
-            )
+            with db.begin_nested():
+                result = db.execute(
+                    text("""
+                        select title, department, content, source, metadata, similarity
+                        from match_knowledge_documents(cast(:query_embedding as extensions.vector), :roles, :limit)
+                    """),
+                    {"query_embedding": _vector_literal(embedding), "roles": roles, "limit": limit},
+                )
+                rows = result.fetchall()
             return [
                 {"title": row.title, "department": row.department, "content": row.content,
                  "source": row.source, "metadata": row.metadata, "similarity": row.similarity}
-                for row in result.fetchall()
+                for row in rows
             ]
         except Exception:
             logger.exception("Semantic knowledge retrieval failed; using full-text fallback")

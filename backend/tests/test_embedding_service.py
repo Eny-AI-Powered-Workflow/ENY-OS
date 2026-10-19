@@ -5,11 +5,14 @@ endpoint issued one embedding request per chunk. A large SOP therefore tripped
 OpenAI HTTP 429, which propagated as an unhandled ``httpx.HTTPStatusError``.
 """
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
 from app.core.config import settings
+from app.services.knowledge_service import retrieve_knowledge
 from app.services.embedding_service import (
     EmbeddingError,
     EmbeddingRateLimitError,
@@ -147,3 +150,48 @@ def test_embedding_errors_stay_runtime_errors():
     # EmbeddingError a RuntimeError preserves that behaviour for existing callers.
     assert issubclass(EmbeddingError, RuntimeError)
     assert issubclass(EmbeddingRateLimitError, EmbeddingError)
+
+
+@pytest.mark.asyncio
+async def test_semantic_query_failure_rolls_back_savepoint_before_full_text_fallback(monkeypatch):
+    monkeypatch.setattr(embedding_service, "api_key", "sk-test-key")
+    monkeypatch.setattr(embedding_service, "embed", AsyncMock(return_value=[0.1, 0.2]))
+
+    class Savepoint:
+        rolled_back = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self.rolled_back = exc_type is not None
+
+    savepoint = Savepoint()
+    fallback_result = MagicMock()
+    fallback_result.fetchall.return_value = [
+        SimpleNamespace(title="Welcome", department="ceo", content="Hello", source="test")
+    ]
+    db = MagicMock()
+
+    def execute(statement, parameters):
+        if "match_knowledge_documents" in str(statement):
+            raise RuntimeError("semantic query failed")
+        assert savepoint.rolled_back
+        return fallback_result
+
+    db.begin_nested.return_value = savepoint
+    db.execute.side_effect = execute
+
+    result = await retrieve_knowledge(db, ["ceo"], "Hi")
+
+    assert result == [
+        {
+            "title": "Welcome",
+            "department": "ceo",
+            "content": "Hello",
+            "source": "test",
+            "similarity": None,
+        }
+    ]
+    db.begin_nested.assert_called_once_with()
+    assert db.execute.call_count == 2
