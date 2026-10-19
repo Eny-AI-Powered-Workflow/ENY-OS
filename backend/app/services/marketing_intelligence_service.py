@@ -23,7 +23,10 @@ class MarketingIntelligenceService:
             "youtube": {"configured": bool(settings.YOUTUBE_API_KEY), "source": "YouTube"},
             "reddit": {"configured": bool(settings.REDDIT_CLIENT_ID and settings.REDDIT_CLIENT_SECRET), "source": "Reddit"},
             "slack": {"configured": bool(settings.SLACK_BOT_TOKEN), "source": "Slack"},
-            "whisper": {"configured": bool(settings.OPENAI_API_KEY), "source": "OpenAI Whisper"},
+            "whisper": {
+                "configured": bool(settings.OPENAI_API_KEY),
+                "source": f"OpenAI {settings.OPENAI_TRANSCRIPTION_MODEL}",
+            },
             "private_video_storage": {"configured": bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY), "source": "Private Supabase Storage"},
             "canva": {
                 "configured": bool(

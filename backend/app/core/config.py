@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     CLAUDE_MODEL: str = Field("claude-3-opus-20240229", env="CLAUDE_MODEL")
     OPENAI_API_KEY: str = Field("", env="OPENAI_API_KEY")
     EMBEDDING_MODEL: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
+    OPENAI_TRANSCRIPTION_MODEL: str = Field("whisper-1", env="OPENAI_TRANSCRIPTION_MODEL")
 
     # OpenAI embeddings are rate limited per account. Large SOP uploads are
     # batched to reduce pressure, but HTTP 429s must fail fast in a live product

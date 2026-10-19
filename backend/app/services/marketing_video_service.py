@@ -18,7 +18,7 @@ class MarketingVideoService:
         "video/mp4", "video/webm", "video/quicktime",
         "audio/mpeg", "audio/mp4", "audio/wav", "audio/webm",
     }
-    whisper_max_bytes = 25 * 1024 * 1024
+    transcription_max_bytes = 25 * 1024 * 1024
     ffmpeg_input_extensions = {
         "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
         "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/wav": ".wav", "audio/webm": ".webm",
@@ -91,28 +91,30 @@ class MarketingVideoService:
 
     async def transcribe(self, storage_path: str, filename: str, mime_type: str, size_bytes: int) -> dict[str, Any]:
         if not settings.OPENAI_API_KEY:
-            return {"status": "not_configured", "message": "Set OPENAI_API_KEY in the backend environment to enable Whisper transcription."}
+            return {"status": "not_configured", "message": "Set OPENAI_API_KEY in the backend environment to enable OpenAI transcription."}
 
         bucket = quote(settings.SUPABASE_MARKETING_VIDEO_BUCKET, safe="")
         url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/{bucket}/{quote(storage_path, safe='/')}"
         async with httpx.AsyncClient(timeout=180.0) as client:
-            if size_bytes <= self.whisper_max_bytes and not mime_type.startswith("video/"):
+            if size_bytes <= self.transcription_max_bytes and not mime_type.startswith("video/"):
                 try:
                     media_response = await client.get(url, headers=self._storage_headers())
                     media_response.raise_for_status()
                 except httpx.HTTPError as exc:
                     raise HTTPException(status_code=502, detail="Unable to read private Marketing media") from exc
-                payload = await self._whisper(client, filename, media_response.content, mime_type)
+                payload = await self._transcribe_audio(client, filename, media_response.content, mime_type)
                 return self._transcript_result([payload], [0])
 
             return await self._transcribe_in_chunks(client, url, filename, mime_type)
 
-    async def _whisper(self, client: httpx.AsyncClient, filename: str, content: bytes, mime_type: str) -> dict[str, Any]:
+    async def _transcribe_audio(self, client: httpx.AsyncClient, filename: str, content: bytes, mime_type: str) -> dict[str, Any]:
+        model = settings.OPENAI_TRANSCRIPTION_MODEL
+        response_format = "verbose_json" if model == "whisper-1" else "json"
         try:
             response = await client.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                data={"model": "whisper-1", "response_format": "verbose_json"},
+                data={"model": model, "response_format": response_format},
                 files={"file": (filename, content, mime_type)},
                 timeout=180.0,
             )
@@ -136,16 +138,16 @@ class MarketingVideoService:
             if status_code in {401, 403}:
                 detail = "OpenAI rejected the API key. Check OPENAI_API_KEY in the Render backend environment."
             elif status_code == 429:
-                detail = "OpenAI Whisper rate limit or quota reached. Check the OpenAI project billing and limits."
+                detail = "OpenAI transcription rate limit or quota reached. Check the OpenAI project billing and limits."
             else:
-                detail = f"OpenAI Whisper rejected the audio (HTTP {status_code})"
+                detail = f"OpenAI transcription rejected the audio (HTTP {status_code})"
                 if provider_message:
                     detail += f": {provider_message[:500]}"
             raise HTTPException(status_code=502, detail=detail) from exc
         except httpx.TimeoutException as exc:
-            raise HTTPException(status_code=504, detail="OpenAI Whisper transcription timed out; retry with a shorter recording.") from exc
+            raise HTTPException(status_code=504, detail="OpenAI transcription timed out; retry with a shorter recording.") from exc
         except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail="Could not reach OpenAI Whisper. Check the backend network and retry.") from exc
+            raise HTTPException(status_code=502, detail="Could not reach OpenAI transcription. Check the backend network and retry.") from exc
 
     async def _transcribe_in_chunks(self, client: httpx.AsyncClient, url: str, filename: str, mime_type: str) -> dict[str, Any]:
         extension = self.ffmpeg_input_extensions.get(mime_type)
@@ -187,9 +189,9 @@ class MarketingVideoService:
                 offsets = []
                 for index, audio_chunk in enumerate(audio_chunks):
                     content = audio_chunk.read_bytes()
-                    if len(content) > self.whisper_max_bytes:
-                        raise HTTPException(status_code=413, detail="Prepared audio chunk exceeds Whisper's 25 MB limit")
-                    payloads.append(await self._whisper(client, f"{Path(filename).stem}-{index + 1}.mp3", content, "audio/mpeg"))
+                    if len(content) > self.transcription_max_bytes:
+                        raise HTTPException(status_code=413, detail="Prepared audio chunk exceeds OpenAI's 25 MB transcription limit")
+                    payloads.append(await self._transcribe_audio(client, f"{Path(filename).stem}-{index + 1}.mp3", content, "audio/mpeg"))
                     offsets.append(index * 600)
                 return self._transcript_result(payloads, offsets)
         except FileNotFoundError as exc:
@@ -203,17 +205,27 @@ class MarketingVideoService:
         segments = []
         text_parts = []
         duration = 0.0
+        has_duration = False
         for payload, offset in zip(payloads, offsets):
             if payload.get("text"):
                 text_parts.append(str(payload["text"]))
-            duration += float(payload.get("duration") or 0)
+            if payload.get("duration") is not None:
+                duration += float(payload["duration"])
+                has_duration = True
             for segment in payload.get("segments", []):
                 segments.append({
                     **segment,
                     "start": float(segment.get("start", 0)) + offset,
                     "end": float(segment.get("end", 0)) + offset,
                 })
-        return {"status": "transcribed", "provider": "OpenAI Whisper", "text": "\n".join(text_parts), "duration": duration, "segments": segments}
+        model = settings.OPENAI_TRANSCRIPTION_MODEL
+        return {
+            "status": "transcribed",
+            "provider": "OpenAI Whisper" if model == "whisper-1" else f"OpenAI {model}",
+            "text": "\n".join(text_parts),
+            "duration": duration if has_duration else None,
+            "segments": segments,
+        }
 
 
 marketing_video_service = MarketingVideoService()
