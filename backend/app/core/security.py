@@ -122,9 +122,22 @@ def get_current_user(
         logger.error(f"Unexpected error during JWT validation: {e}")
         raise credentials_exception
 
-    # Return a simple user object with an id attribute
-    class User:
-        def __init__(self, id: str):
-            self.id = id
+    metadata = payload.get("user_metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    display_name = (
+        metadata.get("full_name")
+        or metadata.get("name")
+        or metadata.get("display_name")
+        or "there"
+    )
+    if not isinstance(display_name, str):
+        display_name = "there"
+    display_name = " ".join(display_name.split())[:120] or "there"
 
-    return User(user_id)
+    class User:
+        def __init__(self, id: str, display_name: str):
+            self.id = id
+            self.display_name = display_name
+
+    return User(user_id, display_name)

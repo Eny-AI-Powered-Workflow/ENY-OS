@@ -70,6 +70,35 @@ def require_permission(permission_scope: str):
     return permission_checker
 
 
+def get_optional_permissions_with_audit(
+    current_user: Any,
+    db: Session,
+    permission_scopes: tuple[str, ...],
+    path: str,
+) -> set[str]:
+    """Resolve optional data-context permissions and audit each scope decision."""
+    granted_scopes = {
+        permission.scope
+        for permission in (
+            db.query(Permission)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .join(UserRole, RolePermission.role_id == UserRole.role_id)
+            .filter(UserRole.user_id == current_user.id)
+            .filter(Permission.scope.in_(permission_scopes))
+            .all()
+        )
+    }
+    for scope in permission_scopes:
+        db.add(AuditLog(
+            user_id=current_user.id,
+            permission_scope=scope,
+            granted=scope in granted_scopes,
+            path=path,
+        ))
+    db.commit()
+    return granted_scopes
+
+
 def require_any_permission(*permission_scopes: str):
     """Allow access when the user has any of the provided permission scopes."""
     def permission_checker(

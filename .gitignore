@@ -58,6 +58,8 @@ supabase/migrations/*
 !supabase/migrations/0012_batch_operating_policy.sql
 !supabase/migrations/0013_enrollment_follow_up_lifecycle.sql
 !supabase/migrations/0014_operational_alerts.sql
+!supabase/migrations/0045_ai_platform_context.sql
+!supabase/migrations/0046_ai_message_context_scopes.sql
 !supabase/migrations/0015_executive_assistant_permissions.sql
 !supabase/migrations/0016_ea_coordination_research.sql
 !supabase/migrations/0017_ea_action_reporting.sql
