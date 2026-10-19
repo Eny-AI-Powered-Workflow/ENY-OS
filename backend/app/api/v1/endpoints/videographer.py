@@ -116,7 +116,7 @@ async def publish_videographer_output(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
-    allowed_channels = {"instagram", "facebook", "linkedin", "tiktok", "youtube"}
+    allowed_channels = {"linkedin", "instagram", "facebook", "x", "tiktok", "youtube"}
     normalized_channel = channel.strip().lower()
     if normalized_channel not in allowed_channels:
         raise HTTPException(status_code=422, detail=f"Channel must be one of: {', '.join(sorted(allowed_channels))}")

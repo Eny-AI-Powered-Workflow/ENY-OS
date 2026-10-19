@@ -57,7 +57,7 @@ class MarketingDeliveryService:
     async def schedule_buffer(self, text: str, profile_ids: list[str], scheduled_at: datetime) -> dict[str, Any]:
         """Schedule approved social content through Buffer when configured."""
         if not settings.BUFFER_ACCESS_TOKEN or not profile_ids:
-            return {"status": "not_configured", "scheduled": 0, "errors": ["Buffer token or profile IDs are not configured"]}
+            return {"status": "not_configured", "attempted": 0, "scheduled": 0, "errors": ["Buffer token or platform profile IDs are not configured"]}
         scheduled = 0
         errors: list[str] = []
         async with httpx.AsyncClient() as client:
@@ -80,7 +80,12 @@ class MarketingDeliveryService:
                     scheduled += 1
                 except Exception as exc:
                     errors.append(f"{profile_id}: {exc}")
-        return {"status": "scheduled" if scheduled and not errors else "partial" if scheduled else "failed", "scheduled": scheduled, "errors": errors}
+        return {
+            "status": "scheduled" if scheduled and not errors else "partial" if scheduled else "failed",
+            "attempted": len(profile_ids),
+            "scheduled": scheduled,
+            "errors": errors,
+        }
 
 
 marketing_delivery_service = MarketingDeliveryService()

@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -90,6 +90,45 @@ class MarketingMetricObservation(Base):
     provider = Column(String, nullable=False)
     source = Column(String, nullable=False)
     observed_at = Column(DateTime(timezone=True), nullable=False)
+    metadata_json = Column(JSONB, nullable=False, default=dict)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SocialPost(Base):
+    __tablename__ = "social_posts"
+    __table_args__ = (UniqueConstraint("platform", "account_id", "external_post_id", name="social_posts_external_identity_key"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform = Column(String, nullable=False, index=True)
+    account_id = Column(String, nullable=False)
+    external_post_id = Column(String, nullable=False)
+    content_id = Column(UUID(as_uuid=True), ForeignKey("marketing_content_items.id", ondelete="set null"), nullable=True)
+    delivery_id = Column(UUID(as_uuid=True), ForeignKey("marketing_deliveries.id", ondelete="set null"), nullable=True)
+    text = Column(Text, nullable=True)
+    permalink = Column(Text, nullable=True)
+    media_type = Column(String, nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    metadata_json = Column(JSONB, nullable=False, default=dict)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SocialMetricObservation(Base):
+    __tablename__ = "social_metric_observations"
+    __table_args__ = (
+        UniqueConstraint("post_id", "metric_key", "observed_at", name="social_metric_observations_snapshot_key"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("social_posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    metric_key = Column(String, nullable=False, index=True)
+    metric_value = Column(Numeric, nullable=False)
+    unit = Column(String, nullable=False, default="count")
+    provider = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    observed_at = Column(DateTime(timezone=True), nullable=False, index=True)
     metadata_json = Column(JSONB, nullable=False, default=dict)
     created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

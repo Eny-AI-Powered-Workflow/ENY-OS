@@ -5,7 +5,7 @@ import re
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Dict, Any, List, Literal, Optional
 from urllib.parse import urlsplit
 from app.api.deps import require_any_permission, require_permission
@@ -19,17 +19,18 @@ from app.services.knowledge_service import retrieve_knowledge
 from app.models.marketing_content import MarketingContentEvent, MarketingContentItem, MarketingContentVersion, MarketingWeeklyReview
 from app.models.marketing_delivery import MarketingDelivery, MarketingDeliveryEvent
 from app.models.operational_alert import OperationalAlert
-from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingMetricObservation, MarketingSeoObservation, MarketingSocialMention, MarketingVideoAsset
+from app.models.marketing_intelligence import MarketingIntelligenceEvent, MarketingMetricObservation, MarketingSeoObservation, MarketingSocialMention, MarketingVideoAsset, SocialMetricObservation, SocialPost
 from app.services.marketing_delivery_service import marketing_delivery_service
 from app.services.marketing_intelligence_service import marketing_intelligence_service
 from app.services.marketing_video_service import marketing_video_service
+from app.services.social_analytics_service import social_analytics_service
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 CONTENT_TYPES = {"social_post", "email_campaign", "blog_article", "video_script", "short_form_caption", "repurposed_content", "seo_brief"}
-CHANNELS = {"linkedin", "instagram", "facebook", "x", "tiktok", "email", "blog"}
+CHANNELS = {"linkedin", "instagram", "facebook", "x", "tiktok", "youtube", "email", "blog"}
 SEO_OBSERVATION_TYPES = {"keyword", "ranking", "search_performance", "content_opportunity", "competitor", "technical_issue", "ai_overview"}
 SOCIAL_CLASSIFICATIONS = {"lead", "opportunity", "customer_question", "positive_mention", "complaint", "spam", "unclassified"}
 SOCIAL_SENTIMENTS = {"positive", "neutral", "negative", "mixed", "unclassified"}
@@ -92,7 +93,7 @@ class BrandReviewRequest(BaseModel):
 
 class DeliveryScheduleRequest(BaseModel):
     content_id: UUID
-    channel: Literal["email", "linkedin", "instagram", "facebook", "x", "tiktok"]
+    channel: Literal["email", "linkedin", "instagram", "facebook", "x", "tiktok", "youtube"]
     scheduled_at: datetime
     recipients: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
     subject: Optional[str] = Field(None, max_length=240)
@@ -135,6 +136,36 @@ class CampaignMetricRequest(BaseModel):
     source: str = Field(..., min_length=2, max_length=500)
     observed_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SocialMetricInput(BaseModel):
+    metric_key: Literal["impressions", "reach", "likes", "comments", "shares", "saves", "clicks", "views", "watch_time_seconds"]
+    value: float = Field(..., ge=0)
+    observed_at: datetime
+
+
+class SocialPostObservationRequest(BaseModel):
+    platform: Literal["linkedin", "instagram", "facebook", "x", "tiktok", "youtube"]
+    account_id: str = Field(..., min_length=1, max_length=240)
+    external_post_id: str = Field(..., min_length=1, max_length=500)
+    published_at: datetime
+    metrics: list[SocialMetricInput] = Field(default_factory=list, max_length=30)
+    content_id: Optional[UUID] = None
+    delivery_id: Optional[UUID] = None
+    text: Optional[str] = Field(None, max_length=10000)
+    permalink: Optional[str] = Field(None, max_length=2000)
+    media_type: Optional[str] = Field(None, max_length=80)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_metric_snapshots(self) -> "SocialPostObservationRequest":
+        timestamps = [self.published_at, *(metric.observed_at for metric in self.metrics)]
+        if any(timestamp.utcoffset() is None for timestamp in timestamps):
+            raise ValueError("Publication and observation timestamps must include a timezone")
+        snapshots = [(metric.metric_key, metric.observed_at) for metric in self.metrics]
+        if len(snapshots) != len(set(snapshots)):
+            raise ValueError("A metric can only be submitted once per observation timestamp")
+        return self
 
 
 def _source_status(family: str) -> dict[str, Any]:
@@ -354,6 +385,95 @@ async def get_social_overview(db: Session = Depends(get_db), current_user: Any =
         "source_status": _source_status("social"),
         "counts": {"mentions": len(mentions), "classifications": counts, "risk": risk_counts, "open_high_risk": sum(1 for item in mentions if item.status == "open" and item.risk_level in {"high", "critical"})},
         "mentions": [{"id": str(item.id), "platform": item.platform, "author": item.author, "text": item.text, "url": item.url, "matched_term": item.matched_term, "classification": item.classification, "sentiment": item.sentiment, "risk_level": item.risk_level, "status": item.status, "source": item.source, "observed_at": item.observed_at.isoformat()} for item in mentions[:100]],
+    }
+
+
+@router.get("/social/analytics", dependencies=[Depends(require_permission("marketing:social"))])
+async def get_social_analytics(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    return social_analytics_service.analytics(db, days)
+
+
+@router.post("/social/analytics/observations", dependencies=[Depends(require_permission("marketing:integrations"))])
+async def record_social_post_observation(
+    request: SocialPostObservationRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    post = (
+        db.query(SocialPost)
+        .filter(
+            SocialPost.platform == request.platform,
+            SocialPost.account_id == request.account_id,
+            SocialPost.external_post_id == request.external_post_id,
+        )
+        .first()
+    )
+    if post is None:
+        post = SocialPost(
+            platform=request.platform,
+            account_id=request.account_id,
+            external_post_id=request.external_post_id,
+            created_by=current_user.id,
+        )
+        db.add(post)
+
+    post.content_id = request.content_id
+    post.delivery_id = request.delivery_id
+    post.text = request.text
+    post.permalink = request.permalink
+    post.media_type = request.media_type
+    post.published_at = request.published_at
+    post.metadata_json = request.metadata
+    db.flush()
+
+    for metric in request.metrics:
+        observation = (
+            db.query(SocialMetricObservation)
+            .filter(
+                SocialMetricObservation.post_id == post.id,
+                SocialMetricObservation.metric_key == metric.metric_key,
+                SocialMetricObservation.observed_at == metric.observed_at,
+            )
+            .first()
+        )
+        if observation is None:
+            observation = SocialMetricObservation(
+                post_id=post.id,
+                metric_key=metric.metric_key,
+                created_by=current_user.id,
+            )
+            db.add(observation)
+        observation.metric_value = metric.value
+        observation.unit = "seconds" if metric.metric_key == "watch_time_seconds" else "count"
+        observation.provider = request.platform
+        observation.source = f"{request.platform} post metrics"
+        observation.observed_at = metric.observed_at
+        observation.metadata_json = {}
+
+    db.add(
+        MarketingIntelligenceEvent(
+            entity_type="social_post",
+            entity_id=post.id,
+            actor_id=current_user.id,
+            event_type="metrics_recorded",
+            details={
+                "platform": request.platform,
+                "external_post_id": request.external_post_id,
+                "metrics_count": len(request.metrics),
+            },
+        )
+    )
+    db.commit()
+    return {
+        "post_id": str(post.id),
+        "platform": request.platform,
+        "status": "recorded",
+        "metrics_recorded": len(request.metrics),
+        "metric_keys": sorted({metric.metric_key for metric in request.metrics}),
     }
 
 
@@ -1049,20 +1169,36 @@ async def execute_marketing_delivery(
         )
         success = result.get("status") == "sent"
     else:
-        profile_ids = [value.strip() for value in settings.BUFFER_PROFILE_IDS.split(",") if value.strip()]
+        profile_ids = social_analytics_service.buffer_profile_ids(delivery.channel)
         result = await marketing_delivery_service.schedule_buffer(content.content, profile_ids, delivery.scheduled_at)
-        success = result.get("status") == "scheduled"
-    delivery.status = ("sent" if delivery.provider == "ghl" else "provider_scheduled") if success else "failed"
+        success = result.get("status") in {"scheduled", "partial"}
+    partial = delivery.provider == "buffer" and result.get("status") == "partial"
+    delivery.status = (
+        "sent"
+        if delivery.provider == "ghl" and success
+        else "partially_scheduled"
+        if partial
+        else "provider_scheduled"
+        if delivery.provider == "buffer" and success
+        else "failed"
+    )
     delivery.sent_at = datetime.now(timezone.utc) if success and delivery.provider == "ghl" else None
     delivery.metrics = result
-    delivery.error = None if success else "; ".join(result.get("errors", []))
-    db.add(MarketingDeliveryEvent(delivery_id=delivery.id, actor_id=current_user.id, event_type=delivery.status if success else "failed", details=result))
+    delivery.error = "; ".join(result.get("errors", [])) if not success or partial else None
+    db.add(MarketingDeliveryEvent(delivery_id=delivery.id, actor_id=current_user.id, event_type=delivery.status, details=result))
     if success and delivery.provider == "ghl":
         content.status = "published"
         db.add(MarketingContentEvent(content_id=content.id, actor_id=current_user.id, event_type="published", details={"delivery_id": str(delivery.id), "provider": "ghl", "sent_at": datetime.now(timezone.utc).isoformat()}))
-    if not success:
+    if not success or partial:
         alert_type = "marketing_ghl_email_failure" if delivery.provider == "ghl" else "marketing_social_publish_failure"
-        _raise_marketing_alert(db, alert_type, delivery.provider, "Approved Marketing content delivery failed.", {"delivery_id": str(delivery.id), "result": result}, "critical")
+        _raise_marketing_alert(
+            db,
+            alert_type,
+            delivery.provider,
+            "Approved Marketing content delivery was partially scheduled." if partial else "Approved Marketing content delivery failed.",
+            {"delivery_id": str(delivery.id), "result": result},
+            "warning" if partial else "critical",
+        )
     db.commit()
     if not success:
         raise HTTPException(status_code=502, detail={"message": "Marketing delivery failed", "result": result})

@@ -20,6 +20,7 @@ class MarketingIntelligenceService:
             "linkedin": {"configured": bool(settings.LINKEDIN_ACCESS_TOKEN), "source": "LinkedIn"},
             "meta": {"configured": bool(settings.META_ACCESS_TOKEN), "source": "Meta Graph API"},
             "x": {"configured": bool(settings.X_BEARER_TOKEN), "source": "X API"},
+            "tiktok": {"configured": bool(settings.TIKTOK_ACCESS_TOKEN), "source": "TikTok API"},
             "youtube": {"configured": bool(settings.YOUTUBE_API_KEY), "source": "YouTube"},
             "reddit": {"configured": bool(settings.REDDIT_CLIENT_ID and settings.REDDIT_CLIENT_SECRET), "source": "Reddit"},
             "slack": {"configured": bool(settings.SLACK_BOT_TOKEN), "source": "Slack"},
@@ -42,7 +43,7 @@ class MarketingIntelligenceService:
     def configured_sources(self, family: str) -> list[str]:
         providers = self.provider_status()
         seo = {"google_search_console", "ga4", "ahrefs", "semrush", "pagespeed", "dataforseo", "serpapi"}
-        social = {"linkedin", "meta", "x", "youtube", "reddit", "slack"}
+        social = {"linkedin", "meta", "x", "tiktok", "youtube", "reddit", "slack"}
         allowed = seo if family == "seo" else social
         return [name for name in allowed if providers[name]["configured"]]
 

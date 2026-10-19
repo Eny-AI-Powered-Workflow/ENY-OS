@@ -6,7 +6,7 @@ This directory contains exported n8n workflow JSON files that can be imported in
 
 | Workflow Name | Webhook Path | Description |
 |---------------|--------------|-------------|
-| ENY-VIDEO-PUBLISH | /webhook/eny-video-publish | Validates an approved clip and sends it to the configured publishing adapter |
+| ENY-VIDEO-PUBLISH | /webhook/eny-video-publish | Validates an approved clip and sends one selected platform publication to the configured adapter |
 
 ## How to Use
 
@@ -75,9 +75,22 @@ it: its previous email behavior is retired and the backend no longer calls it.
 - **Workflow File**: `eny-video-publish.json`
 - **Description**: Receives an approved clip, its private signed source URL and time range, then delegates clipping/publication to a configured channel adapter. The backend marks the output published only after this workflow confirms success.
 - **Expected Input**: `asset_id`, `title`, `caption`, `source_media_url`, `start_seconds`, `end_seconds`, `channel`, and approval metadata.
+- **Supported Channels**: `linkedin`, `instagram`, `facebook`, `x`, `tiktok`, and `youtube`. Each request targets one channel; a missing or failed channel adapter does not fan out to or block other platform requests.
 - **Required n8n environment variables**: `ENY_VIDEO_PUBLISHER_URL`, `ENY_VIDEO_PUBLISHER_TOKEN`.
 - **Webhook protection**: configure the imported Webhook node with header authentication using the same secret as backend `N8N_WEBHOOK_TOKEN`.
 - **Important**: The channel adapter must actually trim the requested time range and return `{ "published": true, "url": "..." }` (or `{ "status": "published" }`). The included workflow is inactive until imported, configured, and activated. It deliberately does not report a simulated publish as complete.
+
+### Social platform analytics
+
+The Marketing dashboard reads `GET /api/v1/marketing/social/analytics?days=30`
+for individual platform stats and collective totals. Source observations are
+written through the permission-protected
+`POST /api/v1/marketing/social/analytics/observations` endpoint. The current
+implementation supports recording and reporting observations but does not
+poll platform APIs automatically; the dashboard shows this per platform so a
+missing connector does not appear as zero performance. Configure Buffer with
+`BUFFER_ACCESS_TOKEN` and either legacy `BUFFER_PROFILE_IDS` or the
+platform-specific profile ID settings documented in `backend/.env.example`.
 
 ## Business Support Payment Verification
 

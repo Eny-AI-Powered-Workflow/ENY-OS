@@ -128,7 +128,7 @@ export default function MarketingContentWorkspace() {
   }
 
   const schedule = async (item: ContentItem) => {
-    const channel = window.prompt('Channel: email, linkedin, instagram, facebook, x, or tiktok', item.channel)
+    const channel = window.prompt('Channel: email, linkedin, instagram, facebook, x, tiktok, or youtube', item.channel)
     if (!channel) return
     const scheduledAt = window.prompt('Scheduled time (ISO format)', new Date(Date.now() + 60 * 60 * 1000).toISOString())
     if (!scheduledAt) return

@@ -4,6 +4,7 @@ import MarketingContentWorkspace from "@/components/MarketingContentWorkspace";
 import MarketingIntelligence from "@/components/MarketingIntelligence";
 import MarketingVideoWorkspace from "@/components/MarketingVideoWorkspace";
 import MarketingOperationsReport from "@/components/MarketingOperationsReport";
+import SocialAnalytics from "@/components/SocialAnalytics";
 
 export default function MarketingDashboard() {
   return (
@@ -46,6 +47,7 @@ export default function MarketingDashboard() {
           <MarketingAnalytics />
           <MarketingOperationsReport />
         </div>
+        <SocialAnalytics />
       </div>
     </div>
   );
