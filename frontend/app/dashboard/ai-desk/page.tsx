@@ -419,8 +419,11 @@ export default function AIDeskPage() {
   useEffect(() => {
     const refreshClock = () => {
       setLocalTime(new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
         timeZoneName: 'short',
       }).format(new Date()))
     }
