@@ -64,3 +64,29 @@ async def test_claude_score_contract_rejects_missing_component_scores():
 
     with pytest.raises(ValueError, match="engagement_score"):
         await service.score_lead({"id": "contact-1"})
+
+
+@pytest.mark.asyncio
+async def test_claude_creative_assessment_sends_the_image_and_prompt_as_multimodal_input():
+    response = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"overall_score": 85}')])
+    create = AsyncMock(return_value=response)
+    service = ClaudeService.__new__(ClaudeService)
+    service.async_client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    service.model = "test-model"
+    service._system_prompt = lambda role_context: "Creative assessment test"
+
+    result = await service.invoke_with_image(
+        prompt="Assess the design",
+        image_base64="cG5n",
+        media_type="image/png",
+        role_context="marketing creative review",
+    )
+
+    assert result == '{"overall_score": 85}'
+    assert create.await_args.kwargs["messages"][0]["content"] == [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"},
+        },
+        {"type": "text", "text": "Assess the design"},
+    ]

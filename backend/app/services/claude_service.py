@@ -8,7 +8,7 @@ The role_context ensures agent output is genuinely personalized per role.
 import os
 import logging
 import json
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator, Dict, Any, Literal
 import anthropic
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,44 @@ When providing advice or analysis, frame it within the context of {role_context}
         except Exception as exc:
             logger.error(f"Error streaming Claude response: {exc}")
             raise
+
+    async def invoke_with_image(
+        self,
+        prompt: str,
+        image_base64: str,
+        media_type: Literal["image/jpeg", "image/png", "image/webp"],
+        role_context: str = "",
+        max_tokens: int = 1800,
+        temperature: float = 0.2,
+    ) -> str:
+        """Assess a user-submitted creative image without storing or publishing it."""
+        message = await self.async_client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=self._system_prompt(role_context),
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_base64,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        text = next(
+            (block.text for block in message.content if getattr(block, "type", None) == "text"),
+            None,
+        )
+        if not text:
+            raise ValueError("Claude returned an empty creative assessment")
+        return text
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """Score a lead from supplied evidence; callers must handle model/API failures."""

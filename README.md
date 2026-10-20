@@ -181,4 +181,14 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    or mark the lead contacted. Staff must record actual outreach in the UI.
    If the old ENY-ENROLLMENT-FOLLOW-UP workflow was imported in n8n, deactivate
    it; the API no longer invokes it.
+
+   The role-aware AI Desk features require migrations `0045` through `0049` to
+   be applied in order. Claude chat receives only the signed-in user's
+   permission-scoped CRM and platform context. Per-user preferences are stored
+   separately; signed-in identity and roles come from the authenticated
+   account. Creative assessment can accept JPEG, PNG, or WebP images up to
+   5 MB; submitted images are sent to Anthropic for analysis but are not
+   persisted by ENY. Workflow proposals are limited to approved draft/review
+   workflows and require a workflow owner or CEO to approve before execution;
+   publishing workflows are excluded.
     

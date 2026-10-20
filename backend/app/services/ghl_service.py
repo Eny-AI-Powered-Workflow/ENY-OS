@@ -484,7 +484,10 @@ class GHLService:
         include_contacts: bool = True,
     ) -> Dict[str, Any]:
         """Build only the CRM snapshot permitted for the current AI context."""
-        context: Dict[str, Any] = {"source": "GoHighLevel"}
+        context: Dict[str, Any] = {
+            "source": "GoHighLevel",
+            "crm_status": "connected" if self.private_token and self.location_id else "not_configured",
+        }
         if include_contacts:
             contacts, inventory_status = await self.get_all_contacts()
             scored_leads = []
@@ -554,7 +557,7 @@ class GHLService:
 
             scored_leads.sort(key=lambda lead: lead.get("score") or 0, reverse=True)
             context.update({
-                "crm_status": "connected",
+                "crm_status": inventory_status.get("status", "unknown"),
                 "contacts_returned": len(contacts),
                 "contact_inventory": inventory_status,
                 "scored_contacts": len(scored_leads),

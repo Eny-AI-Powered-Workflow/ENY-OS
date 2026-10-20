@@ -1,5 +1,6 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/tests/test_ai_context.py
 import os
+import base64
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
@@ -12,10 +13,15 @@ os.environ.setdefault("DATABASE_URL", "postgresql://localhost:5432/testdb")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1.endpoints.ai import (
     ChatRequest,
+    DesignAssessmentRequest,
+    _ai_proposable_workflows,
+    assess_creative,
     build_context_prompt,
+    get_assistant_integrations,
     get_recent_messages,
     prepare_ai_chat_context,
 )
@@ -25,6 +31,9 @@ from app.api.v1.endpoints.ai import (
 async def test_ai_chat_omits_crm_data_without_leads_or_pipeline_permissions(monkeypatch):
     current_user = SimpleNamespace(id="user-1", display_name="Taylor")
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = SimpleNamespace(
+        preferences={"focus_areas": ["leadership"]},
+    )
     monkeypatch.setattr("app.api.v1.endpoints.ai.get_user_roles", lambda *_: ["marketing"])
     monkeypatch.setattr(
         "app.api.v1.endpoints.ai.get_optional_permissions_with_audit",
@@ -41,7 +50,7 @@ async def test_ai_chat_omits_crm_data_without_leads_or_pipeline_permissions(monk
     ghl_context = AsyncMock()
     monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.get_ai_context", ghl_context)
 
-    roles, context_scopes, crm, _, platform = await prepare_ai_chat_context(
+    roles, context_scopes, crm, _, platform, assistant_context = await prepare_ai_chat_context(
         ChatRequest(prompt="How many SOPs are available?"),
         current_user,
         db,
@@ -52,6 +61,8 @@ async def test_ai_chat_omits_crm_data_without_leads_or_pipeline_permissions(monk
     assert context_scopes == {"role:marketing"}
     assert crm == {}
     assert platform["active_knowledge_document_count"] == 1
+    assert assistant_context["timezone"] == "UTC"
+    assert assistant_context["user_preferences"] == {"focus_areas": ["leadership"]}
     ghl_context.assert_not_awaited()
 
 
@@ -99,11 +110,18 @@ def test_context_prompt_personalizes_and_uses_inventory_instead_of_search_hit_co
             ],
             "department_member_counts": [{"department": "enrollment", "member_count": 4}],
         },
+        assistant_context={
+            "timezone": "America/New_York",
+            "user_local_time": "2026-10-20T09:00:00-04:00",
+            "user_preferences": {"response_style": "concise"},
+        },
     )
 
     assert '"signed_in_user": "Taylor"' in prompt
     assert '"authorized_roles": ["ceo"]' in prompt
     assert '"active_knowledge_document_count": 6' in prompt
+    assert '"timezone": "America/New_York"' in prompt
+    assert '"response_style": "concise"' in prompt
     assert "search returning no matching passages does not mean the library is empty" in prompt
     assert "authorized CRM context was retrieved" not in prompt
 
@@ -131,3 +149,44 @@ def test_conversation_history_hides_assistant_replies_outside_current_permission
         "What do I need to know?",
         "Marketing-only answer",
     ]
+
+
+@pytest.mark.asyncio
+async def test_creative_assessment_rejects_image_with_mismatched_media_type(monkeypatch):
+    monkeypatch.setattr("app.api.v1.endpoints.ai.get_user_roles", lambda *_: ["graphic_designer"])
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.ai.get_optional_permissions_with_audit",
+        MagicMock(return_value={"design:ai", "design:read_marketing"}),
+    )
+    request = DesignAssessmentRequest(
+        title="Campaign concept",
+        audience="marketing",
+        channel="social",
+        brief="A clear campaign concept with a concise message and visual direction.",
+        image_base64=base64.b64encode(b"not a png").decode("ascii"),
+        image_media_type="image/png",
+    )
+
+    with pytest.raises(HTTPException, match="image contents do not match"):
+        await assess_creative(request, SimpleNamespace(id="designer-1"), MagicMock())
+
+
+def test_ai_workflow_proposals_only_include_owned_draft_and_review_workflows():
+    video_workflows = _ai_proposable_workflows(["videographer"])
+    executive_workflows = _ai_proposable_workflows(["ceo"])
+
+    assert video_workflows == []
+    assert executive_workflows
+    assert all(workflow["mode"] in {"shadow", "draft-only", "manual"} for _, workflow in executive_workflows)
+    assert "eny-video-publish" not in {key for key, _ in executive_workflows}
+
+
+def test_integration_catalog_reports_contacts_and_creative_access_separately():
+    integrations = {
+        item["id"]: item
+        for item in get_assistant_integrations({"leads:read", "design:ai"})
+    }
+
+    assert integrations["gohighlevel"]["access"] == "contacts"
+    assert integrations["creative_review"]["access"] == "approved_brand_and_design_standards"
+    assert integrations["calendar"]["access"] == "no_access"
