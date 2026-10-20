@@ -191,4 +191,38 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    persisted by ENY. Workflow proposals are limited to approved draft/review
    workflows and require a workflow owner or CEO to approve before execution;
    publishing workflows are excluded.
+
+## Production security and DDoS hardening
+
+Apply `supabase/migrations/0051_security_rls.sql` after the existing migrations.
+It enables RLS on the RBAC tables, allows authenticated users to read only
+permitted reference data and their own role assignments, and prevents
+client-side role changes. Verify it in a non-production Supabase project
+before applying it to production.
+
+The backend now disables its interactive API documentation when
+`ENVIRONMENT=production`, caps request bodies and in-flight requests per
+process, and emits basic security headers. The 251 MiB body cap preserves the
+configured 250 MiB video upload path; lower it if that upload capability is
+not needed. These application controls do **not** stop volumetric DDoS attacks
+and concurrency limits are per process, not global.
+
+For edge protection, put the API on a custom domain behind Cloudflare (or an
+equivalent provider) and enable its managed DDoS/WAF protections. Configure
+edge rate limits for authentication, agent/workflow triggers, and upload/API
+routes; tune thresholds using normal traffic before enforcing them. Ensure
+attack traffic cannot bypass the edge to reach the Render origin. If the
+origin cannot be network-restricted, set a random `EDGE_SHARED_SECRET` on
+Render and configure the edge to overwrite `X-ENY-Edge-Token` with the same
+secret on forwarded requests. `/health` remains available for Render health
+checks. The shared-header check blocks direct application requests but is not
+a substitute for origin network restrictions against bandwidth exhaustion.
+
+Set `ENVIRONMENT=production` in Render (also declared in `render.yaml`), keep
+`CORS_ORIGIN_REGEX` empty, and set `BACKEND_CORS_ORIGINS` to exact frontend
+origins. Do not enable `EDGE_SHARED_SECRET` until the edge header transform is
+configured and verified. The security workflow runs dependency and secret
+scans; resolve any findings it reports before deployment. Rotate any credential
+that was ever committed in a sample/config file, and remove it from Git history
+as a separate coordinated repository operation.
     

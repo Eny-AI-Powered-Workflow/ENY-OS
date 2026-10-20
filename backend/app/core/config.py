@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # API Settings
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "ENY Consulting Platform"
+    ENVIRONMENT: str = Field("development", env="ENVIRONMENT")
+    MAX_REQUEST_BODY_BYTES: int = Field(251 * 1024 * 1024, ge=1024, env="MAX_REQUEST_BODY_BYTES")
+    MAX_CONCURRENT_REQUESTS: int = Field(8, ge=1, env="MAX_CONCURRENT_REQUESTS")
+    EDGE_SHARED_SECRET: str = Field("", env="EDGE_SHARED_SECRET")
 
     # CORS Settings
     BACKEND_CORS_ORIGINS: str = "https://eny-os.vercel.app,https://eny-os.onrender.com"
@@ -172,6 +176,8 @@ class Settings(BaseSettings):
     @property
     def cors_origin_regex(self) -> Optional[str]:
         """Optional pattern for preview deployments; disabled when unset."""
+        if self.ENVIRONMENT.lower() == "production":
+            return None
         return self.CORS_ORIGIN_REGEX.strip() or None
 
     class Config:

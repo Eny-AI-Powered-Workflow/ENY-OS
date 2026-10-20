@@ -1,9 +1,12 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/core/security.py
 import logging
 import time
+from threading import Lock
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError, jwk
+from jose import jwt, jwk
+from jose.exceptions import JOSEError
 import requests
 from app.core.config import settings
 
@@ -22,34 +25,51 @@ SUPABASE_ANON_KEY = settings.SUPABASE_ANON_KEY  # For accessing JWKS endpoint
 _jwks_cache = None
 _jwks_cache_time = 0
 CACHE_TIMEOUT_SECONDS = 300  # 5 minutes
+MAX_STALE_JWKS_SECONDS = 3600
+JWKS_FAILURE_LOG_INTERVAL_SECONDS = 300
+ALLOWED_JWT_ALGORITHMS = {"ES256", "RS256"}
+_stale_jwks_alerted = False
+_last_jwks_failure_log = 0.0
+_jwks_refresh_lock = Lock()
 
 logger = logging.getLogger(__name__)
 
 
 def get_jwks():
     """Fetch and cache the JWKS from Supabase using the anon key."""
-    global _jwks_cache, _jwks_cache_time
-    now = time.time()
+    global _jwks_cache, _jwks_cache_time, _stale_jwks_alerted, _last_jwks_failure_log
+    now = time.monotonic()
     if _jwks_cache is not None and (now - _jwks_cache_time) < CACHE_TIMEOUT_SECONDS:
         return _jwks_cache
-    try:
-        headers = {
-            "apikey": SUPABASE_ANON_KEY,
-            "Content-Type": "application/json"
-        }
-        response = requests.get(SUPABASE_JWKS_URL, headers=headers, timeout=10)
-        response.raise_for_status()
-        jwks = response.json()
-        _jwks_cache = jwks
-        _jwks_cache_time = now
-        return jwks
-    except Exception as e:
-        logger.error(f"Failed to fetch JWKS from {SUPABASE_JWKS_URL}: {e}")
-        # Return cached JWKS if available, otherwise raise
-        if _jwks_cache is not None:
-            logger.warning("Using stale JWKS cache due to fetch failure")
+    with _jwks_refresh_lock:
+        now = time.monotonic()
+        if _jwks_cache is not None and (now - _jwks_cache_time) < CACHE_TIMEOUT_SECONDS:
             return _jwks_cache
-        raise
+        try:
+            headers = {
+                "apikey": SUPABASE_ANON_KEY,
+                "Content-Type": "application/json"
+            }
+            response = requests.get(SUPABASE_JWKS_URL, headers=headers, timeout=10)
+            response.raise_for_status()
+            jwks = response.json()
+            if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
+                raise ValueError("Supabase returned an invalid JWKS document")
+            _jwks_cache = jwks
+            _jwks_cache_time = time.monotonic()
+            _stale_jwks_alerted = False
+            return jwks
+        except (requests.RequestException, ValueError) as exc:
+            age = now - _jwks_cache_time if _jwks_cache is not None else None
+            if now - _last_jwks_failure_log >= JWKS_FAILURE_LOG_INTERVAL_SECONDS:
+                logger.error("Failed to refresh Supabase JWKS: %s", exc)
+                _last_jwks_failure_log = now
+            if _jwks_cache is not None and age is not None and age <= MAX_STALE_JWKS_SECONDS:
+                if not _stale_jwks_alerted:
+                    logger.warning("Using stale Supabase JWKS; cache age is %.0f seconds", age)
+                    _stale_jwks_alerted = True
+                return _jwks_cache
+            raise RuntimeError("Supabase JWKS unavailable or cache exceeded maximum stale age") from exc
 
 
 def get_current_user(
@@ -70,19 +90,13 @@ def get_current_user(
         kid = header.get('kid')
         algorithm = header.get('alg')
 
-        if kid is None or algorithm is None:
-            logger.error("JWT header missing 'kid' or 'alg'")
+        if not isinstance(kid, str) or algorithm not in ALLOWED_JWT_ALGORITHMS:
             raise credentials_exception
 
-        # Get unverified payload to check the issuer
+        # Reject tokens for another issuer before consulting the JWKS endpoint.
         unverified_payload = jwt.get_unverified_claims(token)
         issuer = unverified_payload.get('iss')
-        if issuer is None:
-            logger.error("JWT payload missing 'iss' claim")
-            raise credentials_exception
-        # Check that the issuer starts with the expected base issuer
-        if not issuer.startswith(SUPABASE_ISSUER_BASE):
-            logger.error(f"JWT issuer '{issuer}' does not start with expected base issuer '{SUPABASE_ISSUER_BASE}'")
+        if issuer != SUPABASE_ISSUER_BASE:
             raise credentials_exception
 
         # Fetch JWKS and find the matching key
@@ -94,32 +108,28 @@ def get_current_user(
                 break
 
         if key_dict is None:
-            logger.error(f"No matching key found for kid: {kid}")
+            raise credentials_exception
+        if key_dict.get("alg") not in (None, algorithm):
             raise credentials_exception
 
         # Construct the public key from the JWK
         key = jwk.construct(key_dict, algorithm=algorithm)
 
-        # Verify the token with the issuer from the token (which we know starts with the base)
+        # Validate the signature and claims against the configured issuer and audience.
         payload = jwt.decode(
             token,
             key,
             algorithms=[algorithm],
             audience=SUPABASE_JWT_AUDIENCE,
-            issuer=issuer,  # Use the issuer from the token (after prefix check)
+            issuer=SUPABASE_ISSUER_BASE,
         )
         user_id: str = payload.get("sub")
-        if user_id is None:
-            logger.error("JWT payload missing 'sub' claim")
+        if not isinstance(user_id, str) or not user_id:
             raise credentials_exception
 
-        logger.info(f"Successfully authenticated user_id: {user_id}")
-
-    except JWTError as e:
-        logger.error(f"JWT validation failed: {e}")
+    except JOSEError:
         raise credentials_exception
-    except Exception as e:
-        logger.error(f"Unexpected error during JWT validation: {e}")
+    except (RuntimeError, requests.RequestException, ValueError):
         raise credentials_exception
 
     metadata = payload.get("user_metadata") or {}
