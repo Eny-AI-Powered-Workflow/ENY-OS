@@ -67,22 +67,39 @@ async def test_claude_score_contract_rejects_missing_component_scores():
 
 
 @pytest.mark.asyncio
-async def test_claude_creative_assessment_sends_the_image_and_prompt_as_multimodal_input():
-    response = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"overall_score": 85}')])
+async def test_claude_creative_assessment_uses_structured_tool_input_with_image():
+    assessment = {
+        "overall_score": 85,
+        "verdict": "ready",
+        "summary": "Clear and focused.",
+        "strengths": [],
+        "risks": [],
+        "criteria": [{"name": "Clarity", "score": 85, "feedback": "Clear."}],
+        "recommendations": [],
+        "accessibility_checks": [],
+        "evidence": [],
+    }
+    response = SimpleNamespace(content=[
+        SimpleNamespace(
+            type="tool_use",
+            name="submit_creative_assessment",
+            input=assessment,
+        ),
+    ])
     create = AsyncMock(return_value=response)
     service = ClaudeService.__new__(ClaudeService)
     service.async_client = SimpleNamespace(messages=SimpleNamespace(create=create))
     service.model = "test-model"
     service._system_prompt = lambda role_context: "Creative assessment test"
 
-    result = await service.invoke_with_image(
+    result = await service.assess_creative(
         prompt="Assess the design",
         image_base64="cG5n",
         media_type="image/png",
         role_context="marketing creative review",
     )
 
-    assert result == '{"overall_score": 85}'
+    assert result == assessment
     assert create.await_args.kwargs["messages"][0]["content"] == [
         {
             "type": "image",
@@ -90,3 +107,21 @@ async def test_claude_creative_assessment_sends_the_image_and_prompt_as_multimod
         },
         {"type": "text", "text": "Assess the design"},
     ]
+    assert create.await_args.kwargs["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_creative_assessment",
+    }
+
+
+@pytest.mark.asyncio
+async def test_claude_creative_assessment_rejects_response_without_tool_result():
+    response = SimpleNamespace(content=[SimpleNamespace(type="text", text="I cannot assess this.")])
+    service = ClaudeService.__new__(ClaudeService)
+    service.async_client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(return_value=response)),
+    )
+    service.model = "test-model"
+    service._system_prompt = lambda role_context: "Creative assessment test"
+
+    with pytest.raises(ValueError, match="structured creative assessment"):
+        await service.assess_creative(prompt="Assess the design")

@@ -105,43 +105,116 @@ When providing advice or analysis, frame it within the context of {role_context}
             logger.error(f"Error streaming Claude response: {exc}")
             raise
 
-    async def invoke_with_image(
+    async def assess_creative(
         self,
         prompt: str,
-        image_base64: str,
-        media_type: Literal["image/jpeg", "image/png", "image/webp"],
+        image_base64: str | None = None,
+        media_type: Literal["image/jpeg", "image/png", "image/webp"] | None = None,
         role_context: str = "",
-        max_tokens: int = 1800,
-        temperature: float = 0.2,
-    ) -> str:
-        """Assess a user-submitted creative image without storing or publishing it."""
+    ) -> Dict[str, Any]:
+        """Request creative feedback as a validated-shape Anthropic tool input."""
+        if bool(image_base64) != bool(media_type):
+            raise ValueError("Creative image data and media type must be provided together")
+
+        content: str | list[dict[str, Any]] = prompt
+        if image_base64 and media_type:
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_base64,
+                    },
+                },
+                {"type": "text", "text": prompt},
+            ]
+
+        tool_name = "submit_creative_assessment"
         message = await self.async_client.messages.create(
             model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            max_tokens=1800,
+            temperature=0.2,
             system=self._system_prompt(role_context),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_base64,
+            tools=[{
+                "name": tool_name,
+                "description": "Return the completed structured creative assessment.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "overall_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                        "verdict": {"type": "string", "enum": ["ready", "refine", "rework"]},
+                        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+                        "strengths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 10,
+                        },
+                        "risks": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 10,
+                        },
+                        "criteria": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 10,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                                    "score": {"type": "integer", "minimum": 0, "maximum": 100},
+                                    "feedback": {"type": "string", "maxLength": 1200},
+                                },
+                                "required": ["name", "score", "feedback"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "recommendations": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 10,
+                        },
+                        "accessibility_checks": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 10,
+                        },
+                        "evidence": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "maxItems": 10,
                         },
                     },
-                    {"type": "text", "text": prompt},
-                ],
+                    "required": [
+                        "overall_score",
+                        "verdict",
+                        "summary",
+                        "strengths",
+                        "risks",
+                        "criteria",
+                        "recommendations",
+                        "accessibility_checks",
+                        "evidence",
+                    ],
+                    "additionalProperties": False,
+                },
             }],
+            tool_choice={"type": "tool", "name": tool_name},
+            messages=[{"role": "user", "content": content}],
         )
-        text = next(
-            (block.text for block in message.content if getattr(block, "type", None) == "text"),
+        assessment = next(
+            (
+                block.input
+                for block in message.content
+                if getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == tool_name
+            ),
             None,
         )
-        if not text:
-            raise ValueError("Claude returned an empty creative assessment")
-        return text
+        if not isinstance(assessment, dict):
+            raise ValueError("Claude did not return a structured creative assessment")
+        return assessment
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """Score a lead from supplied evidence; callers must handle model/API failures."""
