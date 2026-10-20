@@ -385,7 +385,7 @@ class GHLService:
             "error": None if contact_updated and note_recorded else "GHL write-back incomplete",
         }
 
-    async def get_pipeline_data(self) -> Dict[str, Any]:
+    async def get_pipeline_data(self, include_inventory: bool = False) -> Dict[str, Any]:
         """
         Get pipeline/opportunities data from GHL.
         Returns default empty structure if credentials are not configured.
@@ -395,6 +395,7 @@ class GHLService:
             logger.warning("GHL credentials not configured - returning empty pipeline data")
             return {
                 "status": "not_configured",
+                "pipeline_catalog_status": "not_configured",
                 "total_leads": 0,
                 "conversion_rate": 0.0,
                 "revenue_forecast": 0,
@@ -402,22 +403,86 @@ class GHLService:
                 "sources_breakdown": {},
                 "recent_activities": [],
                 "opportunities": [],
+                "pipelines": [],
+                "max_pages_reached": False,
                 "stages": [],
             }
 
         try:
             opportunity_headers = {**self.headers, "Version": "v3"}
+            opportunities: List[Dict[str, Any]] = []
+            page = 1
+            max_pages = max(1, settings.GHL_OPPORTUNITY_MAX_PAGES) if include_inventory else 1
+            max_pages_reached = False
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/opportunities/search",
-                    params={"location_id": self.location_id, "limit": 100},
-                    headers=opportunity_headers,
-                    timeout=30.0,
-                )
-                response.raise_for_status()
-                data = response.json()
+                while page <= max_pages:
+                    params: Dict[str, Any] = {"location_id": self.location_id, "limit": 100}
+                    if include_inventory:
+                        params["page"] = page
+                    response = await client.get(
+                        f"{self.base_url}/opportunities/search",
+                        params=params,
+                        headers=opportunity_headers,
+                        timeout=30.0,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    page_opportunities = data.get("opportunities", [])
+                    opportunities.extend(page_opportunities)
+                    if not include_inventory:
+                        break
+                    meta = data.get("meta", {}) or {}
+                    total_pages = meta.get("totalPages") or meta.get("total_pages")
+                    has_more = (
+                        page < int(total_pages)
+                        if total_pages is not None
+                        else len(page_opportunities) == 100
+                    )
+                    if not page_opportunities or not has_more:
+                        break
+                    if page == max_pages:
+                        max_pages_reached = True
+                        break
+                    page += 1
 
-            opportunities = data.get("opportunities", [])
+                if include_inventory:
+                    try:
+                        pipeline_response = await client.get(
+                            f"{self.base_url}/opportunities/pipelines",
+                            params={"locationId": self.location_id},
+                            headers=self.headers,
+                            timeout=30.0,
+                        )
+                        pipeline_response.raise_for_status()
+                        pipeline_payload = pipeline_response.json()
+                        pipelines = pipeline_payload.get("pipelines", [])
+                        pipeline_catalog_status = "connected"
+                    except (httpx.HTTPError, ValueError, TypeError) as exc:
+                        logger.error("Error fetching pipeline catalog from GHL: %s", exc)
+                        pipelines = []
+                        pipeline_catalog_status = "error"
+                else:
+                    pipelines = []
+                    pipeline_catalog_status = "not_requested"
+
+            pipeline_by_id = {
+                str(pipeline.get("id")): pipeline
+                for pipeline in pipelines
+                if pipeline.get("id") is not None
+            }
+            for opportunity in opportunities:
+                pipeline = pipeline_by_id.get(str(opportunity.get("pipelineId")))
+                if pipeline:
+                    opportunity.setdefault("pipelineName", pipeline.get("name"))
+                    stage_by_id = {
+                        str(stage.get("id")): stage
+                        for stage in pipeline.get("stages", [])
+                        if stage.get("id") is not None
+                    }
+                    stage = stage_by_id.get(str(opportunity.get("pipelineStageId")))
+                    if stage:
+                        opportunity.setdefault("pipelineStageName", stage.get("name"))
+
             total_leads = len(opportunities)
             won_opportunities = [
                 opportunity for opportunity in opportunities
@@ -450,7 +515,7 @@ class GHLService:
                 "total_leads": total_leads,
                 "conversion_rate": conversion_rate,
                 "revenue_forecast": sum(
-                    float(opportunity.get("expectedValue", 0) or 0)
+                    float(opportunity.get("monetaryValue") or opportunity.get("expectedValue") or 0)
                     for opportunity in opportunities
                 ),
                 "at_risk_deals": len([
@@ -461,6 +526,9 @@ class GHLService:
                 "sources_breakdown": {},
                 "recent_activities": [],
                 "opportunities": opportunities,
+                "pipelines": pipelines,
+                "pipeline_catalog_status": pipeline_catalog_status,
+                "max_pages_reached": max_pages_reached,
                 "stages": stages,
             }
         except Exception as exc:
@@ -474,6 +542,9 @@ class GHLService:
                 "sources_breakdown": {},
                 "recent_activities": [],
                 "opportunities": [],
+                "pipelines": [],
+                "pipeline_catalog_status": "error",
+                "max_pages_reached": False,
                 "stages": [],
                 "error": "Pipeline data unavailable",
             }

@@ -109,6 +109,113 @@ async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
     assert requests[0][1] == {"location_id": "location-1", "contact_id": "contact-1", "limit": 100}
 
 
+@pytest.mark.asyncio
+async def test_pipeline_data_returns_catalog_and_paginated_opportunities(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_OPPORTUNITY_MAX_PAGES", 5)
+    requests = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"]))
+            if url.endswith("/opportunities/search"):
+                page = kwargs["params"]["page"]
+                if page == 1:
+                    return Response({
+                        "opportunities": [{
+                            "id": "opportunity-1",
+                            "contactName": "Alice Example",
+                            "pipelineId": "pipeline-1",
+                            "pipelineStageId": "stage-1",
+                            "monetaryValue": 250,
+                        }],
+                        "meta": {"totalPages": 2},
+                    })
+                return Response({
+                    "opportunities": [{
+                        "id": "opportunity-2",
+                        "pipelineId": "pipeline-1",
+                        "monetaryValue": 100,
+                    }],
+                    "meta": {"totalPages": 2},
+                })
+            return Response({
+                "pipelines": [{
+                    "id": "pipeline-1",
+                    "name": "Enrollment",
+                    "stages": [{"id": "stage-1", "name": "Qualified"}],
+                }],
+            })
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_pipeline_data(include_inventory=True)
+
+    assert result["status"] == "connected"
+    assert result["pipeline_catalog_status"] == "connected"
+    assert result["max_pages_reached"] is False
+    assert result["pipelines"][0]["name"] == "Enrollment"
+    assert len(result["opportunities"]) == 2
+    assert result["opportunities"][0]["pipelineName"] == "Enrollment"
+    assert result["opportunities"][0]["pipelineStageName"] == "Qualified"
+    assert result["revenue_forecast"] == 350
+    assert [params["page"] for url, params in requests if url.endswith("/opportunities/search")] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_data_keeps_summary_fetch_single_page_by_default(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"opportunities": []}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"]))
+            return Response()
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_pipeline_data()
+
+    assert result["pipeline_catalog_status"] == "not_requested"
+    assert requests == [(
+        f"{service.base_url}/opportunities/search",
+        {"location_id": "location-1", "limit": 100},
+    )]
+
+
 def test_contact_quality_report_normalizes_and_detects_duplicate_identity():
     report = GHLService.build_contact_quality_report([
         {"id": "contact-1", "firstName": " Alice ", "lastName": "Example", "email": "ALICE@example.com", "phone": "(555) 000-1", "source": " Bootcamp "},

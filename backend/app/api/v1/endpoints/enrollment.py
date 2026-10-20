@@ -1371,7 +1371,7 @@ async def get_enrollment_pipeline(
     Requires leads:read permission.
     """
     try:
-        pipeline = await ghl_service.get_pipeline_data()
+        pipeline = await ghl_service.get_pipeline_data(include_inventory=True)
         opportunities = pipeline.get("opportunities", [])
         stages = pipeline.get("stages", [])
         pipeline_data = {
@@ -1380,7 +1380,15 @@ async def get_enrollment_pipeline(
             "revenueForecast": pipeline.get("revenue_forecast", 0),
             "atRiskDeals": pipeline.get("at_risk_deals", 0),
         }
-        return {"pipeline": pipeline_data, "stages": stages, "opportunities": opportunities}
+        return {
+            "pipeline": pipeline_data,
+            "stages": stages,
+            "opportunities": opportunities,
+            "pipelines": pipeline.get("pipelines", []),
+            "status": pipeline.get("status", "error"),
+            "pipeline_catalog_status": pipeline.get("pipeline_catalog_status", "error"),
+            "max_pages_reached": pipeline.get("max_pages_reached", False),
+        }
     except Exception as e:
         logger.error(f"Error fetching enrollment pipeline: {e}")
         raise HTTPException(
