@@ -63,6 +63,7 @@ supabase/migrations/*
 !supabase/migrations/0047_ai_assistant_memory_actions.sql
 !supabase/migrations/0048_creative_ai_assessment_access.sql
 !supabase/migrations/0049_ai_action_approval_permissions.sql
+!supabase/migrations/0050_qualify_knowledge_vector_operator.sql
 !supabase/migrations/0015_executive_assistant_permissions.sql
 !supabase/migrations/0016_ea_coordination_research.sql
 !supabase/migrations/0017_ea_action_reporting.sql
