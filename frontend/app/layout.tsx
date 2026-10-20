@@ -4,11 +4,18 @@ import type { Metadata } from 'next'
 import AuthRedirect from './auth-redirect'
 
 export const metadata: Metadata = {
-  title: 'ENY Consulting Platform',
-  description: 'Unified AI-powered platform for ENY Consulting',
-  metadataBase: new URL('https://enyconsulting.com'),
-  icons: {
-    icon: '/favicon.ico',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://eny-os.vercel.app'),
+  title: {
+    default: 'ENY OS | Internal platform',
+    template: '%s | ENY OS',
+  },
+  description: 'The internal workspace for ENY Consulting Inc.',
+  robots: { index: false, follow: false },
+  openGraph: {
+    title: 'ENY OS | Internal platform',
+    description: 'One workspace for how ENY runs.',
+    siteName: 'ENY OS',
+    type: 'website',
   },
 }
 

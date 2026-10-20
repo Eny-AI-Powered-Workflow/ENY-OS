@@ -50,11 +50,6 @@ export default function AuthRedirect() {
         return
       }
 
-      if (session) {
-        router.push('/dashboard')
-      } else {
-        router.push('/login')
-      }
     })
 
     return () => subscription.unsubscribe()
