@@ -13,6 +13,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-anthropic-key")
 
 import pytest
 
+from app.api.v1.endpoints.ai import DesignAssessmentResult
 from app.services.claude_service import ClaudeService
 
 
@@ -72,12 +73,21 @@ async def test_claude_creative_assessment_uses_structured_tool_input_with_image(
         "overall_score": 85,
         "verdict": "ready",
         "summary": "Clear and focused.",
-        "strengths": [],
-        "risks": [],
-        "criteria": [{"name": "Clarity", "score": 85, "feedback": "Clear."}],
-        "recommendations": [],
-        "accessibility_checks": [],
-        "evidence": [],
+        "strengths": "\n<item>Strong visual hierarchy\n<item>Clear message",
+        "risks": "",
+        "recommendations": "Increase text contrast",
+        "accessibility_checks": "Check small text contrast",
+        "evidence": "The headline is prominent",
+        "brand_alignment_score": 82,
+        "brand_alignment_feedback": "The style matches supplied brand references.",
+        "audience_fit_score": 84,
+        "audience_fit_feedback": "The message fits the intended audience.",
+        "clarity_score": 90,
+        "clarity_feedback": "The main message is easy to find.",
+        "conversion_intent_score": 80,
+        "conversion_intent_feedback": "The call to action is visible.",
+        "accessibility_score": 75,
+        "accessibility_feedback": "Review contrast at small sizes.",
     }
     response = SimpleNamespace(content=[
         SimpleNamespace(
@@ -99,7 +109,38 @@ async def test_claude_creative_assessment_uses_structured_tool_input_with_image(
         role_context="marketing creative review",
     )
 
-    assert result == assessment
+    assert result["strengths"] == ["Strong visual hierarchy", "Clear message"]
+    assert result["risks"] == []
+    assert result["recommendations"] == ["Increase text contrast"]
+    assert result["criteria"] == [
+        {
+            "name": "Brand alignment",
+            "score": 82,
+            "feedback": "The style matches supplied brand references.",
+        },
+        {
+            "name": "Audience and message fit",
+            "score": 84,
+            "feedback": "The message fits the intended audience.",
+        },
+        {
+            "name": "Clarity",
+            "score": 90,
+            "feedback": "The main message is easy to find.",
+        },
+        {
+            "name": "Conversion intent",
+            "score": 80,
+            "feedback": "The call to action is visible.",
+        },
+        {
+            "name": "Accessibility",
+            "score": 75,
+            "feedback": "Review contrast at small sizes.",
+        },
+    ]
+    validated = DesignAssessmentResult.model_validate(result)
+    assert len(validated.criteria) == 5
     assert create.await_args.kwargs["messages"][0]["content"] == [
         {
             "type": "image",

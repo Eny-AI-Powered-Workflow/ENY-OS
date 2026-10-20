@@ -8,10 +8,46 @@ The role_context ensures agent output is genuinely personalized per role.
 import os
 import logging
 import json
+import re
+from html import unescape
 from typing import AsyncGenerator, Dict, Any, Literal
 import anthropic
 
 logger = logging.getLogger(__name__)
+
+
+def _assessment_items(value: Any, field_name: str) -> list[str]:
+    """Normalize a tool-returned text list without accepting arbitrary objects."""
+    if isinstance(value, list):
+        if any(not isinstance(item, str) for item in value):
+            raise ValueError(f"Claude returned a non-text item in {field_name}")
+        return [item.strip() for item in value if item.strip()][:10]
+    if not isinstance(value, str):
+        raise ValueError(f"Claude returned an invalid {field_name} value")
+
+    text = value.strip()
+    if not text:
+        return []
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, list):
+        return _assessment_items(decoded, field_name)
+
+    item_tags = re.findall(r"<item\b[^>]*>(.*?)</item\s*>", text, flags=re.IGNORECASE | re.DOTALL)
+    if item_tags:
+        items = item_tags
+    else:
+        items = re.split(r"\r?\n|(?<!\d)[•]", text)
+
+    normalized = []
+    for item in items:
+        cleaned = unescape(re.sub(r"<[^>]*>", "", item))
+        cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", cleaned).strip().strip('"')
+        if cleaned:
+            normalized.append(cleaned)
+    return normalized[:10]
 
 
 
@@ -112,7 +148,7 @@ When providing advice or analysis, frame it within the context of {role_context}
         media_type: Literal["image/jpeg", "image/png", "image/webp"] | None = None,
         role_context: str = "",
     ) -> Dict[str, Any]:
-        """Request creative feedback as a validated-shape Anthropic tool input."""
+        """Request creative feedback using a flat tool schema and normalize it for the API."""
         if bool(image_base64) != bool(media_type):
             raise ValueError("Creative image data and media type must be provided together")
 
@@ -131,6 +167,35 @@ When providing advice or analysis, frame it within the context of {role_context}
             ]
 
         tool_name = "submit_creative_assessment"
+        dimensions = {
+            "brand_alignment": "Brand alignment",
+            "audience_fit": "Audience and message fit",
+            "clarity": "Clarity",
+            "conversion_intent": "Conversion intent",
+            "accessibility": "Accessibility",
+        }
+        properties: dict[str, Any] = {
+            "overall_score": {"type": "integer"},
+            "verdict": {"type": "string"},
+            "summary": {"type": "string"},
+            "strengths": {"type": "string", "description": "Strengths as newline-separated text items."},
+            "risks": {"type": "string", "description": "Risks as newline-separated text items."},
+            "recommendations": {"type": "string", "description": "Recommendations as newline-separated text items."},
+            "accessibility_checks": {"type": "string", "description": "Accessibility checks as newline-separated text items."},
+            "evidence": {"type": "string", "description": "Evidence as newline-separated text items."},
+        }
+        required = list(properties)
+        for key, label in dimensions.items():
+            properties[f"{key}_score"] = {
+                "type": "integer",
+                "description": f"{label} score from 0 to 100.",
+            }
+            properties[f"{key}_feedback"] = {
+                "type": "string",
+                "description": f"Concise evidence-based feedback for {label}.",
+            }
+            required.extend((f"{key}_score", f"{key}_feedback"))
+
         message = await self.async_client.messages.create(
             model=self.model,
             max_tokens=1800,
@@ -138,65 +203,14 @@ When providing advice or analysis, frame it within the context of {role_context}
             system=self._system_prompt(role_context),
             tools=[{
                 "name": tool_name,
-                "description": "Return the completed structured creative assessment.",
+                "description": (
+                    "Return every assessment field. Use integer scores from 0 to 100. "
+                    "Return list-like feedback fields as newline-separated text, not arrays."
+                ),
                 "input_schema": {
                     "type": "object",
-                    "properties": {
-                        "overall_score": {"type": "integer", "minimum": 0, "maximum": 100},
-                        "verdict": {"type": "string", "enum": ["ready", "refine", "rework"]},
-                        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
-                        "strengths": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 10,
-                        },
-                        "risks": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 10,
-                        },
-                        "criteria": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 10,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string", "minLength": 1, "maxLength": 100},
-                                    "score": {"type": "integer", "minimum": 0, "maximum": 100},
-                                    "feedback": {"type": "string", "maxLength": 1200},
-                                },
-                                "required": ["name", "score", "feedback"],
-                                "additionalProperties": False,
-                            },
-                        },
-                        "recommendations": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 10,
-                        },
-                        "accessibility_checks": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 10,
-                        },
-                        "evidence": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "maxItems": 10,
-                        },
-                    },
-                    "required": [
-                        "overall_score",
-                        "verdict",
-                        "summary",
-                        "strengths",
-                        "risks",
-                        "criteria",
-                        "recommendations",
-                        "accessibility_checks",
-                        "evidence",
-                    ],
+                    "properties": properties,
+                    "required": required,
                     "additionalProperties": False,
                 },
             }],
@@ -214,6 +228,17 @@ When providing advice or analysis, frame it within the context of {role_context}
         )
         if not isinstance(assessment, dict):
             raise ValueError("Claude did not return a structured creative assessment")
+        criteria = [
+            {
+                "name": label,
+                "score": assessment.pop(f"{key}_score", None),
+                "feedback": assessment.pop(f"{key}_feedback", None),
+            }
+            for key, label in dimensions.items()
+        ]
+        for field_name in ("strengths", "risks", "recommendations", "accessibility_checks", "evidence"):
+            assessment[field_name] = _assessment_items(assessment.get(field_name), field_name)
+        assessment["criteria"] = criteria
         return assessment
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
