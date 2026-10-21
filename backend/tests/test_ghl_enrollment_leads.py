@@ -96,7 +96,7 @@ async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
             return None
 
         async def get(self, url, **kwargs):
-            requests.append((url, kwargs["params"]))
+            requests.append((url, kwargs["params"], kwargs))
             if url.endswith("/opportunities/search"):
                 return Response({"opportunities": []})
             return Response({"pipelines": []})
@@ -107,6 +107,7 @@ async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
 
     assert result["status"] == "connected"
     assert requests[0][1] == {"locationId": "location-1", "contactId": "contact-1", "limit": 100}
+    assert requests[0][2]["headers"]["Version"] == "2021-07-28"
 
 
 @pytest.mark.asyncio
@@ -135,10 +136,10 @@ async def test_pipeline_data_returns_catalog_and_paginated_opportunities(monkeyp
             return None
 
         async def get(self, url, **kwargs):
-            requests.append((url, kwargs["params"]))
+            requests.append((url, kwargs["params"], kwargs))
             if url.endswith("/opportunities/search"):
                 page = kwargs["params"]["page"]
-                if page == 1:
+                if page == 0:
                     return Response({
                         "opportunities": [{
                             "id": "opportunity-1",
@@ -178,11 +179,13 @@ async def test_pipeline_data_returns_catalog_and_paginated_opportunities(monkeyp
     assert result["opportunities"][0]["pipelineStageName"] == "Qualified"
     assert result["revenue_forecast"] == 350
     assert all(
-        params["locationId"] == "location-1" and params["status"] == "all"
-        for url, params in requests
+        params["locationId"] == "location-1"
+        and params["status"] == "all"
+        and kwargs["headers"]["Version"] == "v3"
+        for url, params, kwargs in requests
         if url.endswith("/opportunities/search")
     )
-    assert [params["page"] for url, params in requests if url.endswith("/opportunities/search")] == [1, 2]
+    assert [params["page"] for url, params, kwargs in requests if url.endswith("/opportunities/search")] == [0, 1]
 
 
 @pytest.mark.asyncio
@@ -207,7 +210,7 @@ async def test_pipeline_data_keeps_summary_fetch_single_page_by_default(monkeypa
             return None
 
         async def get(self, url, **kwargs):
-            requests.append((url, kwargs["params"]))
+            requests.append((url, kwargs["params"], kwargs))
             return Response()
 
     monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
@@ -218,6 +221,11 @@ async def test_pipeline_data_keeps_summary_fetch_single_page_by_default(monkeypa
     assert requests == [(
         f"{service.base_url}/opportunities/search",
         {"locationId": "location-1", "limit": 100, "status": "all"},
+        {
+            "params": {"locationId": "location-1", "limit": 100, "status": "all"},
+            "headers": {**service.headers, "Version": "v3"},
+            "timeout": 30.0,
+        },
     )]
 
 

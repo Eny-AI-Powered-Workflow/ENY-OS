@@ -409,13 +409,13 @@ class GHLService:
             }
 
         try:
-            opportunity_headers = self.headers
+            opportunity_headers = {**self.headers, "Version": "v3"}
             opportunities: List[Dict[str, Any]] = []
-            page = 1
+            page = 0
             max_pages = max(1, settings.GHL_OPPORTUNITY_MAX_PAGES) if include_inventory else 1
             max_pages_reached = False
             async with httpx.AsyncClient() as client:
-                while page <= max_pages:
+                while page < max_pages:
                     params: Dict[str, Any] = {
                         "locationId": self.location_id,
                         "limit": 100,
@@ -438,13 +438,13 @@ class GHLService:
                     meta = data.get("meta", {}) or {}
                     total_pages = meta.get("totalPages") or meta.get("total_pages")
                     has_more = (
-                        page < int(total_pages)
+                        page + 1 < int(total_pages)
                         if total_pages is not None
                         else len(page_opportunities) == 100
                     )
                     if not page_opportunities or not has_more:
                         break
-                    if page == max_pages:
+                    if page + 1 == max_pages:
                         max_pages_reached = True
                         break
                     page += 1
@@ -536,7 +536,14 @@ class GHLService:
                 "stages": stages,
             }
         except Exception as exc:
-            logger.error(f"Error fetching pipeline data from GHL: {exc}")
+            if isinstance(exc, httpx.HTTPStatusError):
+                logger.error(
+                    "GHL pipeline request failed with HTTP %s: %s",
+                    exc.response.status_code,
+                    exc.response.text[:1000],
+                )
+            else:
+                logger.error(f"Error fetching pipeline data from GHL: {exc}")
             return {
                 "status": "error",
                 "total_leads": 0,
