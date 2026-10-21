@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
-import { PiggyBank } from 'lucide-react';
+import { PiggyBank, RefreshCw } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 type Pipeline = {
@@ -135,10 +135,21 @@ export default function EnrollmentPipeline() {
   if (error) {
     return (
       <Card className="w-full">
-        <CardHeader className="flex flex-col items-center py-6">
-          <PiggyBank className="h-5 w-5 text-destructive mr-2" />
-          <div className="text-sm text-destructive">Error loading pipeline</div>
-        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+          <PiggyBank className="h-5 w-5 text-destructive" />
+          <div>
+            <h2 className="font-semibold text-destructive">Unable to load the enrollment pipeline</h2>
+            <p role="alert" className="mt-1 text-sm text-muted-foreground">{error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void fetchPipelineData()}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Try again
+          </button>
+        </CardContent>
       </Card>
     );
   }

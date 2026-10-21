@@ -269,8 +269,8 @@ class GHLService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.base_url}/opportunities/search",
-                    params={"location_id": self.location_id, "contact_id": contact_id, "limit": 100},
-                    headers={**self.headers, "Version": "v3"},
+                    params={"locationId": self.location_id, "contactId": contact_id, "limit": 100},
+                    headers=self.headers,
                     timeout=30.0,
                 )
                 response.raise_for_status()
@@ -278,7 +278,7 @@ class GHLService:
                 pipelines_response = await client.get(
                     f"{self.base_url}/opportunities/pipelines",
                     params={"locationId": self.location_id},
-                    headers={**self.headers, "Version": "v3"},
+                    headers=self.headers,
                     timeout=30.0,
                 )
                 pipelines_response.raise_for_status()
@@ -409,14 +409,18 @@ class GHLService:
             }
 
         try:
-            opportunity_headers = {**self.headers, "Version": "v3"}
+            opportunity_headers = self.headers
             opportunities: List[Dict[str, Any]] = []
             page = 1
             max_pages = max(1, settings.GHL_OPPORTUNITY_MAX_PAGES) if include_inventory else 1
             max_pages_reached = False
             async with httpx.AsyncClient() as client:
                 while page <= max_pages:
-                    params: Dict[str, Any] = {"location_id": self.location_id, "limit": 100}
+                    params: Dict[str, Any] = {
+                        "locationId": self.location_id,
+                        "limit": 100,
+                        "status": "all",
+                    }
                     if include_inventory:
                         params["page"] = page
                     response = await client.get(

@@ -106,7 +106,7 @@ async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
     result = await service.get_contact_opportunity_context("contact-1")
 
     assert result["status"] == "connected"
-    assert requests[0][1] == {"location_id": "location-1", "contact_id": "contact-1", "limit": 100}
+    assert requests[0][1] == {"locationId": "location-1", "contactId": "contact-1", "limit": 100}
 
 
 @pytest.mark.asyncio
@@ -177,6 +177,11 @@ async def test_pipeline_data_returns_catalog_and_paginated_opportunities(monkeyp
     assert result["opportunities"][0]["pipelineName"] == "Enrollment"
     assert result["opportunities"][0]["pipelineStageName"] == "Qualified"
     assert result["revenue_forecast"] == 350
+    assert all(
+        params["locationId"] == "location-1" and params["status"] == "all"
+        for url, params in requests
+        if url.endswith("/opportunities/search")
+    )
     assert [params["page"] for url, params in requests if url.endswith("/opportunities/search")] == [1, 2]
 
 
@@ -212,7 +217,7 @@ async def test_pipeline_data_keeps_summary_fetch_single_page_by_default(monkeypa
     assert result["pipeline_catalog_status"] == "not_requested"
     assert requests == [(
         f"{service.base_url}/opportunities/search",
-        {"location_id": "location-1", "limit": 100},
+        {"locationId": "location-1", "limit": 100, "status": "all"},
     )]
 
 
