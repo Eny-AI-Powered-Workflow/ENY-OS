@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
-import { PiggyBank, RefreshCw } from 'lucide-react';
+import { Layers3, PiggyBank, RefreshCw, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 type Pipeline = {
   id: string;
   name: string;
+  stages?: Array<{ id: string; name: string }>;
 };
 
 type Opportunity = {
@@ -23,12 +24,27 @@ type Opportunity = {
     lastName?: string;
   };
   pipelineId?: string;
+  pipelineStageId?: string;
   pipelineName?: string;
   pipelineStageName?: string;
   stageName?: string;
   status?: string;
   monetaryValue?: number | string;
   expectedValue?: number | string;
+};
+
+type OpportunityGroup = {
+  key: string;
+  name: string;
+  opportunities: Opportunity[];
+};
+
+type CohortGroup = {
+  id: string;
+  name: string;
+  opportunities: Opportunity[];
+  stages: OpportunityGroup[];
+  potential: number;
 };
 
 export default function EnrollmentPipeline() {
@@ -102,9 +118,6 @@ export default function EnrollmentPipeline() {
     fetchPipelineData();
   }, []);
 
-  const visibleOpportunities = opportunities.filter((opportunity) =>
-    selectedPipelineId === 'all' || opportunity.pipelineId === selectedPipelineId
-  );
   const getLeadName = (opportunity: Opportunity) =>
     opportunity.contactName
     || opportunity.contact?.name
@@ -120,6 +133,79 @@ export default function EnrollmentPipeline() {
       ? new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
       : 'Not provided';
   };
+
+  const getOpportunityPotential = (opportunity: Opportunity) => {
+    const value = Number(opportunity.monetaryValue ?? opportunity.expectedValue);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const cohortGroups = useMemo<CohortGroup[]>(() => {
+    const opportunitiesByPipeline = new Map<string, Opportunity[]>();
+    for (const opportunity of opportunities) {
+      const key = opportunity.pipelineId || 'unassigned';
+      const group = opportunitiesByPipeline.get(key) || [];
+      group.push(opportunity);
+      opportunitiesByPipeline.set(key, group);
+    }
+
+    const groups = pipelines.map((pipeline) => {
+      const cohortOpportunities = opportunitiesByPipeline.get(pipeline.id) || [];
+      const stageNames = new Map((pipeline.stages || []).map((stage) => [stage.id, stage.name]));
+      const opportunitiesByStage = new Map<string, OpportunityGroup>();
+
+      for (const opportunity of cohortOpportunities) {
+        const stageName = opportunity.pipelineStageName
+          || opportunity.stageName
+          || stageNames.get(opportunity.pipelineStageId || '')
+          || opportunity.status
+          || 'Stage unavailable';
+        const stageKey = opportunity.pipelineStageId || stageName;
+        const group = opportunitiesByStage.get(stageKey) || {
+          key: stageKey,
+          name: stageName,
+          opportunities: [],
+        };
+        group.opportunities.push(opportunity);
+        opportunitiesByStage.set(stageKey, group);
+      }
+
+      const pipelineStageOrder = (pipeline.stages || []).map((stage) => stage.id);
+      const groupedStages = Array.from(opportunitiesByStage.values()).sort((left, right) => {
+        const leftIndex = pipelineStageOrder.indexOf(left.key);
+        const rightIndex = pipelineStageOrder.indexOf(right.key);
+        if (leftIndex === -1) return rightIndex === -1 ? 0 : 1;
+        if (rightIndex === -1) return -1;
+        return leftIndex - rightIndex;
+      });
+
+      return {
+        id: pipeline.id,
+        name: pipeline.name,
+        opportunities: cohortOpportunities,
+        stages: groupedStages,
+        potential: cohortOpportunities.reduce((sum, opportunity) => sum + getOpportunityPotential(opportunity), 0),
+      };
+    });
+
+    const unassigned = opportunitiesByPipeline.get('unassigned') || [];
+    if (unassigned.length) {
+      groups.push({
+        id: 'unassigned',
+        name: 'Other opportunities',
+        opportunities: unassigned,
+        stages: [{
+          key: 'unassigned',
+          name: 'Pipeline unavailable',
+          opportunities: unassigned,
+        }],
+        potential: unassigned.reduce((sum, opportunity) => sum + getOpportunityPotential(opportunity), 0),
+      });
+    }
+
+    return selectedPipelineId === 'all'
+      ? groups
+      : groups.filter((group) => group.id === selectedPipelineId);
+  }, [opportunities, pipelines, selectedPipelineId]);
 
   if (loading) {
     return (
@@ -194,28 +280,74 @@ export default function EnrollmentPipeline() {
               Showing the configured maximum number of GHL opportunities. Contact an administrator to increase the inventory limit.
             </p>
           )}
-          {visibleOpportunities.length === 0 ? (
+          {cohortGroups.every((cohort) => cohort.opportunities.length === 0) ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No opportunities found for this pipeline.
+              No opportunities found in the selected pipeline.
             </p>
           ) : (
-            <ul className="max-h-80 space-y-2 overflow-y-auto">
-              {visibleOpportunities.map((opportunity) => (
-                <li key={opportunity.id} className="flex flex-col gap-2 rounded-lg border border-border/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">
-                      {getLeadName(opportunity)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {opportunity.pipelineStageName || opportunity.stageName || opportunity.status || 'Stage unavailable'}
-                    </p>
+            <div className="space-y-4">
+              {cohortGroups.filter((cohort) => cohort.opportunities.length > 0).map((cohort) => (
+                <article key={cohort.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <header className="flex flex-col gap-4 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-amber-50/50 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+                        <Layers3 className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-700">Cohort · GHL pipeline</p>
+                        <h4 className="truncate text-base font-semibold text-slate-950">{cohort.name}</h4>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-5 pl-[52px] sm:pl-0">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Leads</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                          <Users className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                          {cohort.opportunities.length}
+                        </p>
+                      </div>
+                      <div className="border-l border-slate-200 pl-5">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Potential</p>
+                        <p className="mt-0.5 text-sm font-semibold text-emerald-700">
+                          {new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cohort.potential)}
+                        </p>
+                      </div>
+                    </div>
+                  </header>
+
+                  <div className="space-y-4 p-4 sm:p-5">
+                    {cohort.stages.map((stage) => (
+                      <section key={stage.key} aria-label={`${stage.name} stage`}>
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <h5 className="text-xs font-semibold uppercase tracking-wider text-slate-600">{stage.name}</h5>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                            {stage.opportunities.length}
+                          </span>
+                        </div>
+                        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                          {stage.opportunities.map((opportunity) => (
+                            <li key={opportunity.id} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className="h-2 w-2 shrink-0 rounded-full bg-violet-400" aria-hidden="true" />
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-slate-900">{getLeadName(opportunity)}</p>
+                                  {opportunity.status && (
+                                    <p className="mt-0.5 text-xs capitalize text-slate-500">{opportunity.status}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="pl-5 text-sm font-semibold text-slate-800 sm:pl-0">
+                                {formatPotential(opportunity)}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ))}
                   </div>
-                  <p className="shrink-0 text-sm font-semibold text-foreground">
-                    Potential: {formatPotential(opportunity)}
-                  </p>
-                </li>
+                </article>
               ))}
-            </ul>
+            </div>
           )}
         </section>
 
