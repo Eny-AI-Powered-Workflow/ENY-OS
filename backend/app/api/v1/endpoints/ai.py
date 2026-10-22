@@ -1184,6 +1184,16 @@ async def upload_knowledge_document(
 
 
 @router.get(
+    "/knowledge/departments",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def list_knowledge_departments(db: Session = Depends(get_db)):
+    """Return available department scopes from the database roles."""
+    departments = db.query(Role.name).order_by(Role.name).all()
+    return {"departments": [department_name for (department_name,) in departments]}
+
+
+@router.get(
     "/knowledge/documents",
     dependencies=[Depends(require_permission("agents:configure"))],
 )

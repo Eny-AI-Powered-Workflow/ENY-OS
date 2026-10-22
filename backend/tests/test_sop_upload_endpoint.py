@@ -20,6 +20,20 @@ from app.api.v1.endpoints import ai
 
 
 @pytest.mark.asyncio
+async def test_knowledge_departments_returns_all_database_roles():
+    db = MagicMock()
+    db.query.return_value.order_by.return_value.all.return_value = [
+        ("ceo",),
+        ("graphic_designer",),
+        ("sales",),
+    ]
+
+    result = await ai.list_knowledge_departments(db)
+
+    assert result == {"departments": ["ceo", "graphic_designer", "sales"]}
+
+
+@pytest.mark.asyncio
 async def test_document_upload_extracts_text_and_uses_shared_ingestion(monkeypatch):
     current_user = SimpleNamespace(id="publisher-1")
     db = MagicMock()
