@@ -12,7 +12,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-violet-200/80">Overview</p>
-              <h1 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">Dashboard</h1>
+              <p className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">Dashboard</p>
             </div>
             <div className="hidden items-center gap-3 md:flex">
               <div className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-sm">

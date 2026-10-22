@@ -85,7 +85,7 @@ export function Sidebar() {
           {!collapsed && (
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.24em] text-slate-400">Platform</p>
-              <h1 className="truncate text-base font-semibold text-white">Dashboard</h1>
+              <p className="truncate text-base font-semibold text-white">Dashboard</p>
             </div>
           )}
         </div>

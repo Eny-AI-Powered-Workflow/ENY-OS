@@ -22,7 +22,11 @@ type Briefing = {
   reporting?: { tasks_completed_on_time?: { percent?: number }; research_quality?: { approved?: number; total?: number }; escalations?: { open?: number }; workflow_failures?: number; sop_adherence?: { percent?: number } }
 }
 
-export default function ExecutiveAssistantBriefing() {
+type ExecutiveAssistantBriefingProps = {
+  headingLevel?: 'h1' | 'h2'
+}
+
+export default function ExecutiveAssistantBriefing({ headingLevel = 'h1' }: ExecutiveAssistantBriefingProps) {
   const [data, setData] = useState<Briefing | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -95,6 +99,7 @@ export default function ExecutiveAssistantBriefing() {
   if (error && !data) return <div className="rounded-[24px] border border-rose-500/30 bg-rose-950/30 p-6 text-sm text-rose-200">{error}</div>
   if (!data) return null
 
+  const Heading = headingLevel
   const updateAction = async (actionId: string, status: 'in_progress' | 'completed') => {
     const { data: { session } } = await supabase.auth.getSession()
     await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/executive-assistant/actions/${actionId}`, {
@@ -109,7 +114,7 @@ export default function ExecutiveAssistantBriefing() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-slate-800 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.16),_transparent_34%),linear-gradient(135deg,_rgba(15,23,42,0.98),_rgba(14,116,144,0.12))] p-6 text-white shadow-[0_24px_60px_rgba(15,23,42,0.3)]">
-        <div><p className="text-[10px] uppercase tracking-[0.24em] text-cyan-300">Executive Assistant</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Daily briefing</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Priorities, alerts, opportunities, and unresolved work gathered from connected systems.</p></div>
+        <div><p className="text-[10px] uppercase tracking-[0.24em] text-cyan-300">Executive Assistant</p><Heading className="mt-2 text-3xl font-semibold tracking-tight">Daily briefing</Heading><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Priorities, alerts, opportunities, and unresolved work gathered from connected systems.</p></div>
         <button type="button" onClick={() => void load()} title="Refresh briefing" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
       </div>
 
