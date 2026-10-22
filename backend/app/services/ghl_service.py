@@ -751,15 +751,24 @@ class GHLService:
                 break
         return selected
 
-    async def get_enrollment_leads(self, limit: int = 20, search: str = "") -> List[Dict[str, Any]]:
+    async def get_enrollment_leads(
+        self,
+        limit: int = 20,
+        search: str = "",
+        contact_ids: Optional[set[str]] = None,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
         """Return GHL contacts shaped for the Enrollment workspace without storing them locally."""
         contacts, _ = await self.get_all_contacts()
         normalized_search = search.strip().lower()
         leads: List[Dict[str, Any]] = []
         seen_identity_keys: set[str] = set()
+        matched_count = 0
 
         for raw_contact in contacts:
             contact = self.normalize_contact(raw_contact)
+            if contact_ids is not None and str(contact.get("id") or "") not in contact_ids:
+                continue
             if contact["identity_key"] in seen_identity_keys:
                 continue
             seen_identity_keys.add(contact["identity_key"])
@@ -770,6 +779,9 @@ class GHLService:
             phone = contact.get("phone") or ""
             haystack = " ".join([name, email, phone, contact.get("source") or ""]).lower()
             if normalized_search and normalized_search not in haystack:
+                continue
+            if matched_count < offset:
+                matched_count += 1
                 continue
 
             custom_fields = contact.get("customFields", [])
@@ -807,6 +819,7 @@ class GHLService:
                 "tags": contact.get("tags", []),
                 "updated_at": contact.get("dateUpdated"),
             })
+            matched_count += 1
             if len(leads) >= limit:
                 break
 

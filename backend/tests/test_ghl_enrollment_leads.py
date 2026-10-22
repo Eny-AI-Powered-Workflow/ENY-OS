@@ -43,6 +43,12 @@ async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch)
     assert leads[0]["category"] == "hot"
     assert leads[0]["tags"] == ["approved-batch"]
 
+    assigned_leads = await service.get_enrollment_leads(limit=20, contact_ids={"contact-2"})
+    assert [lead["id"] for lead in assigned_leads] == ["contact-2"]
+
+    second_page = await service.get_enrollment_leads(limit=1, offset=1)
+    assert [lead["id"] for lead in second_page] == ["contact-2"]
+
 
 @pytest.mark.asyncio
 async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):

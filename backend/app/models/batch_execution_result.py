@@ -32,6 +32,7 @@ class BatchExecutionResult(Base):
     queue_status = Column(String, nullable=False, default="new", index=True)
     # Supabase owns auth.users outside this application's SQLAlchemy metadata.
     assigned_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    assigned_department = Column(String, nullable=True, index=True)
     follow_up_status = Column(String, nullable=False, default="not_started")
     follow_up_at = Column(DateTime(timezone=True), nullable=True)
     score_origin = Column(String, nullable=False, default="approved_batch")

@@ -206,6 +206,14 @@ permitted reference data and their own role assignments, and prevents
 client-side role changes. Verify it in a non-production Supabase project
 before applying it to production.
 
+For Sales and Enrollment lead ownership, apply the next unapplied migrations
+`0052_sales_enrollment_lead_assignment.sql` and
+`0053_ghl_lead_assignments.sql` in order before deploying the matching
+application code. The CEO can grant `sales_lead` or `enrollment_lead` from
+Cockpit → Access management. Team leads can assign and reassign contacts only
+within their department; the CEO can manage both. GHL remains the contact
+source of truth, while ENY stores assignment metadata and audit events.
+
 The backend now disables its interactive API documentation when
 `ENVIRONMENT=production`, caps request bodies and in-flight requests per
 process, and emits basic security headers. The 251 MiB body cap preserves the

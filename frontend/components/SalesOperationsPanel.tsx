@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, Filter, RefreshCw, UserRound } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
+import { usePermissions } from '@/lib/permissions'
 
 type Operation = {
   id: string
@@ -20,6 +21,7 @@ type Operation = {
   next_best_action?: string | null
   queue_status: string
   assigned_user_id: string | null
+  assigned_department?: 'sales' | 'enrollment' | null
   last_comment?: string | null
   lifecycle_stage?: string
   follow_up_status: string
@@ -82,22 +84,32 @@ type Payload = {
   persistentAlerts?: Array<{ id: string; type: string; severity: string; source: string; message: string; status: string; created_at: string | null }>
 }
 
-type TeamMember = { id: string; name: string; email: string | null }
+type TeamMember = { id: string; name: string; email: string | null; department: 'sales' | 'enrollment' }
 
 const statuses = ['all', 'new', 'assigned', 'contacted', 'qualified', 'closed']
 
 export default function SalesOperationsPanel() {
+  const { can, isLoading: permissionsLoading, userRoles } = usePermissions()
+  const canAssignSales = can('sales:leads:assign')
+  const canAssignEnrollment = can('enrollment:leads:assign')
+  const canAssign = canAssignSales || canAssignEnrollment
   const [data, setData] = useState<Payload>({ summary: {}, results: [] })
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [status, setStatus] = useState('all')
   const [scope, setScope] = useState('all')
-  const [activeTab, setActiveTab] = useState<'queue' | 'assigned' | 'unassigned' | 'audit'>('queue')
+  const [activeTab, setActiveTab] = useState<'queue' | 'mine' | 'assigned' | 'unassigned' | 'audit'>('queue')
   const [source, setSource] = useState('all')
   const [score, setScore] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [assignmentError, setAssignmentError] = useState<string | null>(null)
   const [assigningId, setAssigningId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!permissionsLoading && !canAssign && userRoles.some((role) => role === 'sales' || role === 'enrollment')) {
+      setActiveTab('mine')
+    }
+  }, [canAssign, permissionsLoading, userRoles])
 
   const load = async () => {
     setLoading(true)
@@ -107,6 +119,7 @@ export default function SalesOperationsPanel() {
       if (status !== 'all') params.set('status', status)
       if (scope === 'mine') params.set('mine', 'true')
       if (scope === 'unassigned') params.set('unassigned', 'true')
+      if (activeTab === 'mine') params.set('mine', 'true')
       if (activeTab === 'assigned') params.set('assigned', 'true')
       if (activeTab === 'unassigned') params.set('unassigned', 'true')
       if (source !== 'all') params.set('source', source)
@@ -130,12 +143,15 @@ export default function SalesOperationsPanel() {
       const adoption = adoptionResponse.ok ? await adoptionResponse.json() : null
       const performance = performanceResponse.ok ? await performanceResponse.json() : null
       const persistentAlerts = alertsResponse.ok ? (await alertsResponse.json()).alerts || [] : []
-      if (teamResponse.ok) {
+      if (canAssign && teamResponse.ok) {
         const team = await teamResponse.json()
         setTeamMembers(team.members || [])
         setAssignmentError(null)
-      } else {
+      } else if (canAssign) {
         setAssignmentError('Team assignment controls are unavailable. Refresh or contact an administrator.')
+      } else {
+        setTeamMembers([])
+        setAssignmentError(null)
       }
       setData({ ...payload, quality: quality?.quality, adoption, performance, persistentAlerts })
       setError(null)
@@ -150,10 +166,11 @@ export default function SalesOperationsPanel() {
     void load()
     const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
-  }, [status, scope, source, score, activeTab])
+  }, [status, scope, source, score, activeTab, canAssign])
 
-  const assignLead = async (row: Operation, assignedUserId: string) => {
-    if (!assignedUserId) return
+  const assignLead = async (row: Operation, assignee: string) => {
+    const [department, assignedUserId] = assignee.split(':', 2)
+    if (!assignedUserId || (department !== 'sales' && department !== 'enrollment')) return
     setAssigningId(row.id)
     setAssignmentError(null)
     try {
@@ -165,7 +182,7 @@ export default function SalesOperationsPanel() {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         credentials: 'include',
-        body: JSON.stringify({ assigned_user_id: assignedUserId }),
+        body: JSON.stringify({ assigned_user_id: assignedUserId, department }),
       })
       const payload = await response.json()
       if (!response.ok) {
@@ -328,8 +345,8 @@ export default function SalesOperationsPanel() {
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Sales lead views">
         {([
           ['queue', 'All leads'],
-          ['assigned', 'Assigned leads'],
-          ['unassigned', 'Unassigned'],
+          ['mine', 'My leads'],
+          ...(canAssign ? [['assigned', 'Assigned leads'] as const, ['unassigned', 'Unassigned'] as const] : []),
           ['audit', 'Audit trail'],
         ] as const).map(([tab, label]) => (
           <button
@@ -339,7 +356,7 @@ export default function SalesOperationsPanel() {
             aria-selected={activeTab === tab}
             onClick={() => {
               setActiveTab(tab)
-              if (tab === 'assigned' || tab === 'unassigned') setScope('all')
+              if (tab === 'mine' || tab === 'assigned' || tab === 'unassigned') setScope('all')
             }}
             className={`rounded-lg px-3 py-2 text-xs font-semibold ${activeTab === tab ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
           >
@@ -376,18 +393,32 @@ export default function SalesOperationsPanel() {
               <td className="px-3 py-3">
                 <div className="flex items-center gap-1">
                   <UserRound className="h-3.5 w-3.5 text-slate-500" />
-                  <select
-                    aria-label={`Assign ${row.contact_name || row.contact_id}`}
-                    value={row.assigned_user_id || ''}
-                    disabled={row.category !== 'hot' || row.queue_status === 'closed' || assigningId === row.id || !teamMembers.length}
-                    onChange={(event) => void assignLead(row, event.target.value)}
-                    className="max-w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 disabled:bg-slate-50"
-                  >
-                    <option value="">{row.assigned_user_id ? 'Assignee unavailable' : 'Assign owner'}</option>
-                    {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                  </select>
+                  {canAssign ? (
+                    <select
+                      aria-label={`Assign ${row.contact_name || row.contact_id}`}
+                      value={row.assigned_user_id
+                        ? `${row.assigned_department || teamMembers.find((member) => member.id === row.assigned_user_id)?.department || ''}:${row.assigned_user_id}`
+                        : ''}
+                      disabled={row.category !== 'hot' || row.queue_status === 'closed' || assigningId === row.id || !teamMembers.length}
+                      onChange={(event) => void assignLead(row, event.target.value)}
+                      className="max-w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 disabled:bg-slate-50"
+                    >
+                      <option value="">{row.assigned_user_id ? 'Assignee unavailable' : 'Assign owner'}</option>
+                      {teamMembers.map((member) => (
+                        <option key={`${member.department}-${member.id}`} value={`${member.department}:${member.id}`}>
+                          {member.name} · {member.department === 'sales' ? 'Sales' : 'Enrollment'}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-slate-600">
+                      {row.assigned_user_id
+                        ? `Owner ${row.assigned_user_id.slice(0, 8)}`
+                        : 'Unassigned'}
+                    </span>
+                  )}
                 </div>
-                {row.assigned_user_id && <span className="mt-1 inline-block rounded-full bg-violet-50 px-2 py-0.5 text-[10px] text-violet-700">{teamMembers.find((member) => member.id === row.assigned_user_id)?.name || `Owner ${row.assigned_user_id.slice(0, 8)}`}</span>}
+                {row.assigned_department && <span className="mt-1 inline-block rounded-full bg-violet-50 px-2 py-0.5 text-[10px] capitalize text-violet-700">{row.assigned_department}</span>}
               </td>
               <td className="px-3 py-3">
                 <span className={row.follow_up_status === 'tagged' ? 'text-emerald-700' : 'text-slate-600'}>{row.follow_up_status}</span>

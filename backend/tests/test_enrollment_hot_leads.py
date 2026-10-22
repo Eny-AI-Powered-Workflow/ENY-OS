@@ -8,10 +8,12 @@ from app.api.v1.endpoints.enrollment import (
     BatchDecisionRequest,
     LeadAssignmentRequest,
     _transition_queue_state,
+    assign_enrollment_crm_lead,
     assign_hot_lead,
     decide_batch_result,
     follow_up_hot_lead,
     get_enrollment_hot_leads,
+    get_enrollment_leads,
     get_batch_execution_results,
     get_enrollment_operations,
     ingest_ghl_contact,
@@ -20,6 +22,8 @@ from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.lead_assignment import LeadAssignment
+from app.models.permission import Permission
 
 
 @pytest.mark.asyncio
@@ -180,7 +184,7 @@ async def test_get_enrollment_operations_reports_live_operational_health():
             return MagicMockQuery([])
         return MagicMockQuery([])
 
-    db = SimpleNamespace(query=query)
+    db = SimpleNamespace(query=query, add=lambda _: None, commit=lambda: None)
     result = await get_enrollment_operations(limit=10, db=db, current_user=SimpleNamespace(id="user-1"))
 
     assert result["summary"]["ownerless_leads"] >= 1
@@ -225,11 +229,17 @@ async def test_decide_batch_result_holds_failed_work_without_execution():
         def filter(self, *args, **kwargs):
             return self
 
+        def join(self, *args, **kwargs):
+            return self
+
         def order_by(self, *args, **kwargs):
             return self
 
         def first(self):
             return self.row
+
+        def all(self):
+            return self.row if isinstance(self.row, list) else [self.row]
 
     class Db:
         def __init__(self):
@@ -299,6 +309,9 @@ async def test_assign_hot_lead_assigns_team_member_and_audits_writeback(monkeypa
         def first(self):
             return self.row
 
+        def all(self):
+            return self.row if isinstance(self.row, list) else [self.row]
+
     class Db:
         def __init__(self):
             self.added = []
@@ -307,6 +320,10 @@ async def test_assign_hot_lead_assigns_team_member_and_audits_writeback(monkeypa
         def query(self, model):
             if model is BatchExecutionResult:
                 return Query(result)
+            if model is Permission:
+                return Query(SimpleNamespace(scope="sales:leads:assign"))
+            if model is LeadAssignment:
+                return Query(None)
             return Query((assigned_user_id,))
 
         def add(self, item):
@@ -323,7 +340,7 @@ async def test_assign_hot_lead_assigns_team_member_and_audits_writeback(monkeypa
 
     response = await assign_hot_lead(
         result_id=result.id,
-        request=LeadAssignmentRequest(assigned_user_id=assigned_user_id),
+        request=LeadAssignmentRequest(assigned_user_id=assigned_user_id, department="sales"),
         db=db,
         current_user=SimpleNamespace(id="operator-1"),
     )
@@ -331,10 +348,225 @@ async def test_assign_hot_lead_assigns_team_member_and_audits_writeback(monkeypa
     assert response["status"] == "assigned"
     assert "GHL synchronization failed" in response["warning"]
     assert result.assigned_user_id == assigned_user_id
+    assert result.assigned_department == "sales"
     assert db.committed is True
     audit_events = [item for item in db.added if isinstance(item, EnrollmentAudit)]
     assert any(item.event_type == "ghl_writeback_failed" for item in audit_events)
     assert any(item.event_type == "hot_lead_assigned" for item in audit_events)
+
+
+@pytest.mark.asyncio
+async def test_sales_lead_cannot_assign_to_enrollment_department():
+    from fastapi import HTTPException
+    from uuid import UUID
+
+    result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        category="hot",
+        queue_status="new",
+    )
+
+    class Query:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return result
+
+        def all(self):
+            return [SimpleNamespace(scope="sales:leads:assign")]
+
+    class Db:
+        def query(self, model):
+            return Query()
+
+        def add(self, _):
+            pass
+
+        def commit(self):
+            pass
+
+    with pytest.raises(HTTPException) as error:
+        await assign_hot_lead(
+            result_id=result.id,
+            request=LeadAssignmentRequest(
+                assigned_user_id=UUID("00000000-0000-0000-0000-000000000002"),
+                department="enrollment",
+            ),
+            db=Db(),
+            current_user=SimpleNamespace(id="sales-lead"),
+        )
+
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_leads_returns_assignments_and_filters_my_leads(monkeypatch):
+    assignment = SimpleNamespace(
+        contact_id="contact-1",
+        assigned_user_id="user-1",
+        assigned_department="sales",
+    )
+    calls = []
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return self.rows
+
+    class Db:
+        def query(self, model):
+            if getattr(model, "key", None) == "contact_id":
+                return Query([("contact-1",)])
+            if model is LeadAssignment:
+                return Query([assignment])
+            return Query([])
+
+    async def fake_get_leads(**kwargs):
+        calls.append(kwargs)
+        return [{"id": "contact-1", "name": "Alice"}]
+
+    monkeypatch.setattr("app.api.v1.endpoints.enrollment.ghl_service.get_enrollment_leads", fake_get_leads)
+
+    response = await get_enrollment_leads(
+        limit=100,
+        search="alice",
+        mine=True,
+        db=Db(),
+        current_user=SimpleNamespace(id="user-1"),
+    )
+
+    assert calls[0]["contact_ids"] == {"contact-1"}
+    assert response["leads"][0]["assigned_user_id"] == "user-1"
+    assert response["leads"][0]["assigned_department"] == "sales"
+
+
+@pytest.mark.asyncio
+async def test_assign_enrollment_crm_lead_records_owner_and_audit(monkeypatch):
+    from uuid import UUID
+
+    assigned_user_id = UUID("00000000-0000-0000-0000-000000000002")
+    batch_result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000003"),
+        contact_id="contact-1",
+        category="hot",
+        queue_status="new",
+        last_action_at=None,
+    )
+
+    class Query:
+        def __init__(self, row):
+            self.row = row
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self.row
+
+        def all(self):
+            return self.row if isinstance(self.row, list) else [self.row]
+
+    class Db:
+        def __init__(self):
+            self.added = []
+
+        def query(self, model):
+            if model is Permission:
+                return Query(SimpleNamespace(scope="sales:leads:assign"))
+            if model is LeadAssignment:
+                return Query(None)
+            if model is BatchExecutionResult:
+                return Query([batch_result])
+            return Query((assigned_user_id,))
+
+        def add(self, item):
+            self.added.append(item)
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.enrollment.ghl_service.get_contact",
+        AsyncMock(return_value={"contact": {"id": "contact-1"}}),
+    )
+    db = Db()
+    response = await assign_enrollment_crm_lead(
+        contact_id="contact-1",
+        request=LeadAssignmentRequest(assigned_user_id=assigned_user_id, department="sales"),
+        db=db,
+        current_user=SimpleNamespace(id="sales-lead"),
+    )
+
+    assert response["assigned_user_id"] == str(assigned_user_id)
+    assignment = next(item for item in db.added if isinstance(item, LeadAssignment))
+    assert assignment.contact_id == "contact-1"
+    assert assignment.assigned_department == "sales"
+    assert batch_result.queue_status == "assigned"
+    assert batch_result.assigned_user_id == assigned_user_id
+    assert any(item.event_type == "lead_assignment_changed" for item in db.added if isinstance(item, EnrollmentAudit))
+
+
+@pytest.mark.asyncio
+async def test_sales_lead_cannot_take_a_lead_from_enrollment():
+    from fastapi import HTTPException
+    from uuid import UUID
+
+    existing_assignment = SimpleNamespace(assigned_department="enrollment")
+
+    class Query:
+        def __init__(self, row):
+            self.row = row
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self.row
+
+        def all(self):
+            return [self.row]
+
+    class Db:
+        def query(self, model):
+            if model is Permission:
+                return Query(SimpleNamespace(scope="sales:leads:assign"))
+            if model is LeadAssignment:
+                return Query(existing_assignment)
+            return Query(None)
+
+        def add(self, _):
+            pass
+
+        def commit(self):
+            pass
+
+    with pytest.raises(HTTPException) as error:
+        await assign_enrollment_crm_lead(
+            contact_id="contact-1",
+            request=LeadAssignmentRequest(
+                assigned_user_id=UUID("00000000-0000-0000-0000-000000000002"),
+                department="sales",
+            ),
+            db=Db(),
+            current_user=SimpleNamespace(id="sales-lead"),
+        )
+
+    assert error.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -480,6 +712,9 @@ class MagicMockQuery:
                     self._filtered_rows = [row for row in self._filtered_rows if getattr(row, "category", None) == value]
                 elif field == "score":
                     self._filtered_rows = [row for row in self._filtered_rows if getattr(row, "score", 0) >= value]
+        return self
+
+    def join(self, *args, **kwargs):
         return self
 
     def order_by(self, *args, **kwargs):

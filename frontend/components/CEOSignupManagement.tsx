@@ -18,6 +18,12 @@ interface AccountDirectory {
   available_roles: string[]
 }
 
+function roleLabel(role: string): string {
+  if (role === 'sales_lead') return 'Sales team lead'
+  if (role === 'enrollment_lead') return 'Enrollment team lead'
+  return role.replaceAll('_', ' ')
+}
+
 async function responseError(response: Response): Promise<string> {
   try {
     const data = await response.json()
@@ -124,7 +130,7 @@ export default function CEOSignupManagement() {
           </div>
           <h2 className="mt-2 text-xl font-semibold text-white">Accounts and role approvals</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Review Supabase accounts and assign their workspace roles. New accounts stay blocked until approved.
+            Review Supabase accounts and assign their workspace roles. Assign a Sales or Enrollment team lead here; only team leads and the CEO can distribute leads. New accounts stay blocked until approved.
           </p>
         </div>
         <button
@@ -159,7 +165,7 @@ export default function CEOSignupManagement() {
                     <p className="truncate font-medium text-white">{account.full_name || account.email || 'Unnamed account'}</p>
                     <p className="mt-1 truncate text-sm text-slate-400">{account.email || 'No email address'}</p>
                     <p className={`mt-2 text-xs font-medium ${assigned ? 'text-emerald-300' : 'text-amber-200'}`}>
-                      {assigned ? `Access granted: ${account.roles.join(', ')}` : 'Pending CEO role approval'}
+                      {assigned ? `Access granted: ${account.roles.map(roleLabel).join(', ')}` : 'Pending CEO role approval'}
                     </p>
                     {account.created_at && (
                       <p className="mt-1 text-xs text-slate-500">
@@ -189,7 +195,7 @@ export default function CEOSignupManagement() {
                               className="sr-only"
                             />
                             {checked && <Check className="h-3 w-3" />}
-                            {role.replaceAll('_', ' ')}
+                            {roleLabel(role)}
                           </label>
                         )
                       })}

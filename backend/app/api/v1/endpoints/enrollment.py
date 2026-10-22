@@ -4,20 +4,22 @@ import hmac
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import Any, Optional, Literal
-from app.api.deps import require_permission
+from app.api.deps import get_optional_permissions_with_audit, require_permission
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 import logging
 from uuid import UUID
+from types import SimpleNamespace
 
 from app.models.batch_execution_result import BatchExecutionResult
 from app.models.batch_retry import BatchRetry
 from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
+from app.models.lead_assignment import LeadAssignment
 from app.models.operational_alert import OperationalAlert
 from app.models.ghl_lead_intake import GHLLeadIntake
 from app.services.batch_execution_service import retry_batch_result
@@ -94,6 +96,51 @@ class QueueStateRequest(BaseModel):
 
 class LeadAssignmentRequest(BaseModel):
     assigned_user_id: UUID
+    department: Optional[Literal["sales", "enrollment"]] = None
+
+
+ASSIGNMENT_PERMISSION_SCOPES = {
+    "sales": "sales:leads:assign",
+    "enrollment": "enrollment:leads:assign",
+}
+
+
+def _assignment_departments(db: Session, user_id: Any, path: str) -> set[str]:
+    scopes = get_optional_permissions_with_audit(
+        SimpleNamespace(id=user_id),
+        db,
+        tuple(ASSIGNMENT_PERMISSION_SCOPES.values()),
+        path,
+    )
+    return {
+        department
+        for department, scope in ASSIGNMENT_PERMISSION_SCOPES.items()
+        if scope in scopes
+    }
+
+
+def _record_lead_assignment(
+    db: Session,
+    *,
+    contact_id: str,
+    assigned_user_id: UUID,
+    assigned_department: str,
+    assigned_by_user_id: Any,
+) -> UUID | None:
+    assignment = db.query(LeadAssignment).filter(LeadAssignment.contact_id == contact_id).first()
+    previous_owner_id = assignment.assigned_user_id if assignment else None
+    if assignment:
+        assignment.assigned_user_id = assigned_user_id
+        assignment.assigned_department = assigned_department
+        assignment.assigned_by_user_id = assigned_by_user_id
+    else:
+        db.add(LeadAssignment(
+            contact_id=contact_id,
+            assigned_user_id=assigned_user_id,
+            assigned_department=assigned_department,
+            assigned_by_user_id=assigned_by_user_id,
+        ))
+    return previous_owner_id
 
 
 class BatchDecisionRequest(BaseModel):
@@ -365,23 +412,173 @@ async def get_enrollment_metrics(
 @router.get("/leads", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_leads(
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     search: Optional[str] = None,
+    mine: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Any = Depends(get_current_user),
 ):
     """
-    Get enrollment leads.
+    Get GHL leads with ENY assignment metadata.
     Requires leads:read permission.
     """
     try:
-        leads = await ghl_service.get_enrollment_leads(limit=limit, search=search or "")
-        return {"leads": leads, "total": len(leads), "limit": limit, "search": search or ""}
+        assigned_contact_ids: set[str] | None = None
+        if mine:
+            assignments = (
+                db.query(LeadAssignment.contact_id)
+                .filter(LeadAssignment.assigned_user_id == current_user.id)
+                .all()
+            )
+            assigned_contact_ids = {str(row[0]) for row in assignments}
+            if not assigned_contact_ids:
+                return {
+                    "leads": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset,
+                    "search": search or "",
+                    "mine": True,
+                    "has_more": False,
+                }
+
+        leads = await ghl_service.get_enrollment_leads(
+            limit=limit + 1,
+            search=search or "",
+            contact_ids=assigned_contact_ids,
+            offset=offset,
+        )
+        has_more = len(leads) > limit
+        leads = leads[:limit]
+        contact_ids = [str(lead["id"]) for lead in leads if lead.get("id")]
+        assignments = (
+            db.query(LeadAssignment)
+            .filter(LeadAssignment.contact_id.in_(contact_ids))
+            .all()
+        ) if contact_ids else []
+        assignment_by_contact = {assignment.contact_id: assignment for assignment in assignments}
+        for lead in leads:
+            assignment = assignment_by_contact.get(str(lead.get("id") or ""))
+            lead["assigned_user_id"] = str(assignment.assigned_user_id) if assignment else None
+            lead["assigned_department"] = assignment.assigned_department if assignment else None
+        return {
+            "leads": leads,
+            "total": len(leads),
+            "limit": limit,
+            "offset": offset,
+            "search": search or "",
+            "mine": mine,
+            "has_more": has_more,
+        }
     except Exception as e:
         logger.error(f"Error fetching enrollment leads: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch leads: {str(e)}"
         )
+
+
+@router.patch(
+    "/leads/{contact_id}/assignment",
+    dependencies=[Depends(require_permission("leads:write"))],
+)
+async def assign_enrollment_crm_lead(
+    contact_id: str,
+    request: LeadAssignmentRequest,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Assign a GHL contact without duplicating its CRM record in ENY."""
+    departments = _assignment_departments(db, current_user.id, "/api/v1/enrollment/leads/{contact_id}/assignment")
+    if request.department is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A Sales or Enrollment department is required",
+        )
+    if request.department not in departments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot assign leads outside your department",
+        )
+
+    existing_assignment = (
+        db.query(LeadAssignment)
+        .filter(LeadAssignment.contact_id == contact_id)
+        .first()
+    )
+    if existing_assignment and existing_assignment.assigned_department not in departments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot reassign a lead owned by another department",
+        )
+
+    eligible_user = (
+        db.query(UserRole.user_id)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == request.assigned_user_id)
+        .filter(Role.name.in_((request.department, f"{request.department}_lead")))
+        .first()
+    )
+    if not eligible_user:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Lead can only be assigned to a {request.department.title()} team member",
+        )
+
+    contact = await ghl_service.get_contact(contact_id)
+    if not contact:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to verify this lead with GHL. Refresh the lead list and try again.",
+        )
+
+    previous_owner_id = _record_lead_assignment(
+        db,
+        contact_id=contact_id,
+        assigned_user_id=request.assigned_user_id,
+        assigned_department=request.department,
+        assigned_by_user_id=current_user.id,
+    )
+    batch_results = (
+        db.query(BatchExecutionResult)
+        .filter(BatchExecutionResult.contact_id == contact_id)
+        .all()
+    )
+    for result in batch_results:
+        if getattr(result, "queue_status", "new") == "new":
+            _transition_queue_state(
+                result,
+                "assigned",
+                current_user.id,
+                "Assigned for active Sales and Enrollment follow-up",
+            )
+        result.assigned_user_id = request.assigned_user_id
+        result.assigned_department = request.department
+        if result.category == "hot":
+            db.add(EnrollmentAudit(
+                user_id=current_user.id,
+                result_id=result.id,
+                event_type="hot_lead_assigned",
+                details={
+                    "contact_id": contact_id,
+                    "department": request.department,
+                    "assigned_user_id": str(request.assigned_user_id),
+                    "actor_id": str(current_user.id),
+                    "reason": "Lead assigned from the GHL lead inventory",
+                },
+            ))
+    _audit(db, current_user, None, "lead_assignment_changed", {
+        "contact_id": contact_id,
+        "department": request.department,
+        "from_owner_id": str(previous_owner_id) if previous_owner_id else None,
+        "assigned_user_id": str(request.assigned_user_id),
+        "actor_id": str(current_user.id),
+    })
+    return {
+        "contact_id": contact_id,
+        "assigned_user_id": str(request.assigned_user_id),
+        "department": request.department,
+    }
 
 
 @router.get("/hot-leads", dependencies=[Depends(require_permission("leads:read"))])
@@ -486,20 +683,37 @@ async def get_enrollment_hot_leads(
         )
 
 
-@router.get("/team-members", dependencies=[Depends(require_permission("leads:write"))])
+@router.get(
+    "/team-members",
+    dependencies=[Depends(require_permission("leads:write"))],
+)
 async def get_enrollment_team_members(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
-    """Return eligible Sales & Enrollment assignees with safe display information."""
+    """Return the team members the caller is authorized to assign leads to."""
+    departments = _assignment_departments(db, current_user.id, "/api/v1/enrollment/team-members")
+    if not departments:
+        return {"members": []}
+
+    role_to_department = {
+        "sales": "sales",
+        "sales_lead": "sales",
+        "enrollment": "enrollment",
+        "enrollment_lead": "enrollment",
+    }
     role_user_rows = (
-        db.query(UserRole.user_id)
+        db.query(UserRole.user_id, Role.name)
         .join(Role, UserRole.role_id == Role.id)
-        .filter(Role.name.in_(("enrollment", "sales")))
+        .filter(Role.name.in_(tuple(role_to_department)))
         .all()
     )
-    eligible_ids = {str(row[0]) for row in role_user_rows}
-    if not eligible_ids:
+    eligible_departments: dict[str, set[str]] = {}
+    for user_id, role_name in role_user_rows:
+        department = role_to_department[role_name]
+        if department in departments:
+            eligible_departments.setdefault(str(user_id), set()).add(department)
+    if not eligible_departments:
         return {"members": []}
 
     try:
@@ -514,7 +728,7 @@ async def get_enrollment_team_members(
     members = []
     for user in auth_users:
         user_id = str(user.get("id") or "")
-        if user_id not in eligible_ids:
+        if user_id not in eligible_departments:
             continue
         metadata = user.get("user_metadata") or {}
         if not isinstance(metadata, dict):
@@ -527,45 +741,96 @@ async def get_enrollment_team_members(
             or email
             or user_id
         )
-        members.append({"id": user_id, "name": str(name), "email": email or None})
+        for department in sorted(eligible_departments[user_id]):
+            members.append({
+                "id": user_id,
+                "name": str(name),
+                "email": email or None,
+                "department": department,
+            })
 
-    members.sort(key=lambda member: member["name"].casefold())
+    members.sort(key=lambda member: (member["department"], member["name"].casefold()))
     return {"members": members}
 
 
-@router.patch("/hot-leads/{result_id}/assignment", dependencies=[Depends(require_permission("leads:write"))])
+@router.patch(
+    "/hot-leads/{result_id}/assignment",
+    dependencies=[Depends(require_permission("leads:write"))],
+)
 async def assign_hot_lead(
     result_id: UUID,
     request: LeadAssignmentRequest,
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
-    """Assign a hot lead to a Sales or Enrollment team member."""
+    """Assign a hot lead within the caller's Sales or Enrollment department."""
+    departments = _assignment_departments(db, current_user.id, "/api/v1/enrollment/hot-leads/{result_id}/assignment")
+    if not departments:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lead assignment is not permitted")
+
     result = db.query(BatchExecutionResult).filter(BatchExecutionResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hot lead not found")
     if result.category != "hot" or result.queue_status == "closed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Lead is not available for assignment")
+    if (
+        getattr(result, "assigned_department", None)
+        and result.assigned_department not in departments
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot reassign a lead owned by another department",
+        )
+
+    department = request.department
+    if department is None:
+        target_roles = (
+            db.query(Role.name)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .filter(UserRole.user_id == request.assigned_user_id)
+            .filter(Role.name.in_(("sales", "sales_lead", "enrollment", "enrollment_lead")))
+            .all()
+        )
+        target_departments = {
+            "sales" if role_name in {"sales", "sales_lead"} else "enrollment"
+            for (role_name,) in target_roles
+        }
+        if len(target_departments) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Specify the lead's department when the assignee belongs to multiple teams",
+            )
+        department = target_departments.pop()
+
+    if department not in departments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot assign leads outside your department",
+        )
 
     eligible_user = (
         db.query(UserRole.user_id)
         .join(Role, UserRole.role_id == Role.id)
         .filter(UserRole.user_id == request.assigned_user_id)
-        .filter(Role.name.in_(("enrollment", "sales")))
+        .filter(Role.name.in_((department, f"{department}_lead")))
         .first()
     )
     if not eligible_user:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Lead can only be assigned to a Sales or Enrollment team member",
+            detail=f"Lead can only be assigned to a {department.title()} team member",
         )
 
     assigned_user_id = str(request.assigned_user_id)
-    if str(result.assigned_user_id or "") == assigned_user_id:
+    if (
+        str(result.assigned_user_id or "") == assigned_user_id
+        and getattr(result, "assigned_department", None) == department
+    ):
         return {
             "status": result.queue_status,
             "result_id": str(result.id),
             "assigned_user_id": assigned_user_id,
+            "department": department,
         }
 
     target_state = "assigned" if result.queue_status == "new" else result.queue_status
@@ -581,8 +846,19 @@ async def assign_hot_lead(
     if result.queue_status == "new":
         _transition_queue_state(result, "assigned", current_user.id, "Assigned for active enrollment follow-up")
     result.assigned_user_id = request.assigned_user_id
+    result.assigned_department = department
+    assignment_previous_owner_id = _record_lead_assignment(
+        db,
+        contact_id=result.contact_id,
+        assigned_user_id=request.assigned_user_id,
+        assigned_department=department,
+        assigned_by_user_id=current_user.id,
+    )
+    if assignment_previous_owner_id:
+        previous_owner_id = str(assignment_previous_owner_id)
     _audit(db, current_user, result.id, "hot_lead_assigned", {
         "contact_id": result.contact_id,
+        "department": department,
         "from_owner_id": previous_owner_id,
         "assigned_user_id": assigned_user_id,
         "actor_id": str(current_user.id),
@@ -593,6 +869,7 @@ async def assign_hot_lead(
         "status": result.queue_status,
         "result_id": str(result.id),
         "assigned_user_id": assigned_user_id,
+        "department": department,
         "ghl_writeback": writeback,
         "warning": None if writeback.get("success") else "Lead was assigned in ENY, but GHL synchronization failed.",
     }
@@ -678,6 +955,13 @@ async def get_enrollment_operations(
     min_score = _query_default(min_score)
     max_score = _query_default(max_score)
     query = db.query(BatchExecutionResult)
+    assignment_departments = _assignment_departments(db, current_user.id, "/api/v1/enrollment/operations")
+    if len(assignment_departments) == 1:
+        department = next(iter(assignment_departments))
+        query = query.filter(or_(
+            BatchExecutionResult.assigned_department == department,
+            BatchExecutionResult.assigned_user_id.is_(None),
+        ))
     if status_filter:
         query = query.filter(BatchExecutionResult.queue_status == status_filter)
     if mine:
@@ -918,6 +1202,7 @@ async def get_enrollment_operations(
                 "execution_status": row.status,
                 "queue_status": getattr(row, "queue_status", "new"),
                 "assigned_user_id": str(row.assigned_user_id) if getattr(row, "assigned_user_id", None) else None,
+                "assigned_department": getattr(row, "assigned_department", None),
                 "last_comment": latest_comments.get(str(row.id)),
                 "follow_up_status": getattr(row, "follow_up_status", "not_started"),
                 "follow_up_at": _serialize_datetime(getattr(row, "follow_up_at", None)),
