@@ -23,7 +23,32 @@ export default function CEODashboard() {
         </div>
       </header>
 
-      <section aria-labelledby="ceo-metrics-heading" className="space-y-4">
+      <nav
+        aria-label="CEO cockpit sections"
+        className="sticky top-0 z-20 -mx-4 border-y border-slate-800/90 bg-slate-950/95 px-4 py-2 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
+      >
+        <ul className="flex gap-2 overflow-x-auto py-1">
+          {[
+            { href: "#overview", label: "Overview" },
+            { href: "#sales", label: "Sales operations" },
+            { href: "#briefing", label: "Daily briefing" },
+            { href: "#activity", label: "Platform activity" },
+            { href: "#access", label: "Access management" },
+            { href: "#knowledge", label: "SOP library" },
+          ].map((item) => (
+            <li key={item.href} className="shrink-0">
+              <a
+                href={item.href}
+                className="inline-flex min-h-10 items-center rounded-lg border border-slate-700/80 bg-slate-900/70 px-3 text-sm font-medium text-slate-300 transition hover:border-cyan-400/50 hover:bg-cyan-400/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <section id="overview" aria-labelledby="ceo-metrics-heading" className="scroll-mt-24 space-y-4">
         <div>
           <h2 id="ceo-metrics-heading" className="text-lg font-semibold text-white">
             Performance at a glance
@@ -35,7 +60,7 @@ export default function CEODashboard() {
         <CEOMetrics />
       </section>
 
-      <section aria-labelledby="sales-operations-heading" className="space-y-4">
+      <section id="sales" aria-labelledby="sales-operations-heading" className="scroll-mt-24 space-y-4">
         <div>
           <h2 id="sales-operations-heading" className="text-lg font-semibold text-white">
             Sales and enrollment operations
@@ -47,11 +72,11 @@ export default function CEODashboard() {
         <SalesOperationsPanel />
       </section>
 
-      <section aria-label="Executive assistant briefing">
+      <section id="briefing" aria-label="Executive assistant briefing" className="scroll-mt-24">
         <ExecutiveAssistantBriefing headingLevel="h2" />
       </section>
 
-      <section aria-labelledby="platform-activity-heading" className="space-y-4">
+      <section id="activity" aria-labelledby="platform-activity-heading" className="scroll-mt-24 space-y-4">
         <div>
           <h2 id="platform-activity-heading" className="text-lg font-semibold text-white">
             Platform activity
@@ -66,11 +91,11 @@ export default function CEODashboard() {
         </div>
       </section>
 
-      <section aria-label="Account access management">
+      <section id="access" aria-label="Account access management" className="scroll-mt-24">
         <CEOSignupManagement />
       </section>
 
-      <section aria-label="SOP knowledge library">
+      <section id="knowledge" aria-label="SOP knowledge library" className="scroll-mt-24">
         <SOPLibrary />
       </section>
     </div>
