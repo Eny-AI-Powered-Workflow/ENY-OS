@@ -1,7 +1,7 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/components/Sidebar.tsx
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { AccessBadge } from '@/components/AccessBadge'
@@ -34,9 +34,26 @@ import {
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedModules, setExpandedModules] = useState<string[]>(['Sales & Enrollment'])
+  const [activeHash, setActiveHash] = useState('')
   const { canAll, userRoles } = usePermissions()
   const pathname = usePathname()
   const router = useRouter()
+
+  useEffect(() => {
+    const updateHash = () => setActiveHash(window.location.hash.slice(1))
+    updateHash()
+    window.addEventListener('hashchange', updateHash)
+    return () => window.removeEventListener('hashchange', updateHash)
+  }, [])
+
+  useEffect(() => {
+    const activeModule = MODULES.find((module) => pathname === module.href || pathname.startsWith(`${module.href}/`))
+    if (activeModule?.children?.length) {
+      setExpandedModules((current) => current.includes(activeModule.name)
+        ? current
+        : [...current, activeModule.name])
+    }
+  }, [pathname])
 
   const iconMap: Record<string, any> = {
     Monitor,
@@ -110,7 +127,7 @@ export function Sidebar() {
                 ? userRoles.includes('ceo')
                 : canAll(child.permissions)
             )
-            const isExpanded = expandedModules.includes(module.name) || isActive
+            const isExpanded = expandedModules.includes(module.name)
 
             return (
               <div key={module.name}>
@@ -144,12 +161,14 @@ export function Sidebar() {
                   <div className="ml-4 mt-1 space-y-1 border-l border-slate-800 pl-3">
                     {accessibleChildren.map((child) => {
                       const ChildIcon = iconMap[child.icon] || LayoutDashboard
-                      const childActive = pathname === child.href
+                      const [childPath, childHash] = child.href.split('#')
+                      const childActive = pathname === childPath
+                        && (childHash ? activeHash === childHash : true)
                       return (
                         <Link
                           key={child.name}
                           href={child.href}
-                          aria-current={childActive ? 'page' : undefined}
+                          aria-current={childActive ? (childHash ? 'location' : 'page') : undefined}
                           className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${childActive ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100'}`}
                         >
                           <ChildIcon className="h-3.5 w-3.5" />

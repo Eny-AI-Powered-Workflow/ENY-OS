@@ -13,13 +13,28 @@ export interface Module {
   children?: Module[]
 }
 
+export const CEO_COCKPIT_SECTIONS = [
+  { id: 'overview', label: 'Overview', icon: 'BarChart3' },
+  { id: 'sales', label: 'Sales operations', icon: 'Users' },
+  { id: 'briefing', label: 'Daily briefing', icon: 'MessagesSquare' },
+  { id: 'activity', label: 'Platform activity', icon: 'Workflow' },
+  { id: 'access', label: 'Access management', icon: 'Settings' },
+  { id: 'knowledge', label: 'SOP library', icon: 'Pencil' },
+] as const
+
 // These are the modules from the brief, mapped to their primary roles and permissions
 export const MODULES: Module[] = [
   {
     name: 'CEO Cockpit',
     href: '/dashboard/ceo',
     icon: 'Monitor',
-    permissions: ['pipeline:read', 'agents:configure']
+    permissions: ['pipeline:read', 'agents:configure'],
+    children: CEO_COCKPIT_SECTIONS.map((section) => ({
+      name: section.label,
+      href: `/dashboard/ceo#${section.id}`,
+      icon: section.icon,
+      permissions: ['pipeline:read', 'agents:configure'],
+    })),
   },
   {
     name: 'Sales & Enrollment',
