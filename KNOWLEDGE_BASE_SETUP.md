@@ -51,6 +51,15 @@ curl -X POST "$API_URL/api/v1/ai/knowledge/ingest" \
   }'
 ```
 
+The Writer & SOPs publisher also accepts searchable PDF, Word (`.docx`), and
+PowerPoint (`.pptx`) files. These are uploaded to the protected
+`/api/v1/ai/knowledge/upload` endpoint as multipart form data and text is
+extracted on the backend before entering the same chunking, embedding, and
+role-scoped retrieval pipeline. Scanned PDFs must be OCR-processed first; legacy
+Word `.doc` files should be saved as `.docx`. The default upload limit is 25 MB
+and can be changed with the backend `KNOWLEDGE_MAX_UPLOAD_MB` setting. The raw
+file is not stored in the knowledge library.
+
 The service chunks long documents, embeds each chunk, replaces the prior document with the same title and department, and stores metadata such as chunk order and ingesting user.
 
 Supported department values should match role scopes where possible:

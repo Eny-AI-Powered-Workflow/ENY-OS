@@ -10,7 +10,17 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -41,6 +51,10 @@ from app.services.embedding_service import (
     EmbeddingError,
     EmbeddingRateLimitError,
     embedding_service,
+)
+from app.services.sop_document_service import (
+    DocumentExtractionError,
+    extract_sop_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -1036,16 +1050,12 @@ async def execute_assistant_action_proposal(
     }
 
 
-@router.post(
-    "/knowledge/ingest",
-    dependencies=[Depends(require_permission("agents:configure"))],
-)
-async def ingest_knowledge_document(
+async def _ingest_knowledge_document(
     request: KnowledgeIngestRequest,
-    current_user: Any = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: Any,
+    db: Session,
 ):
-    """Ingest an approved SOP into role-scoped semantic knowledge."""
+    """Embed and store approved SOP text using the shared knowledge pipeline."""
     if not embedding_service.enabled:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required to ingest vector knowledge")
 
@@ -1115,6 +1125,62 @@ async def ingest_knowledge_document(
         ) from exc
 
     return {"status": "ingested", "title": request.title, "department": request.department, "chunks": len(chunks)}
+
+
+@router.post(
+    "/knowledge/ingest",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def ingest_knowledge_document(
+    request: KnowledgeIngestRequest,
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ingest an approved Markdown or plain-text SOP into role-scoped knowledge."""
+    return await _ingest_knowledge_document(request, current_user, db)
+
+
+@router.post(
+    "/knowledge/upload",
+    dependencies=[Depends(require_permission("agents:configure"))],
+)
+async def upload_knowledge_document(
+    title: str = Form(..., min_length=1, max_length=200),
+    department: str = Form(..., min_length=1, max_length=80),
+    source: str = Form("ENY internal SOP", max_length=300),
+    file: UploadFile = File(...),
+    current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Extract a supported document and send its text through normal ingestion."""
+    max_bytes = settings.KNOWLEDGE_MAX_UPLOAD_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded document is empty")
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"The document exceeds the {settings.KNOWLEDGE_MAX_UPLOAD_MB} MB upload limit.",
+        )
+
+    try:
+        extracted_text = extract_sop_text(file.filename or "", content)
+    except DocumentExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if len(extracted_text) > 200_000:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Extracted SOP text exceeds the 200,000-character limit. Split it into smaller documents.",
+        )
+
+    request = KnowledgeIngestRequest(
+        title=title,
+        department=department,
+        source=source,
+        content=extracted_text,
+    )
+    return await _ingest_knowledge_document(request, current_user, db)
 
 
 @router.get(

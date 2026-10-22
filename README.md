@@ -82,6 +82,12 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    key on the backend only. Canva API credentials are not needed for this
    manual-template phase; store approved Canva template links in the workspace.
 
+   SOP knowledge publishing accepts Markdown and plain text, plus searchable
+   PDF, Word (`.docx`), and PowerPoint (`.pptx`) files. The backend extracts
+   document text and sends it through the existing role-scoped chunking and
+   embedding pipeline; scanned PDFs must be OCR-processed before upload.
+   `KNOWLEDGE_MAX_UPLOAD_MB` controls the document upload limit (default `25`).
+
    Google sign-in also creates new Supabase Auth accounts. In Supabase
    Authentication → Providers, enable Google and enter the OAuth client ID and
    secret from Google Cloud Console. Add the Supabase Google callback URL shown

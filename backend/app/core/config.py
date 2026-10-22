@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     EMBEDDING_TIMEOUT_SECONDS: float = Field(60.0, env="EMBEDDING_TIMEOUT_SECONDS")
     # Upper bound on how many chunks a single SOP upload may produce.
     KNOWLEDGE_MAX_CHUNKS: int = Field(400, env="KNOWLEDGE_MAX_CHUNKS")
+    KNOWLEDGE_MAX_UPLOAD_MB: int = Field(25, env="KNOWLEDGE_MAX_UPLOAD_MB")
 
     # Optional APIs
     APOLLO_API_KEY: str = Field("", env="APOLLO_API_KEY")
