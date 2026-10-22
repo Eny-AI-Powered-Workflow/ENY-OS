@@ -1,7 +1,8 @@
 // /home/obed/Documents/Eny_consulting/Eny_consulting/frontend/lib/permissions.ts
 'use client'
 
-import { useEffect, useState } from 'react'
+import { createContext, createElement, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabaseClient'
 
 // Define the modules and their required permissions
@@ -110,23 +111,39 @@ export const MODULES: Module[] = [
   }
 ]
 
-// Helper function to check if a user has a specific permission
-export function usePermissions() {
-  const [session, setSession] = useState<any>(null)
+// Keep role loading in the persistent dashboard shell instead of repeating it per widget.
+function usePermissionsState() {
+  const [session, setSession] = useState<Session | null>(null)
   const [userRoles, setUserRoles] = useState<string[]>([])
   const [permissions, setPermissions] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const requestVersion = useRef(0)
+  const inFlightUserId = useRef<string | null>(null)
+  const loadedUserId = useRef<string | null>(null)
 
   useEffect(() => {
     // Only run in browser environment
     if (typeof window !== 'undefined') {
       let active = true
 
-      const loadRoles = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
+      const loadRoles = async (session: Session | null) => {
         setSession(session)
         if (!session) {
+          requestVersion.current += 1
+          inFlightUserId.current = null
+          loadedUserId.current = null
           setUserRoles([])
+          setIsLoading(false)
           return
         }
+
+        const userId = session.user.id
+        if (loadedUserId.current === userId || inFlightUserId.current === userId) return
+
+        const currentRequest = ++requestVersion.current
+        inFlightUserId.current = userId
+        setUserRoles([])
+        setIsLoading(true)
 
         try {
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/me`, {
@@ -139,10 +156,18 @@ export function usePermissions() {
           if (!Array.isArray(data.roles) || !data.roles.every((role: unknown) => typeof role === 'string')) {
             throw new Error('The account roles response was invalid')
           }
-          if (active) setUserRoles(data.roles)
+          if (active && requestVersion.current === currentRequest) {
+            loadedUserId.current = userId
+            setUserRoles(data.roles)
+          }
         } catch (error) {
           console.error('Unable to load account roles:', error)
-          if (active) setUserRoles([])
+          if (active && requestVersion.current === currentRequest) setUserRoles([])
+        } finally {
+          if (active && requestVersion.current === currentRequest) {
+            inFlightUserId.current = null
+            setIsLoading(false)
+          }
         }
       }
 
@@ -150,7 +175,10 @@ export function usePermissions() {
         .then(({ data: { session } }) => loadRoles(session))
         .catch((error: unknown) => {
           console.error('Unable to read the authentication session:', error)
-          if (active) setUserRoles([])
+          if (active) {
+            setUserRoles([])
+            setIsLoading(false)
+          }
         })
 
       // Listen for auth changes
@@ -224,8 +252,25 @@ export function usePermissions() {
     session,
     permissions,
     userRoles,
+    isLoading,
     can,
     canAll,
     canAny
   }
+}
+
+type PermissionsContextValue = ReturnType<typeof usePermissionsState>
+const PermissionsContext = createContext<PermissionsContextValue | null>(null)
+
+export function PermissionsProvider({ children }: { children: ReactNode }) {
+  const value = usePermissionsState()
+  return createElement(PermissionsContext.Provider, { value, children })
+}
+
+export function usePermissions() {
+  const context = useContext(PermissionsContext)
+  if (!context) {
+    throw new Error('usePermissions must be used within a PermissionsProvider')
+  }
+  return context
 }

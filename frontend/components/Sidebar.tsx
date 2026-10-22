@@ -29,13 +29,14 @@ import {
   ChevronDown,
   ChevronRight,
   Flame,
+  Home,
 } from 'lucide-react'
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedModules, setExpandedModules] = useState<string[]>(['Sales & Enrollment'])
   const [activeHash, setActiveHash] = useState('')
-  const { canAll, userRoles } = usePermissions()
+  const { canAll, userRoles, isLoading } = usePermissions()
   const pathname = usePathname()
   const router = useRouter()
 
@@ -119,7 +120,28 @@ export function Sidebar() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
         <nav aria-label="Workspace navigation" className="shrink-0 space-y-2 px-3 py-4">
-          {accessibleModules.map((module) => {
+          <Link
+            href="/dashboard"
+            title={collapsed ? 'Home dashboard' : undefined}
+            aria-current={pathname === '/dashboard' ? 'page' : undefined}
+            className={`flex min-h-10 items-center rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              pathname === '/dashboard'
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+            } ${collapsed ? 'justify-center px-0' : ''}`}
+          >
+            <Home aria-hidden="true" className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="ml-3 truncate">Home dashboard</span>}
+          </Link>
+
+          {isLoading ? (
+            <div role="status" className="space-y-3 px-3 py-3">
+              <span className="sr-only">Loading your workspaces</span>
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} aria-hidden="true" className="h-9 animate-pulse rounded-lg bg-slate-800/70" />
+              ))}
+            </div>
+          ) : accessibleModules.map((module) => {
             const Icon = iconMap[module.icon] || LayoutDashboard
             const isActive = pathname === module.href || pathname.startsWith(`${module.href}/`)
             const accessibleChildren = (module.children || []).filter(

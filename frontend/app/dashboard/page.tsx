@@ -60,11 +60,37 @@ const formatRole = (role: string) => role
   .join(' ')
 
 export default function DashboardPage() {
-  const { canAll, userRoles } = usePermissions()
+  const { canAll, userRoles, isLoading } = usePermissions()
   const accessibleModules = MODULES.filter((module) => module.permissions.length === 0
     ? userRoles.includes('ceo')
     : canAll(module.permissions))
   const primaryRole = userRoles[0] ? formatRole(userRoles[0]) : null
+
+  if (isLoading) {
+    return (
+      <div role="status" aria-busy="true" className="space-y-8">
+        <span className="sr-only">Loading your home dashboard</span>
+        <section aria-hidden="true" className="min-h-56 animate-pulse rounded-3xl border border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+          <div className="h-3 w-32 rounded bg-slate-700" />
+          <div className="mt-5 h-9 max-w-md rounded bg-slate-700" />
+          <div className="mt-4 h-4 max-w-xl rounded bg-slate-800" />
+        </section>
+        <section aria-hidden="true">
+          <div className="mb-5 h-6 w-48 rounded bg-slate-800" />
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((item) => (
+              <div key={item} className="min-h-52 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+                <div className="h-11 w-11 rounded-xl bg-slate-800" />
+                <div className="mt-5 h-5 w-2/3 rounded bg-slate-800" />
+                <div className="mt-3 h-4 rounded bg-slate-800/80" />
+                <div className="mt-2 h-4 w-4/5 rounded bg-slate-800/80" />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
