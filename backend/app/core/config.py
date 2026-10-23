@@ -139,6 +139,7 @@ class Settings(BaseSettings):
     GOOGLE_OAUTH_CLIENT_ID: str = Field("", env="GOOGLE_OAUTH_CLIENT_ID")
     GOOGLE_OAUTH_CLIENT_SECRET: str = Field("", env="GOOGLE_OAUTH_CLIENT_SECRET")
     GOOGLE_OAUTH_REFRESH_TOKEN: str = Field("", env="GOOGLE_OAUTH_REFRESH_TOKEN")
+    GOOGLE_CHAT_SALES_WEBHOOK_URL: str = Field("", env="GOOGLE_CHAT_SALES_WEBHOOK_URL")
 
     ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")
     CLAUDE_MODEL: str = Field("claude-3-opus-20240229", env="CLAUDE_MODEL")

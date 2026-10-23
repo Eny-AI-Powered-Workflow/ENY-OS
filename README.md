@@ -188,6 +188,31 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    If the old ENY-ENROLLMENT-FOLLOW-UP workflow was imported in n8n, deactivate
    it; the API no longer invokes it.
 
+   For the Sales and Enrollment lead-assignment dashboard, apply
+   `supabase/migrations/0052_sales_enrollment_lead_assignment.sql` and then
+   `supabase/migrations/0053_ghl_lead_assignments.sql` to the production
+   Supabase database before deploying the corresponding backend. Migration
+   0052 adds the nullable `assigned_department` column used by the backend
+   model and provisions department-lead assignment permissions. Migration
+   0053 creates the GHL contact-assignment table used by the lead inventory.
+   If Render logs `column batch_execution_results.assigned_department does
+   not exist`, migration 0052 is missing from that database: apply the pending
+   migrations in order, then retry the request. Do not remove the model field
+   or skip the migration; assignment filtering and leadership controls depend
+   on this schema.
+
+   To enable Google Chat notifications and the Sales & Enrollment platform
+   alert inbox, apply `supabase/migrations/0054_sales_alert_inbox.sql` after
+   migration 0053. Create an incoming webhook in the intended Google Chat
+   space, then set `GOOGLE_CHAT_SALES_WEBHOOK_URL` as a backend-only Render
+   environment secret. Never place the webhook URL in frontend settings or
+   source control. When unset, the platform inbox still works and the action
+   explicitly reports that Google Chat is not configured. The inbox supports
+   per-user read and dismiss state; dismissing an alert does not delete the
+   shared operational record. The inbox's AI summary uses Claude to report
+   exact alert, unread, and critical counts from ENY OS plus recent alert
+   messages; it does not read Google Chat history.
+
    The role-aware AI Desk features require migrations `0045` through `0050` to
    be applied in order. Claude chat receives only the signed-in user's
    permission-scoped CRM and platform context. Per-user preferences are stored

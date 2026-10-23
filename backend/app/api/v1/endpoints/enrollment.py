@@ -1,6 +1,8 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/enrollment.py
 from datetime import datetime, timedelta, timezone
 import hmac
+import httpx
+import anthropic
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import Any, Optional, Literal
@@ -8,7 +10,7 @@ from app.api.deps import get_optional_permissions_with_audit, require_permission
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 import logging
@@ -21,9 +23,12 @@ from app.models.cohort_approval import CohortApproval
 from app.models.enrollment_audit import EnrollmentAudit
 from app.models.lead_assignment import LeadAssignment
 from app.models.operational_alert import OperationalAlert
+from app.models.operational_alert_user_state import OperationalAlertUserState
 from app.models.ghl_lead_intake import GHLLeadIntake
 from app.services.batch_execution_service import retry_batch_result
+from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
+from app.services.google_chat_service import google_chat_service
 from app.models.role import Role
 from app.models.user_role import UserRole
 from app.services.supabase_admin_service import supabase_admin_service
@@ -1614,36 +1619,90 @@ async def follow_up_hot_lead(
             details={"contact_id": result.contact_id, "tag": "eny-follow-up-queued"},
         ))
         db.commit()
+    else:
+        team_alert.details = {**(team_alert.details or {}), "ghl_tag_written": True}
+        db.add(EnrollmentAudit(
+            user_id=current_user.id,
+            result_id=result.id,
+            event_type="sales_team_notified",
+            details={
+                "contact_id": result.contact_id,
+                "notification_channel": "sales_enrollment_ui",
+                "lead_contacted": False,
+                "ghl_tag_written": True,
+            },
+        ))
+
+    chat_text = (
+        "CRITICAL: Sales & Enrollment could not apply the GHL follow-up tag for an assigned hot lead."
+        if not tag_success
+        else "Sales & Enrollment: an assigned hot lead is ready for manual outreach."
+    )
+    chat_text += (
+        f"\nScore: {result.score if result.score is not None else 'unknown'}"
+        f"\nSource: {result.source or 'unknown'}"
+        "\nOpen the ENY OS Sales & Enrollment alert inbox for the lead and audit details."
+    )
+    try:
+        chat_delivery = await google_chat_service.send_message(chat_text)
+    except httpx.HTTPError:
+        logger.warning("Google Chat notification delivery failed for operational alert %s", team_alert.id)
+        chat_delivery = {"status": "failed", "error": "Google Chat webhook delivery failed"}
+        _create_operational_alert(
+            db,
+            alert_type="google_chat_delivery_failure",
+            source="google_chat",
+            severity="critical",
+            message="Sales & Enrollment alert could not be delivered to Google Chat.",
+            result_id=result.id,
+            details={"related_alert_id": str(team_alert.id)},
+        )
+
+    team_alert.details = {
+        **(team_alert.details or {}),
+        "google_chat": chat_delivery,
+        "lead_contacted": False,
+    }
+    result.last_action_at = now
+    if tag_success:
+        _audit(db, current_user, result.id, "follow_up_triggered", {
+            "contact_id": result.contact_id,
+            "from": previous_state,
+            "to": result.queue_status,
+            "notification_channel": "sales_enrollment_ui",
+            "google_chat_status": chat_delivery["status"],
+            "ghl_tag_written": True,
+        })
+    else:
+        db.commit()
+
+    if not tag_success:
+        chat_note = (
+            " Google Chat notification was sent."
+            if chat_delivery["status"] == "sent"
+            else f" Google Chat status: {chat_delivery['status']}."
+        )
         raise HTTPException(
             status_code=502,
-            detail="Sales & Enrollment was notified in the platform, but GHL tag synchronization failed.",
+            detail=(
+                "Sales & Enrollment was notified in the platform, but GHL tag synchronization failed."
+                + chat_note
+            ),
         )
-    team_alert.details = {**(team_alert.details or {}), "ghl_tag_written": True}
-    db.add(EnrollmentAudit(
-        user_id=current_user.id,
-        result_id=result.id,
-        event_type="sales_team_notified",
-        details={
-            "contact_id": result.contact_id,
-            "notification_channel": "sales_enrollment_ui",
-            "lead_contacted": False,
-            "ghl_tag_written": True,
-        },
-    ))
-    result.last_action_at = now
-    _audit(db, current_user, result.id, "follow_up_triggered", {
-        "contact_id": result.contact_id,
-        "from": previous_state,
-        "to": result.queue_status,
-        "notification_channel": "sales_enrollment_ui",
-        "ghl_tag_written": True,
-    })
-    db.commit()
+
+    warning = None
+    if chat_delivery["status"] != "sent":
+        warning = (
+            "The platform alert and GHL tag succeeded, but Google Chat "
+            f"delivery status is {chat_delivery['status']}."
+        )
     return {
         "status": result.follow_up_status,
         "queue_status": result.queue_status,
         "message": "Sales & Enrollment was notified in the platform. No email or text was sent to the lead.",
         "lead_contacted": False,
+        "google_chat": chat_delivery,
+        "warning": warning,
     }
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("leads:read"))])
@@ -1830,6 +1889,238 @@ async def get_enrollment_alerts(
             OperationalAlert.team == "sales_enrollment",
             OperationalAlert.status == "open",
         ).count(),
+    }
+
+
+@router.get("/alerts/inbox", dependencies=[Depends(require_permission("sales:alerts:read"))])
+async def get_sales_alert_inbox(
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """List shared Sales & Enrollment alerts with this user's read/dismiss state."""
+    state_join = and_(
+        OperationalAlertUserState.alert_id == OperationalAlert.id,
+        OperationalAlertUserState.user_id == current_user.id,
+    )
+    visible_query = (
+        db.query(OperationalAlert)
+        .outerjoin(OperationalAlertUserState, state_join)
+        .filter(OperationalAlert.team == "sales_enrollment")
+        .filter(or_(
+            OperationalAlertUserState.user_id.is_(None),
+            OperationalAlertUserState.dismissed_at.is_(None),
+        ))
+    )
+    rows = (
+        db.query(OperationalAlert, OperationalAlertUserState)
+        .outerjoin(OperationalAlertUserState, state_join)
+        .filter(OperationalAlert.team == "sales_enrollment")
+        .filter(or_(
+            OperationalAlertUserState.user_id.is_(None),
+            OperationalAlertUserState.dismissed_at.is_(None),
+        ))
+        .order_by(OperationalAlert.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "alerts": [
+            {
+                "id": str(alert.id),
+                "type": alert.alert_type,
+                "severity": alert.severity,
+                "source": alert.source,
+                "message": alert.message,
+                "result_id": str(alert.result_id) if alert.result_id else None,
+                "status": alert.status,
+                "details": alert.details,
+                "created_at": _serialize_datetime(alert.created_at),
+                "read_at": _serialize_datetime(user_state.read_at) if user_state else None,
+                "is_read": bool(user_state and user_state.read_at),
+            }
+            for alert, user_state in rows
+        ],
+        "total_count": visible_query.count(),
+        "unread_count": (
+            db.query(OperationalAlert)
+            .outerjoin(OperationalAlertUserState, state_join)
+            .filter(OperationalAlert.team == "sales_enrollment")
+            .filter(or_(
+                OperationalAlertUserState.user_id.is_(None),
+                OperationalAlertUserState.dismissed_at.is_(None),
+            ))
+            .filter(or_(
+                OperationalAlertUserState.user_id.is_(None),
+                OperationalAlertUserState.read_at.is_(None),
+            ))
+            .count()
+        ),
+        "critical_count": visible_query.filter(
+            OperationalAlert.severity == "critical",
+        ).count(),
+    }
+
+
+@router.post("/alerts/{alert_id}/read", dependencies=[Depends(require_permission("sales:alerts:read"))])
+async def mark_sales_alert_read(
+    alert_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Record that the current user read a shared alert."""
+    alert = db.query(OperationalAlert).filter(
+        OperationalAlert.id == alert_id,
+        OperationalAlert.team == "sales_enrollment",
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operational alert not found")
+
+    now = datetime.now(timezone.utc)
+    db.execute(
+        pg_insert(OperationalAlertUserState)
+        .values(alert_id=alert.id, user_id=current_user.id, read_at=now)
+        .on_conflict_do_update(
+            index_elements=[
+                OperationalAlertUserState.alert_id,
+                OperationalAlertUserState.user_id,
+            ],
+            set_={"read_at": now},
+        )
+    )
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=alert.result_id,
+        event_type="operational_alert_read",
+        details={"alert_id": str(alert.id), "alert_type": alert.alert_type},
+    ))
+    db.commit()
+    return {"id": str(alert.id), "is_read": True, "read_at": _serialize_datetime(now)}
+
+
+@router.delete("/alerts/{alert_id}/inbox", dependencies=[Depends(require_permission("sales:alerts:manage"))])
+async def dismiss_sales_alert(
+    alert_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Dismiss an alert from the current user's inbox without deleting the shared record."""
+    alert = db.query(OperationalAlert).filter(
+        OperationalAlert.id == alert_id,
+        OperationalAlert.team == "sales_enrollment",
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operational alert not found")
+
+    now = datetime.now(timezone.utc)
+    db.execute(
+        pg_insert(OperationalAlertUserState)
+        .values(alert_id=alert.id, user_id=current_user.id, dismissed_at=now)
+        .on_conflict_do_update(
+            index_elements=[
+                OperationalAlertUserState.alert_id,
+                OperationalAlertUserState.user_id,
+            ],
+            set_={"dismissed_at": now},
+        )
+    )
+    db.add(EnrollmentAudit(
+        user_id=current_user.id,
+        result_id=alert.result_id,
+        event_type="operational_alert_dismissed",
+        details={"alert_id": str(alert.id), "alert_type": alert.alert_type},
+    ))
+    db.commit()
+    return {"id": str(alert.id), "dismissed": True}
+
+
+@router.post("/alerts/ai-summary", dependencies=[Depends(require_permission("sales:alerts:read"))])
+async def summarize_sales_alerts(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Ask Claude for a bounded, count-aware summary of recent platform alerts."""
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent_query = db.query(OperationalAlert).filter(
+        OperationalAlert.team == "sales_enrollment",
+        OperationalAlert.created_at >= since,
+    )
+    total_count = recent_query.count()
+    critical_count = recent_query.filter(OperationalAlert.severity == "critical").count()
+    join_condition = and_(
+        OperationalAlertUserState.alert_id == OperationalAlert.id,
+        OperationalAlertUserState.user_id == current_user.id,
+    )
+    unread_count = (
+        db.query(OperationalAlert)
+        .outerjoin(OperationalAlertUserState, join_condition)
+        .filter(
+            OperationalAlert.team == "sales_enrollment",
+            OperationalAlert.created_at >= since,
+        )
+        .filter(or_(
+            OperationalAlertUserState.user_id.is_(None),
+            OperationalAlertUserState.dismissed_at.is_(None),
+        ))
+        .filter(or_(
+            OperationalAlertUserState.user_id.is_(None),
+            OperationalAlertUserState.read_at.is_(None),
+        ))
+        .count()
+    )
+    recent_alerts = recent_query.order_by(OperationalAlert.created_at.desc()).limit(50).all()
+    critical_alerts = [
+        {
+            "type": alert.alert_type,
+            "severity": alert.severity,
+            "message": alert.message[:500],
+            "created_at": _serialize_datetime(alert.created_at),
+        }
+        for alert in recent_alerts
+        if alert.severity == "critical"
+    ]
+    if total_count == 0:
+        return {
+            "summary": "No Sales & Enrollment alerts were recorded in the last 24 hours.",
+            "counts": {"total_24h": 0, "unread": 0, "critical_24h": 0},
+            "generated_at": _serialize_datetime(datetime.now(timezone.utc)),
+        }
+
+    context = {
+        "counts": {
+            "total_24h": total_count,
+            "unread": unread_count,
+            "critical_24h": critical_count,
+        },
+        "critical_alerts_in_latest_50": critical_alerts,
+        "latest_alerts": [
+            {
+                "type": alert.alert_type,
+                "severity": alert.severity,
+                "message": alert.message[:500],
+                "created_at": _serialize_datetime(alert.created_at),
+            }
+            for alert in recent_alerts
+        ],
+    }
+    try:
+        summary = await ClaudeService().summarize_operational_alerts(context)
+    except ValueError as exc:
+        logger.warning("Claude alert summary unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Claude alert summaries are not configured or returned an invalid response.",
+        ) from exc
+    except anthropic.APIError as exc:
+        logger.warning("Claude alert summary request failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Claude could not summarize Sales & Enrollment alerts right now.",
+        ) from exc
+    return {
+        "summary": summary,
+        "counts": context["counts"],
+        "generated_at": _serialize_datetime(datetime.now(timezone.utc)),
     }
 
 

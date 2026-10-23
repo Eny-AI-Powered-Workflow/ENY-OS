@@ -9,6 +9,7 @@ import SOPLibrary from "@/components/SOPLibrary";
 import SalesOperationsPanel from "@/components/SalesOperationsPanel";
 import ExecutiveAssistantBriefing from "@/components/ExecutiveAssistantBriefing";
 import CEOSignupManagement from "@/components/CEOSignupManagement";
+import PlatformAlertInbox from "@/components/PlatformAlertInbox";
 import { CEO_COCKPIT_SECTIONS } from "@/lib/permissions";
 
 export default function CEODashboard() {
@@ -123,6 +124,7 @@ export default function CEODashboard() {
             Recent team activity and the current state of automations.
           </p>
         </div>
+        <PlatformAlertInbox />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <CEOHeatmap />
           <CEOAgentStatus />

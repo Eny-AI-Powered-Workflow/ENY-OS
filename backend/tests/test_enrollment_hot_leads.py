@@ -636,6 +636,8 @@ async def test_notify_sales_action_creates_internal_alert_without_contact_email(
     )
     tag_contact = AsyncMock(return_value=True)
     monkeypatch.setattr("app.api.v1.endpoints.enrollment.ghl_service.tag_contact", tag_contact)
+    chat_message = AsyncMock(return_value={"status": "sent"})
+    monkeypatch.setattr("app.api.v1.endpoints.enrollment.google_chat_service.send_message", chat_message)
 
     response = await follow_up_hot_lead(
         result_id=result.id,
@@ -646,11 +648,71 @@ async def test_notify_sales_action_creates_internal_alert_without_contact_email(
     tag_contact.assert_awaited_once_with("contact-2", ["eny-follow-up-queued"])
     assert response["status"] == "team_notified"
     assert response["lead_contacted"] is False
+    assert response["google_chat"] == {"status": "sent"}
+    assert response["warning"] is None
+    chat_message.assert_awaited_once()
+    assert "assigned hot lead" in chat_message.await_args.args[0]
     assert "No email or text" in response["message"]
     assert result.queue_status == "assigned"
     assert result.lifecycle_stage == "queued"
     assert any(
         isinstance(item, OperationalAlert) and item.alert_type == "sales_team_notification"
+        for item in db.added
+    )
+
+
+@pytest.mark.asyncio
+async def test_notify_sales_reports_google_chat_delivery_failure(monkeypatch):
+    import httpx
+    from uuid import UUID
+    from app.models.operational_alert import OperationalAlert
+
+    result = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000003"),
+        contact_id="contact-3",
+        approval_id=None,
+        assigned_user_id="user-1",
+        queue_status="assigned",
+        follow_up_status="not_started",
+        score=91,
+        source="webinar",
+    )
+
+    class Query:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def first(self):
+            return result
+
+    db = SimpleNamespace(
+        query=lambda model: Query(),
+        added=[],
+        add=lambda value: db.added.append(value),
+        commit=lambda: None,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.enrollment.ghl_service.tag_contact",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.enrollment.google_chat_service.send_message",
+        AsyncMock(side_effect=httpx.ConnectError("connection refused")),
+    )
+
+    response = await follow_up_hot_lead(
+        result_id=result.id,
+        db=db,
+        current_user=SimpleNamespace(id="user-1"),
+    )
+
+    assert response["google_chat"]["status"] == "failed"
+    assert "Google Chat delivery status is failed" in response["warning"]
+    assert any(
+        isinstance(item, OperationalAlert) and item.alert_type == "google_chat_delivery_failure"
         for item in db.added
     )
 
