@@ -144,31 +144,38 @@ export default function EnrollmentLeads() {
   )
 
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-4">
+    <Card className="flex h-[min(72vh,760px)] min-h-[520px] w-full flex-col overflow-hidden border-slate-200/80 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+      <CardHeader className="shrink-0 space-y-4 border-b border-slate-100 bg-gradient-to-br from-white via-white to-violet-50/70 px-5 pb-4 pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center">
-            <Users className="mr-2 h-4 w-4" />
-            <CardTitle className="text-xl">Leads</CardTitle>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-violet-50 text-violet-700 shadow-sm">
+              <Users className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <CardTitle className="text-lg text-slate-950">Leads</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">Manage and assign your live CRM leads</p>
+            </div>
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
+              aria-label="Search leads"
               placeholder="Search leads..."
               value={searchTerm}
               onChange={(event) => {
                 setSearchTerm(event.target.value)
                 setOffset(0)
               }}
-              className="rounded border py-1.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brass-500"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100"
             />
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          GHL remains the source of lead records; ENY tracks team ownership and assignment history.
-        </p>
-        <div className="flex gap-2 pt-2" role="tablist" aria-label="Lead views">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-sm text-[11px] leading-4 text-slate-500">
+            GHL is the source of lead records; ENY tracks team ownership and assignment history.
+          </p>
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Lead views">
           {([
             ['all', 'All leads'],
             ['mine', 'My leads'],
@@ -182,28 +189,34 @@ export default function EnrollmentLeads() {
                 setView(key)
                 setOffset(0)
               }}
-              className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                view === key ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                view === key ? 'bg-white text-violet-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               {label}
             </button>
           ))}
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+      <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-4 pt-4">
+        {error && <p role="alert" className="mb-3 shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-            <Users className="h-5 w-5" />
-            Loading leads...
+          <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-slate-500">
+            <Users className="h-5 w-5 text-violet-500" />
+            Loading leads…
           </div>
         ) : leads.length === 0 ? (
-          <div className="py-8 text-center">
-            <p className="text-sm text-muted-foreground">{view === 'mine' ? 'No leads are assigned to you yet.' : 'No leads found.'}</p>
-            {searchTerm && <p className="mt-2 text-xs text-muted-foreground">No leads match &quot;{searchTerm}&quot;.</p>}
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">
+            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
+              <Users className="h-5 w-5" />
+            </span>
+            <p className="text-sm font-medium text-slate-700">{view === 'mine' ? 'No leads are assigned to you yet.' : 'No leads found.'}</p>
+            {searchTerm && <p className="mt-2 text-xs text-slate-500">No leads match &quot;{searchTerm}&quot;.</p>}
           </div>
-        ) : leads.map((lead) => {
+        ) : (
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin]">
+          {leads.map((lead) => {
           const currentAssignment = lead.assigned_user_id && lead.assigned_department
             ? `${lead.assigned_department}:${lead.assigned_user_id}`
             : ''
@@ -213,12 +226,12 @@ export default function EnrollmentLeads() {
           const canManageOwner = canManageDepartment(lead.assigned_department)
 
           return (
-            <article key={lead.id} className="rounded-lg border p-4 transition-shadow hover:shadow-md">
+            <article key={lead.id} className="rounded-xl border border-slate-200 bg-white p-4 transition duration-200 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.07)]">
               <div className="flex flex-col justify-between gap-3 sm:flex-row">
                 <div className="min-w-0">
-                  <h3 className="truncate font-semibold text-foreground">{lead.name || `${lead.firstName} ${lead.lastName}`}</h3>
-                  <p className="truncate text-sm text-muted-foreground">{lead.email || 'No email'}</p>
-                  {lead.phone && <p className="text-xs text-muted-foreground">{lead.phone}</p>}
+                  <h3 className="truncate text-sm font-semibold text-slate-900">{lead.name || `${lead.firstName} ${lead.lastName}`}</h3>
+                  <p className="mt-1 truncate text-xs text-slate-500">{lead.email || 'No email'}</p>
+                  {lead.phone && <p className="mt-0.5 text-xs text-slate-500">{lead.phone}</p>}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {lead.tags?.map((tag, index) => (
                       <span
@@ -236,15 +249,15 @@ export default function EnrollmentLeads() {
                     ))}
                   </div>
                 </div>
-                <div className="flex flex-col items-start gap-2 sm:items-end">
-                  <span className="text-xs text-muted-foreground">Score: {lead.score ?? 'N/A'}</span>
+                <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">Score · {lead.score ?? 'N/A'}</span>
                   {canAssign && canManageOwner ? (
                     <select
                       aria-label={`Assign ${lead.name || lead.id}`}
                       value={currentAssignment}
                       disabled={assigningId === lead.id || teamMembers.length === 0}
                       onChange={(event) => void assignLead(lead, event.target.value)}
-                      className="max-w-64 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 disabled:bg-slate-50"
+                      className="max-w-64 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:bg-slate-50"
                     >
                       <option value="">{lead.assigned_user_id ? 'Assignee unavailable' : 'Assign lead'}</option>
                       {teamMembers.map((member) => (
@@ -254,7 +267,7 @@ export default function EnrollmentLeads() {
                       ))}
                     </select>
                   ) : (
-                    <span className="text-xs text-slate-600">
+                    <span className="text-xs font-medium text-slate-600">
                       {lead.assigned_user_id
                         ? `${lead.assigned_user_id === currentUserId ? 'Assigned to you' : assigneeName || 'Assigned'}${lead.assigned_department ? ` · ${lead.assigned_department}` : ''}`
                         : 'Unassigned'}
@@ -264,23 +277,25 @@ export default function EnrollmentLeads() {
               </div>
             </article>
           )
-        })}
-        {!loading && (
-          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+          })}
+          </div>
+        )}
+        {!loading && leads.length > 0 && (
+          <div className="mt-3 flex shrink-0 items-center justify-between border-t border-slate-100 pt-3">
             <button
               type="button"
               onClick={() => setOffset((current) => Math.max(0, current - pageSize))}
               disabled={offset === 0}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Previous
             </button>
-            <span className="text-xs text-slate-500">Page {Math.floor(offset / pageSize) + 1}</span>
+            <span className="text-xs font-medium tabular-nums text-slate-500">Page {Math.floor(offset / pageSize) + 1}</span>
             <button
               type="button"
               onClick={() => setOffset((current) => current + pageSize)}
               disabled={!hasMore}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
             </button>
