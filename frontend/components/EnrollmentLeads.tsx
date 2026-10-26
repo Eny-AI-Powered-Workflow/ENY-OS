@@ -44,6 +44,22 @@ type CohortPreview = {
   scan_complete: boolean
 }
 
+type CohortPullSummary = {
+  batchesCompleted: number
+  lastBatch: {
+    contactsMatched: number
+    contactsQueued: number
+    alreadyQueued: number
+    pagesScanned: number
+  }
+  contactsMatched: number
+  contactsQueued: number
+  alreadyQueued: number
+  pagesScanned: number
+  hasMore: boolean
+  completedAt: string
+}
+
 export default function EnrollmentLeads() {
   const { can, isLoading: permissionsLoading, userRoles } = usePermissions()
   const canAssignSales = can('sales:leads:assign')
@@ -73,7 +89,9 @@ export default function EnrollmentLeads() {
   const [cohortHasMore, setCohortHasMore] = useState(false)
   const [cohortPullStarted, setCohortPullStarted] = useState(false)
   const [cohortLoading, setCohortLoading] = useState(false)
+  const [cohortOperation, setCohortOperation] = useState<'preview' | 'pull' | null>(null)
   const [cohortMessage, setCohortMessage] = useState<string | null>(null)
+  const [cohortPullSummary, setCohortPullSummary] = useState<CohortPullSummary | null>(null)
   const canPullCohort = can('leads:write')
   const pageSize = 50
 
@@ -148,8 +166,20 @@ export default function EnrollmentLeads() {
 
   const resetLeadCursor = () => setCursorHistory([null])
 
+  const resetCohort = () => {
+    setCohortPreview(null)
+    setPreviewCursor(null)
+    setPreviewHasMore(false)
+    setCohortCursor(null)
+    setCohortHasMore(false)
+    setCohortPullStarted(false)
+    setCohortMessage(null)
+    setCohortPullSummary(null)
+  }
+
   const previewCohort = async (continueScan = false) => {
     setCohortLoading(true)
+    setCohortOperation('preview')
     setCohortMessage(null)
     if (!continueScan) {
       setPreviewCursor(null)
@@ -158,6 +188,7 @@ export default function EnrollmentLeads() {
       setCohortCursor(null)
       setCohortHasMore(false)
       setCohortPullStarted(false)
+      setCohortPullSummary(null)
     }
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -196,11 +227,13 @@ export default function EnrollmentLeads() {
       setCohortPreview(null)
     } finally {
       setCohortLoading(false)
+      setCohortOperation(null)
     }
   }
 
   const pullCohort = async () => {
     setCohortLoading(true)
+    setCohortOperation('pull')
     setCohortMessage(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -227,14 +260,32 @@ export default function EnrollmentLeads() {
       setCohortCursor(payload.next_cursor || null)
       setCohortHasMore(Boolean(payload.has_more))
       setCohortPullStarted(true)
-      setCohortMessage(
-        `${payload.contacts_queued.toLocaleString()} contacts added to review; ${payload.already_queued.toLocaleString()} were already queued.`,
-      )
+      setCohortPullSummary((current) => {
+        const contactsMatched = Number(payload.contacts_matched || 0)
+        const contactsQueued = Number(payload.contacts_queued || 0)
+        const alreadyQueued = Number(payload.already_queued || 0)
+        const pagesScanned = Number(payload.pages_scanned || 0)
+        return {
+          batchesCompleted: (current?.batchesCompleted || 0) + 1,
+          lastBatch: { contactsMatched, contactsQueued, alreadyQueued, pagesScanned },
+          contactsMatched: (current?.contactsMatched || 0) + contactsMatched,
+          contactsQueued: (current?.contactsQueued || 0) + contactsQueued,
+          alreadyQueued: (current?.alreadyQueued || 0) + alreadyQueued,
+          pagesScanned: (current?.pagesScanned || 0) + pagesScanned,
+          hasMore: Boolean(payload.has_more),
+          completedAt: new Date().toLocaleTimeString(),
+        }
+      })
+      setCohortMessage('Batch completed successfully.')
       await fetchLeads()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to pull the GHL cohort')
+      const reason = cause instanceof Error ? cause.message : 'Unable to pull the GHL cohort'
+      setCohortMessage(
+        `Could not confirm this batch: ${reason} You can retry it; contact IDs already in the review queue are safely deduplicated.`,
+      )
     } finally {
       setCohortLoading(false)
+      setCohortOperation(null)
     }
   }
 
@@ -350,18 +401,19 @@ export default function EnrollmentLeads() {
             <input
               type="text"
               value={sourceFilter}
-              onChange={(event) => { setSourceFilter(event.target.value); resetLeadCursor(); setCohortPreview(null) }}
+              disabled={cohortLoading}
+              onChange={(event) => { setSourceFilter(event.target.value); resetLeadCursor(); resetCohort() }}
               placeholder="e.g. webinar, bootcamp"
-              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs disabled:opacity-60"
             />
           </label>
           <label className="text-[10px] font-medium text-slate-600">
             Created from
-            <input type="date" value={createdFrom} onChange={(event) => { setCreatedFrom(event.target.value); resetLeadCursor(); setCohortPreview(null) }} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs" />
+            <input type="date" value={createdFrom} disabled={cohortLoading} onChange={(event) => { setCreatedFrom(event.target.value); resetLeadCursor(); resetCohort() }} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs disabled:opacity-60" />
           </label>
           <label className="text-[10px] font-medium text-slate-600">
             Created to
-            <input type="date" value={createdTo} onChange={(event) => { setCreatedTo(event.target.value); resetLeadCursor(); setCohortPreview(null) }} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs" />
+            <input type="date" value={createdTo} disabled={cohortLoading} onChange={(event) => { setCreatedTo(event.target.value); resetLeadCursor(); resetCohort() }} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs disabled:opacity-60" />
           </label>
         </div>
         {canPullCohort && (
@@ -374,19 +426,64 @@ export default function EnrollmentLeads() {
               <div className="flex gap-2">
                 {(!cohortPreview || previewHasMore) && (
                 <button type="button" disabled={cohortLoading || (!sourceFilter.trim() && !createdFrom && !createdTo)} onClick={() => void previewCohort(Boolean(cohortPreview && previewHasMore))} className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-800 disabled:opacity-50">
-                  {cohortLoading ? 'Previewing…' : cohortPreview ? 'Continue preview' : 'Preview cohort'}
+                  {cohortLoading && cohortOperation === 'preview' ? 'Previewing…' : cohortPreview ? 'Continue preview' : 'Preview cohort'}
                 </button>
                 )}
                 {cohortPreview && cohortPreview.matching_count > 0 && (!cohortPullStarted || cohortHasMore) && (
                   <button type="button" disabled={cohortLoading} onClick={() => void pullCohort()} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
                     <DownloadCloud className="h-3.5 w-3.5" />
-                    {cohortLoading ? 'Pulling…' : cohortCursor ? 'Pull next 500' : 'Pull first 500'}
+                    {cohortLoading && cohortOperation === 'pull' ? 'Pulling…' : cohortCursor ? 'Pull next 500' : 'Pull first 500'}
                   </button>
                 )}
               </div>
             </div>
             {cohortPreview && <p className="mt-2 text-[10px] text-violet-900">Preview: {cohortPreview.matching_count.toLocaleString()} matches across {cohortPreview.contacts_scanned.toLocaleString()} contacts scanned{cohortPreview.scan_complete ? '' : ' so far'}.</p>}
-            {cohortMessage && <p role="status" className="mt-2 text-[10px] text-violet-900">{cohortMessage}</p>}
+            {cohortLoading && (
+              <div role="status" aria-live="polite" className="mt-3 flex items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs text-violet-900">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                {cohortOperation === 'pull'
+                  ? 'Pulling up to 500 matching contacts from GHL and adding new IDs to the review queue. This may take a little while; keep this page open.'
+                  : 'Scanning GHL contacts to calculate the matching cohort size.'}
+              </div>
+            )}
+            {cohortMessage && (
+              <p
+                role={cohortMessage.startsWith('Could not confirm') ? 'alert' : 'status'}
+                aria-live={cohortMessage.startsWith('Could not confirm') ? 'assertive' : 'polite'}
+                className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                  cohortMessage.startsWith('Could not confirm')
+                    ? 'border-rose-200 bg-rose-50 text-rose-800'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                }`}
+              >
+                {cohortMessage}
+              </p>
+            )}
+            {cohortPullSummary && (
+              <div className="mt-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-[10px] text-violet-950">
+                <p className="font-semibold">
+                  {cohortPullSummary.batchesCompleted} batch{cohortPullSummary.batchesCompleted === 1 ? '' : 'es'} completed
+                  {' · '}last completed {cohortPullSummary.completedAt}
+                </p>
+                <p className="mt-1">
+                  Latest batch: {cohortPullSummary.lastBatch.contactsMatched.toLocaleString()} matched
+                  {' · '}{cohortPullSummary.lastBatch.contactsQueued.toLocaleString()} newly queued
+                  {' · '}{cohortPullSummary.lastBatch.alreadyQueued.toLocaleString()} already queued
+                  {' · '}{cohortPullSummary.lastBatch.pagesScanned.toLocaleString()} GHL pages scanned
+                </p>
+                <p className="mt-1">
+                  Total across batches: {cohortPullSummary.contactsQueued.toLocaleString()} newly queued
+                  {' · '}{cohortPullSummary.alreadyQueued.toLocaleString()} already queued
+                  {' · '}{cohortPullSummary.contactsMatched.toLocaleString()} matched
+                  {' · '}{cohortPullSummary.pagesScanned.toLocaleString()} GHL pages scanned
+                </p>
+                <p className="mt-1 font-medium">
+                  {cohortPullSummary.hasMore
+                    ? 'More matching contacts remain. Select “Pull next 500” to continue.'
+                    : 'No additional matching contacts remain for this filtered pull.'}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </CardHeader>
