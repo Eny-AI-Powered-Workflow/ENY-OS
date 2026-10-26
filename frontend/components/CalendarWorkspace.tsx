@@ -167,51 +167,62 @@ export default function CalendarWorkspace() {
 
       {error && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-200">{error}</p>}
       {connectionMessage && <p role="status" className="rounded-xl border border-cyan-700/30 bg-cyan-950/30 p-4 text-sm text-cyan-100">{connectionMessage}</p>}
-      {canManageCalendar && (
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-700 bg-slate-900 p-5 text-white">
-          <div>
-            <h2 className="font-semibold">Shared Google account</h2>
-            <p className="mt-1 text-sm text-slate-300">
-              {connection?.connected
-                ? 'Connected and available to users with Calendar access.'
-                : connection?.configured
-                  ? 'Not connected. Connect the organization Google account to enable Calendar and Tasks.'
-                  : 'Google OAuth is not configured on the backend yet.'}
-            </p>
-          </div>
-          {connection?.connected ? (
+      <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-700 bg-slate-900 p-5 text-white">
+        <div>
+          <h2 className="font-semibold">Shared Google account</h2>
+          <p className="mt-1 text-sm text-slate-300">
+            {!canManageCalendar
+              ? 'Google Calendar connection is managed by a CEO. Calendar access follows your existing role permissions.'
+              : connectionLoading && !connection
+                ? 'Checking Google Calendar connection…'
+                : connection?.connected
+                  ? 'Connected and available to users with Calendar access.'
+                  : connection?.configured
+                    ? 'Not connected. Connect the organization Google account to enable Calendar and Tasks.'
+                    : 'Google OAuth is not configured on the backend yet.'}
+          </p>
+        </div>
+        {connection?.connected && canManageCalendar ? (
+          <button
+            type="button"
+            onClick={() => void disconnectCalendar()}
+            disabled={connectionLoading}
+            className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+          >
+            {connectionLoading ? 'Disconnecting…' : 'Disconnect Google Calendar'}
+          </button>
+        ) : (
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => void disconnectCalendar()}
-              disabled={connectionLoading}
-              className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+              onClick={() => void connectCalendar()}
+              disabled={!canManageCalendar || connectionLoading || !connection?.configured}
+              title={!canManageCalendar
+                ? 'Only a CEO can manage the shared Google Calendar connection'
+                : !connection?.configured
+                  ? 'Google OAuth backend settings are required before connecting'
+                  : undefined}
+              className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {connectionLoading ? 'Disconnecting…' : 'Disconnect Google Calendar'}
+              {connectionLoading
+                ? 'Connecting…'
+                : connection?.has_connection
+                  ? 'Reconnect Google Calendar'
+                  : 'Connect Google Calendar'}
             </button>
-          ) : (
-            <div className="flex flex-wrap gap-2">
+            {connection?.has_connection && canManageCalendar && (
               <button
                 type="button"
-                onClick={() => void connectCalendar()}
-                disabled={connectionLoading || !connection?.configured}
-                className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600 disabled:opacity-50"
+                onClick={() => void disconnectCalendar()}
+                disabled={connectionLoading}
+                className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
               >
-                {connectionLoading ? 'Connecting…' : connection?.has_connection ? 'Reconnect Google Calendar' : 'Connect Google Calendar'}
+                {connectionLoading ? 'Disconnecting…' : 'Disconnect'}
               </button>
-              {connection?.has_connection && (
-                <button
-                  type="button"
-                  onClick={() => void disconnectCalendar()}
-                  disabled={connectionLoading}
-                  className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
-                >
-                  {connectionLoading ? 'Disconnecting…' : 'Disconnect'}
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-      )}
+            )}
+          </div>
+        )}
+      </section>
       {loading && !data && <p className="text-sm text-slate-300">Loading shared calendar data...</p>}
       {data && (
         <>
