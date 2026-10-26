@@ -11,8 +11,10 @@ router = APIRouter()
 
 @router.get("", dependencies=[Depends(require_permission("leads:read"))])
 async def get_leads(
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    cursor_id: Optional[str] = Query(None, max_length=200),
+    cursor_after: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db)
 ):
     """
@@ -20,12 +22,23 @@ async def get_leads(
     Requires leads:read permission.
     """
     try:
-        leads = await ghl_service.get_contacts(limit=limit, offset=offset)
+        if cursor_id or cursor_after:
+            leads, next_cursor = await ghl_service.get_contacts_page(
+                limit=limit,
+                cursor_id=cursor_id,
+                cursor_after=cursor_after,
+            )
+        elif offset:
+            leads, next_cursor = await ghl_service.get_contacts_offset_page(limit=limit, offset=offset)
+        else:
+            leads, next_cursor = await ghl_service.get_contacts_page(limit=limit)
         return {
             "leads": leads,
-            "total": len(leads),  # In a real implementation, this would come from GHL headers
+            "total": len(leads),
             "limit": limit,
-            "offset": offset
+            "offset": offset,
+            "has_more": next_cursor is not None,
+            "next_cursor": next_cursor,
         }
     except Exception as e:
         raise HTTPException(

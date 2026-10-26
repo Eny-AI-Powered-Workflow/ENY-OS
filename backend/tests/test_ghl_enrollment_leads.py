@@ -1,14 +1,124 @@
 import pytest
+from datetime import date
 from unittest.mock import AsyncMock
 
 from app.services.ghl_service import GHLService
 
 
 @pytest.mark.asyncio
+async def test_get_contacts_page_uses_both_ghl_cursor_fields(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "contacts": [{"id": "contact-2"}],
+                "meta": {"startAfterId": "contact-2", "startAfter": "2026-10-01T12:00:00.000Z"},
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs))
+            return Response()
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    contacts, cursor = await service.get_contacts_page(
+        limit=1,
+        cursor_id="contact-1",
+        cursor_after="2026-09-30T12:00:00.000Z",
+    )
+
+    assert [contact["id"] for contact in contacts] == ["contact-2"]
+    assert cursor == {
+        "start_after_id": "contact-2",
+        "start_after": "2026-10-01T12:00:00.000Z",
+    }
+    assert requests[0][1]["params"] == {
+        "locationId": "location-1",
+        "limit": 1,
+        "startAfterId": "contact-1",
+        "startAfter": "2026-09-30T12:00:00.000Z",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_lead_page_scans_using_cursors_and_filters(monkeypatch):
+    service = GHLService()
+    responses = iter([
+        ([{"id": "contact-old", "source": "old cohort", "dateAdded": "2026-09-01T00:00:00Z"}], {"start_after_id": "cursor-1"}),
+        ([{
+            "id": "contact-new",
+            "firstName": "Ari",
+            "email": "ari@example.com",
+            "source": "New Cohort",
+            "dateAdded": "2026-10-12T00:00:00Z",
+            "customFields": [{"id": "caiccVdZ41m5BMyWMH57", "value": "91"}],
+        }], {"start_after_id": "cursor-2"}),
+    ])
+    calls = []
+
+    async def fake_page(limit, cursor_id=None, cursor_after=None):
+        calls.append((limit, cursor_id, cursor_after))
+        return next(responses)
+
+    monkeypatch.setattr(service, "get_contacts_page", fake_page)
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_CONTACT_PAGE_SCAN_LIMIT", 5)
+
+    page = await service.get_enrollment_lead_page(
+        limit=1,
+        source="new cohort",
+        created_from=date(2026, 10, 1),
+    )
+
+    assert [lead["id"] for lead in page["leads"]] == ["contact-new"]
+    assert page["leads"][0]["score"] == 91
+    assert page["next_cursor"] == {"start_after_id": "cursor-2"}
+    assert page["has_more"] is True
+    assert calls == [(1, None, None), (1, "cursor-1", None)]
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_contact_page_returns_bounded_continuation(monkeypatch):
+    service = GHLService()
+    pages = iter([
+        ([{"id": f"contact-{index}", "source": "bootcamp"} for index in range(100)], {"start_after_id": "cursor-1"}),
+        ([{"id": f"other-{index}", "source": "other"} for index in range(100)], {"start_after_id": "cursor-2"}),
+    ])
+    calls = []
+
+    async def fake_page(limit, cursor_id=None, cursor_after=None):
+        calls.append(cursor_id)
+        return next(pages)
+
+    monkeypatch.setattr(service, "get_contacts_page", fake_page)
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_CONTACT_PAGE_SCAN_LIMIT", 5)
+
+    result = await service.get_cohort_contact_page(source="bootcamp", limit=100)
+
+    assert len(result["contacts"]) == 100
+    assert result["next_cursor"] == {"start_after_id": "cursor-1"}
+    assert result["has_more"] is True
+    assert calls == [None]
+
+
+@pytest.mark.asyncio
 async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch):
     service = GHLService()
 
-    async def fake_get_all_contacts():
+    async def fake_get_contacts_page(limit, cursor_id=None, cursor_after=None):
         return [
             {
                 "id": "contact-1",
@@ -31,11 +141,12 @@ async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch)
                 "source": "Free Training",
                 "customFields": [],
             },
-        ], {"status": "connected"}
+        ], None
 
-    monkeypatch.setattr(service, "get_all_contacts", fake_get_all_contacts)
+    monkeypatch.setattr(service, "get_contacts_page", fake_get_contacts_page)
 
-    leads = await service.get_enrollment_leads(limit=20, search="alice")
+    page = await service.get_enrollment_lead_page(limit=20, search="alice")
+    leads = page["leads"]
 
     assert len(leads) == 1
     assert leads[0]["id"] == "contact-1"
@@ -43,11 +154,8 @@ async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch)
     assert leads[0]["category"] == "hot"
     assert leads[0]["tags"] == ["approved-batch"]
 
-    assigned_leads = await service.get_enrollment_leads(limit=20, contact_ids={"contact-2"})
-    assert [lead["id"] for lead in assigned_leads] == ["contact-2"]
-
-    second_page = await service.get_enrollment_leads(limit=1, offset=1)
-    assert [lead["id"] for lead in second_page] == ["contact-2"]
+    assigned_page = await service.get_enrollment_lead_page(limit=20, contact_ids={"contact-2"})
+    assert [lead["id"] for lead in assigned_page["leads"]] == ["contact-2"]
 
 
 @pytest.mark.asyncio

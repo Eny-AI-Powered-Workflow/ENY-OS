@@ -86,6 +86,7 @@ supabase/migrations/*
 !supabase/migrations/0042_ceo_user_management.sql
 !supabase/migrations/0043_sales_lead_intake.sql
 !supabase/migrations/0044_social_platform_analytics.sql
+!supabase/migrations/0055_ghl_contact_sync_state.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md

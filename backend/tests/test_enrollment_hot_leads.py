@@ -422,6 +422,9 @@ async def test_get_enrollment_leads_returns_assignments_and_filters_my_leads(mon
         def all(self):
             return self.rows
 
+        def scalar(self):
+            return 0
+
     class Db:
         def query(self, model):
             if getattr(model, "key", None) == "contact_id":
@@ -432,9 +435,14 @@ async def test_get_enrollment_leads_returns_assignments_and_filters_my_leads(mon
 
     async def fake_get_leads(**kwargs):
         calls.append(kwargs)
-        return [{"id": "contact-1", "name": "Alice"}]
+        return {
+            "leads": [{"id": "contact-1", "name": "Alice"}],
+            "next_cursor": None,
+            "has_more": False,
+            "pages_scanned": 1,
+        }
 
-    monkeypatch.setattr("app.api.v1.endpoints.enrollment.ghl_service.get_enrollment_leads", fake_get_leads)
+    monkeypatch.setattr("app.api.v1.endpoints.enrollment.ghl_service.get_enrollment_lead_page", fake_get_leads)
 
     response = await get_enrollment_leads(
         limit=100,
@@ -751,6 +759,14 @@ async def test_ghl_intake_rejects_missing_webhook_token(monkeypatch):
         await ingest_ghl_contact({"contact": {"id": "contact-4"}}, None, db)
 
     assert error.value.status_code == 401
+
+
+def test_ghl_reconciliation_uses_recent_creation_or_update_dates():
+    from app.api.v1.endpoints.enrollment import _contact_is_recent
+
+    cutoff = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    assert _contact_is_recent({"dateAdded": "2026-09-01T00:00:00Z", "dateUpdated": "2026-10-02T00:00:00Z"}, cutoff)
+    assert not _contact_is_recent({"dateAdded": "not-a-date", "dateUpdated": "2026-09-30T00:00:00Z"}, cutoff)
 
 
 class MagicMockQuery:

@@ -1,5 +1,6 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/api/v1/endpoints/enrollment.py
-from datetime import datetime, timedelta, timezone
+import asyncio
+from datetime import date, datetime, timedelta, timezone
 import hmac
 import httpx
 import anthropic
@@ -10,7 +11,7 @@ from app.api.deps import get_optional_permissions_with_audit, require_permission
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 import logging
@@ -25,6 +26,7 @@ from app.models.lead_assignment import LeadAssignment
 from app.models.operational_alert import OperationalAlert
 from app.models.operational_alert_user_state import OperationalAlertUserState
 from app.models.ghl_lead_intake import GHLLeadIntake
+from app.models.ghl_contact_sync_state import GHLContactSyncState
 from app.services.batch_execution_service import retry_batch_result
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
@@ -102,6 +104,15 @@ class QueueStateRequest(BaseModel):
 class LeadAssignmentRequest(BaseModel):
     assigned_user_id: UUID
     department: Optional[Literal["sales", "enrollment"]] = None
+
+
+class CohortPullRequest(BaseModel):
+    source: str = Field("", max_length=200)
+    created_from: Optional[date] = None
+    created_to: Optional[date] = None
+    cursor_id: Optional[str] = Field(None, max_length=200)
+    cursor_after: Optional[str] = Field(None, max_length=200)
+    limit: int = Field(500, ge=1, le=500)
 
 
 ASSIGNMENT_PERMISSION_SCOPES = {
@@ -342,9 +353,235 @@ async def ingest_ghl_contact(
     }
 
 
+def _validate_cohort_filter(source: str, created_from: Optional[date], created_to: Optional[date]) -> None:
+    if len(source) > 200:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="source must be 200 characters or fewer",
+        )
+    if not source.strip() and not created_from and not created_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Set a source or at least one creation-date filter before previewing or pulling a cohort.",
+        )
+    if created_from and created_to and created_from > created_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="created_from must be on or before created_to",
+        )
+
+
+@router.get("/intake/cohort-preview", dependencies=[Depends(require_permission("leads:read"))])
+async def preview_ghl_cohort(
+    source: str = "",
+    created_from: Optional[date] = None,
+    created_to: Optional[date] = None,
+    cursor_id: Optional[str] = None,
+    cursor_after: Optional[str] = None,
+):
+    """Preview a bounded cursor page of source/date-matched GHL contacts."""
+    _validate_cohort_filter(source, created_from, created_to)
+    try:
+        page = await ghl_service.get_cohort_contact_page(
+            source=source,
+            created_from=created_from,
+            created_to=created_to,
+            limit=500,
+            cursor={
+                **({"start_after_id": cursor_id} if cursor_id else {}),
+                **({"start_after": cursor_after} if cursor_after else {}),
+            } or None,
+        )
+    except (httpx.HTTPError, RuntimeError) as exc:
+        logger.exception("Unable to preview GHL cohort")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GHL cohort preview failed; verify the GHL credentials and try again.",
+        ) from exc
+    return {
+        "matching_count": len(page["contacts"]),
+        "contacts_scanned": page["contacts_scanned"],
+        "scan_complete": not page["has_more"],
+        "has_more": page["has_more"],
+        "next_cursor": page["next_cursor"],
+        "source": source.strip(),
+        "created_from": created_from.isoformat() if created_from else None,
+        "created_to": created_to.isoformat() if created_to else None,
+    }
+
+
+@router.post("/intake/cohort-pull", dependencies=[Depends(require_permission("leads:write"))])
+async def pull_ghl_cohort_for_review(
+    request: CohortPullRequest,
+    db: Session = Depends(get_db),
+):
+    """Queue a bounded GHL contact cohort for human review; scoring remains a separate action."""
+    _validate_cohort_filter(request.source, request.created_from, request.created_to)
+    try:
+        page = await ghl_service.get_cohort_contact_page(
+            source=request.source,
+            created_from=request.created_from,
+            created_to=request.created_to,
+            limit=request.limit,
+            cursor={
+                **({"start_after_id": request.cursor_id} if request.cursor_id else {}),
+                **({"start_after": request.cursor_after} if request.cursor_after else {}),
+            } or None,
+        )
+    except (httpx.HTTPError, RuntimeError) as exc:
+        logger.exception("Unable to pull GHL cohort")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GHL cohort pull failed; verify the GHL credentials and try again.",
+        ) from exc
+    rows = [
+        {
+            "contact_id": str(contact["id"]),
+            "source": str(contact.get("source") or request.source or "unknown")[:200],
+        }
+        for contact in page["contacts"]
+        if contact.get("id")
+    ]
+    queued_ids: list[str] = []
+    if rows:
+        queued_ids = db.execute(
+            pg_insert(GHLLeadIntake)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=[GHLLeadIntake.contact_id])
+            .returning(GHLLeadIntake.contact_id)
+        ).scalars().all()
+        db.commit()
+    return {
+        "status": "queued",
+        "contacts_matched": len(rows),
+        "contacts_queued": len(queued_ids),
+        "already_queued": len(rows) - len(queued_ids),
+        "pages_scanned": page["pages_scanned"],
+        "has_more": page["has_more"],
+        "next_cursor": page["next_cursor"],
+    }
+
+
+def _contact_is_recent(contact: dict[str, Any], cutoff: datetime) -> bool:
+    for field in ("dateAdded", "dateUpdated"):
+        raw_value = contact.get(field)
+        if not isinstance(raw_value, str):
+            continue
+        try:
+            value = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        if value >= cutoff:
+            return True
+    return False
+
+
+@router.post("/ghl-reconcile", status_code=status.HTTP_200_OK)
+async def reconcile_recent_ghl_contacts(
+    x_ghl_sync_token: Optional[str] = Header(None, alias="X-GHL-Sync-Token"),
+    db: Session = Depends(get_db),
+):
+    """Scheduled, resumable GHL cursor scan that queues only recently created/updated IDs."""
+    configured_token = settings.GHL_SYNC_CRON_TOKEN
+    if not configured_token:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GHL reconciliation is not configured")
+    if not x_ghl_sync_token or not hmac.compare_digest(x_ghl_sync_token, configured_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid GHL reconciliation token")
+
+    lock_acquired = db.execute(
+        text("SELECT pg_try_advisory_xact_lock(:lock_id)"),
+        {"lock_id": 684273910},
+    ).scalar()
+    if not lock_acquired:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A GHL reconciliation run is already in progress")
+
+    db.execute(
+        pg_insert(GHLContactSyncState)
+        .values(id=1, status="idle")
+        .on_conflict_do_nothing(index_elements=[GHLContactSyncState.id])
+    )
+    sync_state = db.query(GHLContactSyncState).filter(GHLContactSyncState.id == 1).with_for_update().first()
+    if not sync_state:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to initialize GHL sync state")
+
+    cursor = {
+        **({"start_after_id": sync_state.cursor_id} if sync_state.cursor_id else {}),
+        **({"start_after": sync_state.cursor_after} if sync_state.cursor_after else {}),
+    } or None
+    cycle_started_at = datetime.now(timezone.utc)
+    cutoff = sync_state.cycle_cutoff_at or (
+        cycle_started_at - timedelta(days=settings.GHL_SYNC_LOOKBACK_DAYS)
+    )
+    sync_state.cycle_cutoff_at = cutoff
+    scanned = 0
+    queued = 0
+    completed_cycle = False
+    try:
+        for _ in range(settings.GHL_SYNC_PAGES_PER_RUN):
+            requested_cursor = cursor
+            contacts, next_cursor = await ghl_service.get_contacts_page(
+                100,
+                (cursor or {}).get("start_after_id"),
+                (cursor or {}).get("start_after"),
+            )
+            if next_cursor and next_cursor == requested_cursor:
+                raise RuntimeError("GHL returned a repeated contact pagination cursor")
+            scanned += len(contacts)
+            rows = [
+                {
+                    "contact_id": str(contact["id"]),
+                    "source": str(contact.get("source") or "unknown")[:200],
+                }
+                for contact in contacts
+                if contact.get("id") and _contact_is_recent(contact, cutoff)
+            ]
+            if rows:
+                queued += len(db.execute(
+                    pg_insert(GHLLeadIntake)
+                    .values(rows)
+                    .on_conflict_do_nothing(index_elements=[GHLLeadIntake.contact_id])
+                    .returning(GHLLeadIntake.contact_id)
+                ).scalars().all())
+            cursor = next_cursor
+            if not cursor:
+                completed_cycle = True
+                break
+
+        now = datetime.now(timezone.utc)
+        sync_state.cursor_id = (cursor or {}).get("start_after_id")
+        sync_state.cursor_after = (cursor or {}).get("start_after")
+        sync_state.status = "complete" if completed_cycle else "in_progress"
+        if completed_cycle:
+            sync_state.cycle_cutoff_at = None
+        sync_state.last_run_at = now
+        sync_state.last_success_at = now
+        sync_state.contacts_scanned = scanned
+        sync_state.contacts_queued = queued
+        db.commit()
+    except (httpx.HTTPError, RuntimeError):
+        db.rollback()
+        logger.exception("GHL reconciliation failed while fetching contacts")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GHL reconciliation failed; the saved cursor was not advanced. Check GHL credentials, API availability, and pagination.",
+        )
+
+    return {
+        "status": sync_state.status,
+        "contacts_scanned": scanned,
+        "contacts_queued": queued,
+        "cycle_complete": completed_cycle,
+        "next_cursor": cursor,
+        "last_success_at": sync_state.last_success_at.isoformat() if sync_state.last_success_at else None,
+    }
+
+
 @router.get("/intake/pending", dependencies=[Depends(require_permission("leads:read"))])
 async def get_pending_ghl_intake(
-    limit: int = Query(100, ge=1, le=250),
+    limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     """List GHL arrivals waiting for a team member to approve a scoring batch."""
@@ -355,11 +592,23 @@ async def get_pending_ghl_intake(
         .limit(limit)
         .all()
     )
-    contacts, inventory = await ghl_service.get_all_contacts()
-    contacts_by_id = {str(contact.get("id")): contact for contact in contacts if contact.get("id")}
+    if ghl_service.private_token and ghl_service.location_id:
+        semaphore = asyncio.Semaphore(10)
+
+        async def fetch_contact(contact_id: str) -> Optional[dict[str, Any]]:
+            async with semaphore:
+                payload = await ghl_service.get_contact(contact_id)
+            if not isinstance(payload, dict):
+                return None
+            contact = payload.get("contact")
+            return contact if isinstance(contact, dict) else payload
+
+        contact_details = await asyncio.gather(*(fetch_contact(row.contact_id) for row in rows))
+    else:
+        contact_details = [None] * len(rows)
     pending = []
-    for row in rows:
-        contact = contacts_by_id.get(str(row.contact_id), {})
+    for row, details in zip(rows, contact_details):
+        contact = details or {}
         pending.append({
             "contact_id": row.contact_id,
             "name": contact.get("name") or " ".join(
@@ -372,7 +621,14 @@ async def get_pending_ghl_intake(
             "received_at": _serialize_datetime(row.received_at),
             "ghl_available": bool(contact),
         })
-    return {"status": inventory.get("status", "unknown"), "leads": pending, "total": len(pending)}
+    status_value = (
+        "not_configured"
+        if not ghl_service.private_token or not ghl_service.location_id
+        else "connected"
+        if all(contact is not None for contact in contact_details)
+        else "partial"
+    )
+    return {"status": status_value, "leads": pending, "total": len(pending)}
 
 
 @router.get("/metrics", dependencies=[Depends(require_permission("leads:read"))])
@@ -417,8 +673,12 @@ async def get_enrollment_metrics(
 @router.get("/leads", dependencies=[Depends(require_permission("leads:read"))])
 async def get_enrollment_leads(
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
     search: Optional[str] = None,
+    source: str = "",
+    created_from: Optional[date] = None,
+    created_to: Optional[date] = None,
+    cursor_id: Optional[str] = None,
+    cursor_after: Optional[str] = None,
     mine: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
@@ -427,6 +687,21 @@ async def get_enrollment_leads(
     Get GHL leads with ENY assignment metadata.
     Requires leads:read permission.
     """
+    if created_from and created_to and created_from > created_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="created_from must be on or before created_to",
+        )
+    if len(source) > 200:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="source must be 200 characters or fewer",
+        )
+    if len(source) > 200:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="source must be 200 characters or fewer",
+        )
     try:
         assigned_contact_ids: set[str] | None = None
         if mine:
@@ -441,20 +716,31 @@ async def get_enrollment_leads(
                     "leads": [],
                     "total": 0,
                     "limit": limit,
-                    "offset": offset,
                     "search": search or "",
                     "mine": True,
                     "has_more": False,
+                    "next_cursor": None,
+                    "pending_review_count": db.query(func.count(GHLLeadIntake.id)).filter(
+                        GHLLeadIntake.status == "pending_review"
+                    ).scalar() or 0,
+                    "ready_for_scoring_count": db.query(func.count(GHLLeadIntake.id)).filter(
+                        GHLLeadIntake.status == "approved_for_scoring"
+                    ).scalar() or 0,
                 }
 
-        leads = await ghl_service.get_enrollment_leads(
-            limit=limit + 1,
+        page = await ghl_service.get_enrollment_lead_page(
+            limit=limit,
+            cursor={
+                **({"start_after_id": cursor_id} if cursor_id else {}),
+                **({"start_after": cursor_after} if cursor_after else {}),
+            } or None,
             search=search or "",
+            source=source,
+            created_from=created_from,
+            created_to=created_to,
             contact_ids=assigned_contact_ids,
-            offset=offset,
         )
-        has_more = len(leads) > limit
-        leads = leads[:limit]
+        leads = page["leads"]
         contact_ids = [str(lead["id"]) for lead in leads if lead.get("id")]
         assignments = (
             db.query(LeadAssignment)
@@ -462,18 +748,42 @@ async def get_enrollment_leads(
             .all()
         ) if contact_ids else []
         assignment_by_contact = {assignment.contact_id: assignment for assignment in assignments}
+        intake_rows = (
+            db.query(GHLLeadIntake)
+            .filter(GHLLeadIntake.contact_id.in_(contact_ids))
+            .all()
+        ) if contact_ids else []
+        intake_by_contact = {row.contact_id: row for row in intake_rows}
         for lead in leads:
-            assignment = assignment_by_contact.get(str(lead.get("id") or ""))
+            contact_id = str(lead.get("id") or "")
+            assignment = assignment_by_contact.get(contact_id)
             lead["assigned_user_id"] = str(assignment.assigned_user_id) if assignment else None
             lead["assigned_department"] = assignment.assigned_department if assignment else None
+            lead["review_status"] = (
+                intake_by_contact[contact_id].status
+                if contact_id in intake_by_contact
+                else "not_queued"
+            )
+        pending_review_count = db.query(func.count(GHLLeadIntake.id)).filter(
+            GHLLeadIntake.status == "pending_review"
+        ).scalar() or 0
+        ready_for_scoring_count = db.query(func.count(GHLLeadIntake.id)).filter(
+            GHLLeadIntake.status == "approved_for_scoring"
+        ).scalar() or 0
         return {
             "leads": leads,
             "total": len(leads),
             "limit": limit,
-            "offset": offset,
             "search": search or "",
+            "source": source,
+            "created_from": created_from.isoformat() if created_from else None,
+            "created_to": created_to.isoformat() if created_to else None,
             "mine": mine,
-            "has_more": has_more,
+            "has_more": page["has_more"],
+            "next_cursor": page["next_cursor"],
+            "pages_scanned": page["pages_scanned"],
+            "pending_review_count": pending_review_count,
+            "ready_for_scoring_count": ready_for_scoring_count,
         }
     except Exception as e:
         logger.error(f"Error fetching enrollment leads: {e}")

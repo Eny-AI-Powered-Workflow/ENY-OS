@@ -169,13 +169,33 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    access to the CEO, Executive Assistant, Marketing, and Marketing Lead roles
    only.
 
-   For GHL lead intake, apply the next unapplied migration,
-   `supabase/migrations/0043_sales_lead_intake.sql`, and set
+   For GHL lead intake, apply the unapplied migrations
+   `supabase/migrations/0043_sales_lead_intake.sql` and
+   `supabase/migrations/0055_ghl_contact_sync_state.sql`. Set
    `GHL_INBOUND_WEBHOOK_TOKEN` in the backend environment to a long random
    secret. Configure GHL's contact-created webhook to POST to
    `/api/v1/enrollment/ghl-webhook` with that value in the
    `X-GHL-Webhook-Token` header. The platform queues each contact once for
    human batch review; it does not score or message leads on arrival.
+
+   Lead browsing and cohort pulls use GHL cursor pagination and continue in
+   bounded pages, so they do not depend on the full-inventory cap.
+   `GHL_CONTACT_MAX_PAGES` remains 20 for older full-inventory reports;
+   `GHL_CONTACT_PAGE_SCAN_LIMIT=5` bounds GHL pages scanned per lead-list,
+   preview, or cohort-pull request. The Sales & Enrollment lead workspace
+   supports refreshing the live GHL view and previewing/pulling a
+   source/date-filtered cohort into the ID-only review queue.
+
+   For scheduled recovery of missed contact-created webhooks, set
+   `GHL_SYNC_CRON_TOKEN` to the same long random secret on both the backend
+   and the `eny-ghl-contact-reconciliation` Render Cron service. Set that
+   service's `GHL_SYNC_API_URL` to the backend's public
+   `/api/v1/enrollment/ghl-reconcile` URL. The cron runs every 10 minutes,
+   resumes its saved GHL cursor, and queues only contacts created or updated
+   within `GHL_SYNC_LOOKBACK_DAYS` (default 7). It scans
+   `GHL_SYNC_PAGES_PER_RUN` pages per invocation (default 5), deduplicates by
+   GHL contact ID, and never scores or messages contacts. The first scan may
+   queue recent contacts that predate deployment; review them before scoring.
 
    The AI Desk approval step creates a batch only; a team member must then
    explicitly execute it to score leads. Scoring uses Claude at temperature 0

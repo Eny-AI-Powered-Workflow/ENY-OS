@@ -5,10 +5,10 @@ GoHighLevel service client.
 This service handles all interactions with GoHighLevel (GHL) CRM.
 It never stores lead/contact data locally - all reads/writes go directly to GHL.
 """
-import os
 import httpx
 import logging
 import re
+from datetime import date
 from typing import Dict, Any, List, Optional
 
 from app.core.config import settings
@@ -33,29 +33,94 @@ class GHLService:
             "Version": "2021-07-28",
         } if self.private_token else {}
 
+    async def get_contacts_page(
+        self,
+        limit: int = 100,
+        cursor_id: Optional[str] = None,
+        cursor_after: Optional[str] = None,
+    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, str]]]:
+        """Fetch one cursor-paginated contact page from GHL."""
+        if not self.private_token or not self.location_id:
+            raise RuntimeError("GHL_PRIVATE_TOKEN and GHL_LOCATION_ID must be configured to fetch leads")
+
+        params: Dict[str, Any] = {"locationId": self.location_id, "limit": limit}
+        if cursor_id:
+            params["startAfterId"] = cursor_id
+        if cursor_after:
+            params["startAfter"] = cursor_after
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/contacts/",
+                params=params,
+                headers=self.headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        contacts = data.get("contacts", [])
+        meta = data.get("meta", {}) or {}
+        next_id = meta.get("startAfterId") or data.get("startAfterId")
+        next_after = meta.get("startAfter") or data.get("startAfter")
+        if not contacts or len(contacts) < limit:
+            return contacts, None
+        if not next_id and not next_after:
+            raise RuntimeError("GHL returned a full contact page without a pagination cursor")
+        return contacts, {
+            **({"start_after_id": str(next_id)} if next_id else {}),
+            **({"start_after": str(next_after)} if next_after else {}),
+        }
+
     async def get_contacts(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Get contacts from GHL.
         Returns empty list if credentials are not configured.
         """
-        # Return empty list if credentials are not configured
-        if not self.private_token or not self.location_id:
-            logger.warning("GHL credentials not configured - returning empty contacts list")
-            return []
-
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/contacts/",
-                    params={"locationId": self.location_id, "limit": limit},
-                    headers=self.headers,
-                    timeout=30.0,
+            contacts: List[Dict[str, Any]] = []
+            cursor: Optional[Dict[str, str]] = None
+            remaining = offset + limit
+            while remaining > 0:
+                page_size = min(100, remaining)
+                page, cursor = await self.get_contacts_page(
+                    page_size,
+                    (cursor or {}).get("start_after_id"),
+                    (cursor or {}).get("start_after"),
                 )
-                response.raise_for_status()
-                return response.json().get("contacts", [])
+                contacts.extend(page)
+                remaining -= len(page)
+                if not cursor or not page:
+                    break
+            return contacts[offset:offset + limit]
         except Exception as exc:
             logger.error(f"Error fetching contacts from GHL: {exc}")
             return []
+
+    async def get_contacts_offset_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, str]]]:
+        """Translate legacy offset pagination into GHL cursor requests."""
+        cursor: Optional[Dict[str, str]] = None
+        remaining = offset
+        while remaining > 0:
+            page_size = min(100, remaining)
+            page, cursor = await self.get_contacts_page(
+                page_size,
+                (cursor or {}).get("start_after_id"),
+                (cursor or {}).get("start_after"),
+            )
+            remaining -= len(page)
+            if not page or not cursor:
+                return [], None
+        return await self.get_contacts_page(
+            min(limit, 100),
+            (cursor or {}).get("start_after_id"),
+            (cursor or {}).get("start_after"),
+        )
 
     async def get_all_contacts(self) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Fetch the contact inventory using GHL cursor pagination."""
@@ -63,41 +128,28 @@ class GHLService:
             return [], {"status": "not_configured"}
 
         contacts: List[Dict[str, Any]] = []
-        cursor: Optional[str] = None
+        cursor: Optional[Dict[str, str]] = None
         pages = 0
 
         try:
-            async with httpx.AsyncClient() as client:
-                while pages < settings.GHL_CONTACT_MAX_PAGES:
-                    params: Dict[str, Any] = {
-                        "locationId": self.location_id,
-                        "limit": 100,
-                    }
-                    if cursor:
-                        params["startAfterId"] = cursor
-
-                    response = await client.get(
-                        f"{self.base_url}/contacts/",
-                        params=params,
-                        headers=self.headers,
-                        timeout=30.0,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    page = data.get("contacts", [])
-                    contacts.extend(page)
-                    pages += 1
-
-                    meta = data.get("meta", {}) or {}
-                    next_cursor = meta.get("startAfterId") or data.get("startAfterId")
-                    if not page or not next_cursor or next_cursor == cursor or len(page) < 100:
-                        break
-                    cursor = next_cursor
+            while pages < settings.GHL_CONTACT_MAX_PAGES:
+                page, next_cursor = await self.get_contacts_page(
+                    100,
+                    (cursor or {}).get("start_after_id"),
+                    (cursor or {}).get("start_after"),
+                )
+                contacts.extend(page)
+                pages += 1
+                if next_cursor and next_cursor == cursor:
+                    raise RuntimeError("GHL returned a repeated contact pagination cursor")
+                if not next_cursor:
+                    break
+                cursor = next_cursor
 
             return contacts, {
                 "status": "connected",
                 "pages": pages,
-                "max_pages_reached": pages >= settings.GHL_CONTACT_MAX_PAGES,
+                "max_pages_reached": pages >= settings.GHL_CONTACT_MAX_PAGES and cursor is not None,
             }
 
         except Exception as exc:
@@ -107,6 +159,171 @@ class GHLService:
                 "pages": pages,
                 "error": "Contact inventory unavailable",
             }
+
+    @staticmethod
+    def _contact_matches(
+        contact: Dict[str, Any],
+        *,
+        search: str,
+        source: str,
+        created_from: Optional[date],
+        created_to: Optional[date],
+    ) -> bool:
+        if source and source not in str(contact.get("source") or "").lower():
+            return False
+        created_at = str(contact.get("dateAdded") or "")[:10]
+        if created_from and (not created_at or created_at < created_from.isoformat()):
+            return False
+        if created_to and (not created_at or created_at > created_to.isoformat()):
+            return False
+        if search:
+            values = (
+                contact.get("name"),
+                contact.get("firstName"),
+                contact.get("lastName"),
+                contact.get("email"),
+                contact.get("phone"),
+                contact.get("source"),
+            )
+            if search not in " ".join(str(value or "") for value in values).lower():
+                return False
+        return True
+
+    async def get_enrollment_lead_page(
+        self,
+        *,
+        limit: int,
+        cursor: Optional[Dict[str, str]] = None,
+        search: str = "",
+        source: str = "",
+        created_from: Optional[date] = None,
+        created_to: Optional[date] = None,
+        contact_ids: Optional[set[str]] = None,
+    ) -> Dict[str, Any]:
+        """Fetch and filter contacts page-by-page without loading the whole GHL location."""
+        leads: List[Dict[str, Any]] = []
+        seen_identity_keys: set[str] = set()
+        next_cursor = cursor
+        pages_scanned = 0
+        normalized_search = search.strip().lower()
+        normalized_source = source.strip().lower()
+
+        while pages_scanned < settings.GHL_CONTACT_PAGE_SCAN_LIMIT:
+            requested_cursor = next_cursor
+            contacts, next_cursor = await self.get_contacts_page(
+                min(limit, 100),
+                (next_cursor or {}).get("start_after_id"),
+                (next_cursor or {}).get("start_after"),
+            )
+            pages_scanned += 1
+            for raw_contact in contacts:
+                contact = self.normalize_contact(raw_contact)
+                contact_id = str(contact.get("id") or "")
+                if contact_ids is not None and contact_id not in contact_ids:
+                    continue
+                if contact["identity_key"] in seen_identity_keys:
+                    continue
+                if not self._contact_matches(
+                    contact,
+                    search=normalized_search,
+                    source=normalized_source,
+                    created_from=created_from,
+                    created_to=created_to,
+                ):
+                    continue
+                seen_identity_keys.add(contact["identity_key"])
+                custom_fields = contact.get("customFields", [])
+                if isinstance(custom_fields, dict):
+                    custom_fields = [custom_fields]
+                fields: Dict[str, Any] = {}
+                for field in custom_fields:
+                    if not isinstance(field, dict):
+                        continue
+                    value = field.get("value")
+                    if field.get("id"):
+                        fields[str(field["id"])] = value
+                    if field.get("fieldKey") or field.get("key"):
+                        fields[str(field.get("fieldKey") or field.get("key"))] = value
+
+                score_value = fields.get(settings.GHL_SALES_SCORE_FIELD_ID)
+                category = fields.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
+                try:
+                    score = int(float(score_value)) if score_value is not None else None
+                except (TypeError, ValueError):
+                    score = None
+                if not category and score is not None:
+                    category = "hot" if score >= 85 else "warm" if score >= 70 else "follow-up" if score >= 50 else "cold"
+                leads.append({
+                    "id": contact.get("id"),
+                    "firstName": contact.get("firstName"),
+                    "lastName": contact.get("lastName"),
+                    "name": contact.get("name"),
+                    "email": contact.get("email"),
+                    "phone": contact.get("phone"),
+                    "score": score,
+                    "category": category,
+                    "source": contact.get("source"),
+                    "tags": contact.get("tags", []),
+                    "created_at": contact.get("dateAdded"),
+                    "updated_at": contact.get("dateUpdated"),
+                })
+            if next_cursor and next_cursor == requested_cursor:
+                raise RuntimeError("GHL returned a repeated contact pagination cursor")
+            if leads or not next_cursor or not contacts:
+                break
+
+        return {
+            "leads": leads,
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
+            "pages_scanned": pages_scanned,
+        }
+
+    async def get_cohort_contact_page(
+        self,
+        *,
+        source: str = "",
+        created_from: Optional[date] = None,
+        created_to: Optional[date] = None,
+        limit: int = 500,
+        cursor: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Return a bounded cohort page and its continuation cursor for controlled intake."""
+        contacts: List[Dict[str, Any]] = []
+        next_cursor = cursor
+        pages_scanned = 0
+        contacts_scanned = 0
+        normalized_source = source.strip().lower()
+        while pages_scanned < settings.GHL_CONTACT_PAGE_SCAN_LIMIT and len(contacts) < limit:
+            requested_cursor = next_cursor
+            page, next_cursor = await self.get_contacts_page(
+                100,
+                (next_cursor or {}).get("start_after_id"),
+                (next_cursor or {}).get("start_after"),
+            )
+            pages_scanned += 1
+            contacts_scanned += len(page)
+            contacts.extend(
+                contact for contact in page
+                if self._contact_matches(
+                    contact,
+                    search="",
+                    source=normalized_source,
+                    created_from=created_from,
+                    created_to=created_to,
+                )
+            )
+            if next_cursor and next_cursor == requested_cursor:
+                raise RuntimeError("GHL returned a repeated contact pagination cursor")
+            if not next_cursor or not page:
+                break
+        return {
+            "contacts": contacts,
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
+            "pages_scanned": pages_scanned,
+            "contacts_scanned": contacts_scanned,
+        }
 
     @staticmethod
     def normalize_contact(contact: Dict[str, Any]) -> Dict[str, Any]:
@@ -750,81 +967,6 @@ class GHLService:
             if len(selected) >= limit:
                 break
         return selected
-
-    async def get_enrollment_leads(
-        self,
-        limit: int = 20,
-        search: str = "",
-        contact_ids: Optional[set[str]] = None,
-        offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        """Return GHL contacts shaped for the Enrollment workspace without storing them locally."""
-        contacts, _ = await self.get_all_contacts()
-        normalized_search = search.strip().lower()
-        leads: List[Dict[str, Any]] = []
-        seen_identity_keys: set[str] = set()
-        matched_count = 0
-
-        for raw_contact in contacts:
-            contact = self.normalize_contact(raw_contact)
-            if contact_ids is not None and str(contact.get("id") or "") not in contact_ids:
-                continue
-            if contact["identity_key"] in seen_identity_keys:
-                continue
-            seen_identity_keys.add(contact["identity_key"])
-            first_name = contact.get("firstName") or ""
-            last_name = contact.get("lastName") or ""
-            name = contact.get("name") or " ".join(part for part in [first_name, last_name] if part)
-            email = contact.get("email") or ""
-            phone = contact.get("phone") or ""
-            haystack = " ".join([name, email, phone, contact.get("source") or ""]).lower()
-            if normalized_search and normalized_search not in haystack:
-                continue
-            if matched_count < offset:
-                matched_count += 1
-                continue
-
-            custom_fields = contact.get("customFields", [])
-            if isinstance(custom_fields, dict):
-                custom_fields = [custom_fields]
-            fields: Dict[str, Any] = {}
-            for field in custom_fields:
-                if not isinstance(field, dict):
-                    continue
-                value = field.get("value")
-                if field.get("id"):
-                    fields[str(field["id"])] = value
-                if field.get("fieldKey") or field.get("key"):
-                    fields[str(field.get("fieldKey") or field.get("key"))] = value
-
-            score_value = fields.get(settings.GHL_SALES_SCORE_FIELD_ID)
-            category = fields.get(settings.GHL_SCORE_CATEGORY_FIELD_ID)
-            try:
-                score = int(float(score_value)) if score_value is not None else None
-            except (TypeError, ValueError):
-                score = None
-            if not category and score is not None:
-                category = "hot" if score >= 85 else "warm" if score >= 70 else "follow-up" if score >= 50 else "cold"
-
-            leads.append({
-                "id": contact.get("id"),
-                "firstName": first_name,
-                "lastName": last_name,
-                "name": name,
-                "email": email,
-                "phone": contact.get("phone"),
-                "score": score,
-                "category": category,
-                "source": contact.get("source"),
-                "tags": contact.get("tags", []),
-                "updated_at": contact.get("dateUpdated"),
-            })
-            matched_count += 1
-            if len(leads) >= limit:
-                break
-
-        return leads
-
 
 # Create a singleton instance for use in the application
 ghl_service = GHLService()
