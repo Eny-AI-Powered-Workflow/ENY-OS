@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CalendarDays, Clock3, RefreshCw } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
+import { usePermissions } from '@/lib/permissions'
 
 type CalendarEvent = {
   id: string
@@ -25,6 +26,13 @@ type Coordination = {
   conflicts: Array<{ first: CalendarEvent; second: CalendarEvent }>
 }
 
+type CalendarConnection = {
+  configured: boolean
+  connected: boolean
+  has_connection: boolean
+  status: string
+}
+
 function formatDate(value?: string) {
   if (!value) return 'Date not set'
   const date = new Date(value)
@@ -32,8 +40,13 @@ function formatDate(value?: string) {
 }
 
 export default function CalendarWorkspace() {
+  const { can } = usePermissions()
+  const canManageCalendar = can('calendar:manage')
   const [data, setData] = useState<Coordination | null>(null)
+  const [connection, setConnection] = useState<CalendarConnection | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connectionLoading, setConnectionLoading] = useState(false)
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -57,9 +70,87 @@ export default function CalendarWorkspace() {
     }
   }, [])
 
+  const loadConnection = useCallback(async () => {
+    if (!canManageCalendar) return
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/calendar/connection`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to load Google Calendar connection')
+      }
+      setConnection(payload)
+    } catch (caught) {
+      setConnectionMessage(caught instanceof Error ? caught.message : 'Unable to load Google Calendar connection')
+    }
+  }, [canManageCalendar])
+
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (canManageCalendar) void loadConnection()
+    const status = new URLSearchParams(window.location.search).get('google_calendar')
+    if (status === 'connected') setConnectionMessage('Google Calendar and Tasks are connected for the platform.')
+    if (status === 'denied') setConnectionMessage('Google authorization was cancelled; the existing connection was not changed.')
+  }, [canManageCalendar, loadConnection])
+
+  const connectCalendar = async () => {
+    setConnectionLoading(true)
+    setConnectionMessage(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/calendar/connect`, {
+        method: 'POST',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      })
+      const payload = await response.json()
+      if (!response.ok || typeof payload.authorization_url !== 'string') {
+        throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to start Google Calendar authorization')
+      }
+      window.location.assign(payload.authorization_url)
+    } catch (caught) {
+      setConnectionMessage(caught instanceof Error ? caught.message : 'Unable to start Google Calendar authorization')
+      setConnectionLoading(false)
+    }
+  }
+
+  const disconnectCalendar = async () => {
+    if (!window.confirm('Disconnect the shared Google Calendar account from the platform?')) return
+    setConnectionLoading(true)
+    setConnectionMessage(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/calendar/disconnect`, {
+        method: 'POST',
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        credentials: 'include',
+      })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Unable to disconnect Google Calendar')
+      }
+      setConnection({
+        configured: connection?.configured ?? false,
+        connected: false,
+        has_connection: false,
+        status: 'not_connected',
+      })
+      setConnectionMessage(payload.provider_revoked
+        ? 'Google Calendar and Tasks have been disconnected.'
+        : 'The platform connection was removed, but Google could not confirm revocation. Review third-party access in your Google Account.')
+      await load()
+    } catch (caught) {
+      setConnectionMessage(caught instanceof Error ? caught.message : 'Unable to disconnect Google Calendar')
+    } finally {
+      setConnectionLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -75,6 +166,52 @@ export default function CalendarWorkspace() {
       </header>
 
       {error && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-200">{error}</p>}
+      {connectionMessage && <p role="status" className="rounded-xl border border-cyan-700/30 bg-cyan-950/30 p-4 text-sm text-cyan-100">{connectionMessage}</p>}
+      {canManageCalendar && (
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-700 bg-slate-900 p-5 text-white">
+          <div>
+            <h2 className="font-semibold">Shared Google account</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              {connection?.connected
+                ? 'Connected and available to users with Calendar access.'
+                : connection?.configured
+                  ? 'Not connected. Connect the organization Google account to enable Calendar and Tasks.'
+                  : 'Google OAuth is not configured on the backend yet.'}
+            </p>
+          </div>
+          {connection?.connected ? (
+            <button
+              type="button"
+              onClick={() => void disconnectCalendar()}
+              disabled={connectionLoading}
+              className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+            >
+              {connectionLoading ? 'Disconnecting…' : 'Disconnect Google Calendar'}
+            </button>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void connectCalendar()}
+                disabled={connectionLoading || !connection?.configured}
+                className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600 disabled:opacity-50"
+              >
+                {connectionLoading ? 'Connecting…' : connection?.has_connection ? 'Reconnect Google Calendar' : 'Connect Google Calendar'}
+              </button>
+              {connection?.has_connection && (
+                <button
+                  type="button"
+                  onClick={() => void disconnectCalendar()}
+                  disabled={connectionLoading}
+                  className="rounded-lg border border-rose-400/40 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+                >
+                  {connectionLoading ? 'Disconnecting…' : 'Disconnect'}
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
       {loading && !data && <p className="text-sm text-slate-300">Loading shared calendar data...</p>}
       {data && (
         <>
@@ -86,7 +223,7 @@ export default function CalendarWorkspace() {
                 <span className="ml-auto text-xs text-slate-500">{data.calendar.status}</span>
               </div>
               {data.calendar.error && <p className="mt-3 text-sm text-rose-700">Calendar unavailable: {data.calendar.error}</p>}
-              {data.calendar.status === 'not_configured' && <p className="mt-3 text-sm text-slate-500">Google Calendar credentials are not configured.</p>}
+              {data.calendar.status === 'not_configured' && <p className="mt-3 text-sm text-slate-500">No shared Google Calendar account is connected.</p>}
               <ul className="mt-4 space-y-3">
                 {data.calendar.items.map((event) => (
                   <li key={event.id} className="rounded-xl bg-slate-50 p-3">
@@ -107,7 +244,7 @@ export default function CalendarWorkspace() {
                 <span className="ml-auto text-xs text-slate-500">{data.tasks.status}</span>
               </div>
               {data.tasks.error && <p className="mt-3 text-sm text-rose-700">Tasks unavailable: {data.tasks.error}</p>}
-              {data.tasks.status === 'not_configured' && <p className="mt-3 text-sm text-slate-500">Google Tasks credentials are not configured.</p>}
+              {data.tasks.status === 'not_configured' && <p className="mt-3 text-sm text-slate-500">No shared Google account is connected for Tasks.</p>}
               <ul className="mt-4 space-y-3">
                 {data.tasks.items.map((task) => (
                   <li key={task.id} className="rounded-xl bg-slate-50 p-3">

@@ -47,6 +47,10 @@ async def test_ai_chat_omits_crm_data_without_leads_or_pipeline_permissions(monk
         "app.api.v1.endpoints.ai.get_ai_platform_context",
         MagicMock(return_value={"active_knowledge_document_count": 1}),
     )
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.ai.ea_coordination_service.connection_status",
+        lambda *_: {"connected": False},
+    )
     ghl_context = AsyncMock()
     monkeypatch.setattr("app.api.v1.endpoints.ai.ghl_service.get_ai_context", ghl_context)
 
@@ -190,3 +194,16 @@ def test_integration_catalog_reports_contacts_and_creative_access_separately():
     assert integrations["gohighlevel"]["access"] == "contacts"
     assert integrations["creative_review"]["access"] == "approved_brand_and_design_standards"
     assert integrations["calendar"]["access"] == "no_access"
+
+
+def test_integration_catalog_reports_shared_calendar_connection(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.ai.ea_coordination_service.connection_status",
+        lambda *_: {"connected": True},
+    )
+
+    integrations = get_assistant_integrations({"calendar:read"}, MagicMock())
+    calendar = next(item for item in integrations if item["id"] == "calendar")
+
+    assert calendar["status"] == "connected"
+    assert calendar["access"] == "read"

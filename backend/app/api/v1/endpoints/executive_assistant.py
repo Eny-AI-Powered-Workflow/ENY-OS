@@ -185,9 +185,10 @@ async def get_executive_briefing(
 @router.get("/coordination", dependencies=[Depends(require_permission("assistant:briefing:read"))])
 async def get_ea_coordination(
     current_user: Any = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Read calendar and task providers through backend adapters only."""
-    return await ea_coordination_service.get_coordination()
+    return await ea_coordination_service.get_coordination(db)
 
 
 @router.get("/research", dependencies=[Depends(require_permission("assistant:briefing:read"))])

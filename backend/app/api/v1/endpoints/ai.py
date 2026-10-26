@@ -42,6 +42,7 @@ from app.models.operational_alert import OperationalAlert
 from app.models.ghl_lead_intake import GHLLeadIntake
 from app.models.ai_assistant import AIActionProposal, AIUserMemory
 from app.models.design_system import DesignSystemDocument
+from app.services.ea_coordination_service import ea_coordination_service
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
 from app.services.knowledge_service import retrieve_knowledge
@@ -420,7 +421,7 @@ async def get_assistant_capabilities(
             "roles": roles,
         },
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "integrations": get_assistant_integrations(scopes),
+        "integrations": get_assistant_integrations(scopes, db),
         "features": {
             "can_assess_creative": "design:ai" in scopes,
             "can_propose_workflows": "assistant:actions:propose" in scopes,
@@ -442,7 +443,7 @@ async def get_assistant_capabilities(
     }
 
 
-def get_assistant_integrations(scopes: set[str]) -> list[dict[str, str]]:
+def get_assistant_integrations(scopes: set[str], db: Session | None = None) -> list[dict[str, str]]:
     """Describe configured integrations and access without exposing secrets or claiming live health."""
     can_read_contacts = "leads:read" in scopes
     can_read_pipeline = "pipeline:read" in scopes
@@ -641,11 +642,11 @@ def get_assistant_integrations(scopes: set[str]) -> list[dict[str, str]]:
         {
             "id": "calendar",
             "name": "Calendar and tasks",
-            "status": "configured" if (
-                settings.GOOGLE_OAUTH_CLIENT_ID
-                and settings.GOOGLE_OAUTH_CLIENT_SECRET
-                and settings.GOOGLE_OAUTH_REFRESH_TOKEN
-            ) else "not_configured",
+            "status": (
+                "connected"
+                if db is not None and ea_coordination_service.connection_status(db)["connected"]
+                else "not_configured"
+            ),
             "access": "read" if "calendar:read" in scopes else "no_access",
             "permission": "calendar:read",
         },
@@ -1370,7 +1371,7 @@ async def prepare_ai_chat_context(
         "user_local_time": current_time.astimezone(zone).isoformat(),
         "timezone": request.timezone_name,
         "user_preferences": _get_ai_memory(db, current_user.id),
-        "integrations": get_assistant_integrations(scopes),
+        "integrations": get_assistant_integrations(scopes, db),
     }
     context_scopes = scopes | {f"role:{role}" for role in roles}
     return roles, context_scopes, crm_context, knowledge_context, platform_context, assistant_context

@@ -155,19 +155,27 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    forwards `X-Forwarded-For`; this setting lets n8n and express-rate-limit
    trust that single proxy hop.
 
-   The shared, read-only Google Calendar & Tasks workspace uses backend-only
-   OAuth credentials. Apply
-   `supabase/migrations/0039_shared_calendar_read_permissions.sql` after 0038.
-   Add `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and
-   `GOOGLE_OAUTH_REFRESH_TOKEN` to the backend's Render environment. The
-   refresh token must be issued for both
-   `https://www.googleapis.com/auth/calendar.events.readonly` and
-   `https://www.googleapis.com/auth/tasks.readonly`; do not use a short-lived
-   access token or an OAuth Playground refresh token. For an external OAuth
-   consent screen, publish the app rather than leaving it in Testing (testing
-   refresh tokens expire after seven days). The Calendar UI and API grant read
-   access to the CEO, Executive Assistant, Marketing, and Marketing Lead roles
-   only.
+   The shared Google Calendar & Tasks workspace uses a platform-wide OAuth
+   connection. Apply `supabase/migrations/0056_shared_google_calendar_oauth.sql`
+   to create its encrypted token storage and RBAC grants. In Google Cloud
+   Console, create a Web application OAuth client and register the backend
+   callback URL as an authorized redirect URI:
+   `https://eny-os.onrender.com/api/v1/calendar/oauth/callback`.
+   Enable the Google Calendar API and Google Tasks API in that Cloud project.
+   Configure `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+   `GOOGLE_CALENDAR_REDIRECT_URI`, and `GOOGLE_TOKEN_ENCRYPTION_KEY` in the
+   backend's Render environment. Generate the encryption key with
+   `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+   and keep the same key across deployments; changing it makes stored tokens
+   unreadable. Do not configure or use a static Google refresh token. After
+   deploying the migration and backend, a CEO can connect or disconnect the
+   shared organization account from Calendar & Tasks. The OAuth grant is
+   read-only for Calendar events and Google Tasks, preserving the existing
+   workspace behavior. Calendar reads remain available only to the CEO,
+   Executive Assistant, Marketing, and Marketing Lead roles. For a Google
+   OAuth consent screen in External/Testing mode, refresh tokens expire after
+   seven days; publish the consent screen for production, or use an Internal
+   app when the Google Workspace account policy allows it.
 
    For GHL lead intake, apply the unapplied migrations
    `supabase/migrations/0043_sales_lead_intake.sql` and
