@@ -2,9 +2,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
+from sqlalchemy.orm import Session
 
 from app.api.deps import require_permission
+from app.db.session import get_db
 from app.services.student_lifecycle_service import student_lifecycle_service
 from app.services.student_payments_service import student_payments_service
 from app.services.student_success_service import student_success_service
@@ -16,8 +18,9 @@ router = APIRouter()
 async def get_student_success_offers(
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=100),
+    db: Session = Depends(get_db),
 ):
-    return await student_success_service.list_offers(page, per_page)
+    return await student_success_service.list_offers(page, per_page, db)
 
 
 @router.get("/students", dependencies=[Depends(require_permission("students:read"))])
@@ -26,18 +29,45 @@ async def get_student_list(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     search: str | None = None,
+    db: Session = Depends(get_db),
 ):
-    return await student_success_service.list_students(offer_id, page, limit, search)
+    return await student_success_service.list_students(offer_id, page, limit, search, db)
 
 
 @router.get("/progress", dependencies=[Depends(require_permission("students:read"))])
-async def get_student_progress(offer_id: str = Query(..., min_length=1)):
-    return await student_success_service.get_progress(offer_id)
+async def get_student_progress(offer_id: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+    return await student_success_service.get_progress(offer_id, db)
 
 
 @router.get("/metrics", dependencies=[Depends(require_permission("students:read"))])
-async def get_student_success_metrics(offer_id: str = Query(..., min_length=1)):
-    return await student_success_service.get_metrics(offer_id)
+async def get_student_success_metrics(offer_id: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+    return await student_success_service.get_metrics(offer_id, db)
+
+
+class KajabiConnectionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, max_length=512)
+    client_secret: SecretStr
+    site_id: str = Field(..., min_length=1, max_length=512)
+
+
+@router.get("/kajabi/connection", dependencies=[Depends(require_permission("integrations:kajabi:manage"))])
+async def get_kajabi_connection(db: Session = Depends(get_db)):
+    return student_payments_service.kajabi_connection_status(db)
+
+
+@router.post("/kajabi/connect", dependencies=[Depends(require_permission("integrations:kajabi:manage"))])
+async def connect_kajabi(payload: KajabiConnectionRequest, db: Session = Depends(get_db)):
+    return await student_payments_service.connect_kajabi(
+        db,
+        client_id=payload.client_id,
+        client_secret=payload.client_secret.get_secret_value(),
+        site_id=payload.site_id,
+    )
+
+
+@router.delete("/kajabi/connection", dependencies=[Depends(require_permission("integrations:kajabi:manage"))])
+async def disconnect_kajabi(db: Session = Depends(get_db)):
+    return student_payments_service.disconnect_kajabi(db)
 
 
 def _validate_date_range(from_date: date | None, to_date: date | None) -> None:
@@ -51,9 +81,10 @@ async def get_kajabi_payments(
     per_page: int = Query(25, ge=1, le=100),
     from_date: date | None = None,
     to_date: date | None = None,
+    db: Session = Depends(get_db),
 ):
     _validate_date_range(from_date, to_date)
-    return await student_payments_service.list_kajabi_transactions(page, per_page, from_date, to_date)
+    return await student_payments_service.list_kajabi_transactions(page, per_page, from_date, to_date, db)
 
 
 @router.get("/payments/paystack", dependencies=[Depends(require_permission("payments:paystack:read"))])

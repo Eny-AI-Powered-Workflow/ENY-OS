@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.services.student_payments_service import student_payments_service
@@ -26,8 +27,10 @@ class StudentSuccessService:
             return "not_configured"
         return "connected"
 
-    async def list_offers(self, page: int, per_page: int) -> dict[str, Any]:
-        return await student_payments_service.list_kajabi_offers(page, per_page)
+    async def list_offers(self, page: int, per_page: int, db: Session | None = None) -> dict[str, Any]:
+        if db is None:
+            return await student_payments_service.list_kajabi_offers(page, per_page)
+        return await student_payments_service.list_kajabi_offers(page, per_page, db=db)
 
     def _match_program_row(
         self,
@@ -52,8 +55,11 @@ class StudentSuccessService:
                 return exact_matches[0], "matched"
         return None, "ambiguous"
 
-    async def _get_active_offer(self, offer_id: str) -> dict[str, Any]:
-        offer_result = await student_payments_service.list_kajabi_offers(page=1, per_page=100)
+    async def _get_active_offer(self, offer_id: str, db: Session | None = None) -> dict[str, Any]:
+        if db is None:
+            offer_result = await student_payments_service.list_kajabi_offers(page=1, per_page=100)
+        else:
+            offer_result = await student_payments_service.list_kajabi_offers(page=1, per_page=100, db=db)
         selected_offer = next((offer for offer in offer_result["offers"] if offer["id"] == offer_id), None)
         if selected_offer is None:
             raise HTTPException(status_code=404, detail="Active Kajabi offer was not found for this site")
@@ -105,17 +111,27 @@ class StudentSuccessService:
         page: int,
         per_page: int,
         search: str | None = None,
+        db: Session | None = None,
     ) -> dict[str, Any]:
         offer_id = offer_id.strip()
         if not offer_id:
             raise HTTPException(status_code=422, detail="offer_id is required")
-        selected_offer = await self._get_active_offer(offer_id)
-        kajabi_result = await student_payments_service.list_kajabi_active_students(
-            offer_id=offer_id,
-            page=page,
-            per_page=per_page,
-            search=search,
-        )
+        selected_offer = await self._get_active_offer(offer_id, db)
+        if db is None:
+            kajabi_result = await student_payments_service.list_kajabi_active_students(
+                offer_id=offer_id,
+                page=page,
+                per_page=per_page,
+                search=search,
+            )
+        else:
+            kajabi_result = await student_payments_service.list_kajabi_active_students(
+                offer_id=offer_id,
+                page=page,
+                per_page=per_page,
+                search=search,
+                db=db,
+            )
         sheet_status, sheet_rows = await self._sheet_source()
 
         return {
@@ -128,14 +144,21 @@ class StudentSuccessService:
             "sources": {"roster": "kajabi_active_offer", "program_sheet": sheet_status},
         }
 
-    async def _all_students_for_offer(self, offer_id: str) -> tuple[list[dict[str, Any]], int | None, str]:
-        selected_offer = await self._get_active_offer(offer_id)
+    async def _all_students_for_offer(
+        self,
+        offer_id: str,
+        db: Session | None = None,
+    ) -> tuple[list[dict[str, Any]], int | None, str]:
+        selected_offer = await self._get_active_offer(offer_id, db)
         sheet_status, sheet_rows = await self._sheet_source()
         all_students: list[dict[str, Any]] = []
         page = 1
         total_count: int | None = None
         while page <= settings.KAJABI_MAX_STUDENT_PAGES:
-            result = await student_payments_service.list_kajabi_active_students(offer_id, page, 100)
+            if db is None:
+                result = await student_payments_service.list_kajabi_active_students(offer_id, page, 100)
+            else:
+                result = await student_payments_service.list_kajabi_active_students(offer_id, page, 100, db=db)
             all_students.extend(self._enrich_students(result["records"], selected_offer, sheet_status, sheet_rows))
             total_count = result["total_count"]
             if not result["has_more"]:
@@ -146,8 +169,8 @@ class StudentSuccessService:
             detail={"code": "source_page_limit_exceeded", "source": "kajabi_active_offer"},
         )
 
-    async def get_metrics(self, offer_id: str) -> dict[str, Any]:
-        result = await self.list_students(offer_id, page=1, per_page=1)
+    async def get_metrics(self, offer_id: str, db: Session | None = None) -> dict[str, Any]:
+        result = await self.list_students(offer_id, page=1, per_page=1, db=db)
         return {
             "metrics": {
                 "totalStudents": result["total_count"],
@@ -159,8 +182,8 @@ class StudentSuccessService:
             },
         }
 
-    async def get_progress(self, offer_id: str) -> dict[str, Any]:
-        students, total_count, sheet_status = await self._all_students_for_offer(offer_id)
+    async def get_progress(self, offer_id: str, db: Session | None = None) -> dict[str, Any]:
+        students, total_count, sheet_status = await self._all_students_for_offer(offer_id, db)
         matched = [student for student in students if student["program_sheet_status"] == "matched"]
         return {
             "progress": {

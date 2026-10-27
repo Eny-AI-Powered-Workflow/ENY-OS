@@ -1,13 +1,17 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/services/student_payments_service.py
 from datetime import date, datetime, timezone
+import hashlib
 import re
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.kajabi_connection import KajabiConnection
 
 
 class StudentPaymentsService:
@@ -16,6 +20,146 @@ class StudentPaymentsService:
     def __init__(self) -> None:
         self._kajabi_access_token: str | None = None
         self._kajabi_token_expires_at = 0.0
+        self._kajabi_token_key: str | None = None
+
+    def _kajabi_fernet(self) -> Fernet:
+        if not settings.KAJABI_CREDENTIAL_ENCRYPTION_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="Kajabi credential encryption is not configured on the backend.",
+            )
+        try:
+            return Fernet(settings.KAJABI_CREDENTIAL_ENCRYPTION_KEY.encode("ascii"))
+        except (ValueError, UnicodeEncodeError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="KAJABI_CREDENTIAL_ENCRYPTION_KEY must be a valid Fernet key.",
+            ) from exc
+
+    def _encrypt_kajabi_credential(self, value: str) -> str:
+        return self._kajabi_fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+    def _decrypt_kajabi_credential(self, value: str) -> str:
+        try:
+            return self._kajabi_fernet().decrypt(value.encode("ascii")).decode("utf-8")
+        except (InvalidToken, UnicodeEncodeError, UnicodeDecodeError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Stored Kajabi credentials could not be decrypted. Reconnect Kajabi.",
+            ) from exc
+
+    def _kajabi_configuration(self, db: Session | None = None) -> tuple[str, str, str, str, datetime | None]:
+        connection = None
+        if db is not None:
+            connection = (
+                db.query(KajabiConnection)
+                .filter(KajabiConnection.shared_slot == 1)
+                .first()
+            )
+        if connection is not None:
+            return (
+                self._decrypt_kajabi_credential(connection.client_id_encrypted),
+                self._decrypt_kajabi_credential(connection.client_secret_encrypted),
+                self._decrypt_kajabi_credential(connection.site_id_encrypted),
+                "database",
+                connection.last_validated_at,
+            )
+        return (
+            settings.KAJABI_CLIENT_ID,
+            settings.KAJABI_CLIENT_SECRET,
+            settings.KAJABI_SITE_ID,
+            "environment",
+            None,
+        )
+
+    def kajabi_connection_status(self, db: Session) -> dict[str, Any]:
+        """Return shared Kajabi connection metadata without exposing credentials."""
+        client_id, client_secret, site_id, source, validated_at = self._kajabi_configuration(db)
+        connected = bool(client_id and client_secret and site_id)
+        return {
+            "configured": connected,
+            "connected": connected,
+            "source": source if connected else "not_configured",
+            "site_id": site_id if connected else None,
+            "last_validated_at": validated_at.isoformat() if validated_at else None,
+            "can_disconnect": source == "database" and connected,
+        }
+
+    async def connect_kajabi(
+        self,
+        db: Session,
+        client_id: str,
+        client_secret: str,
+        site_id: str,
+    ) -> dict[str, Any]:
+        """Validate Kajabi credentials and site access before saving encrypted credentials."""
+        client_id = client_id.strip()
+        client_secret = client_secret.strip()
+        site_id = site_id.strip()
+        if not client_id or not client_secret or not site_id:
+            raise HTTPException(status_code=422, detail="Client ID, client secret, and Site ID are required.")
+
+        # Fail before contacting Kajabi if credentials cannot be safely persisted.
+        self._kajabi_fernet()
+        token, _ = await self._exchange_kajabi_token(client_id, client_secret)
+        payload = await self._kajabi_get(
+            "/v1/offers",
+            {
+                "page[number]": 1,
+                "page[size]": 1,
+                "filter[site_id]": site_id,
+                "fields[offers]": "title,currency,status",
+            },
+            token=token,
+        )
+        if not isinstance(payload.get("data"), list):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "provider_response_invalid",
+                    "provider": "kajabi",
+                    "message": "Kajabi did not return valid offer data for the configured Site ID.",
+                },
+            )
+
+        connection = (
+            db.query(KajabiConnection)
+            .filter(KajabiConnection.shared_slot == 1)
+            .first()
+        )
+        credentials = {
+            "client_id_encrypted": self._encrypt_kajabi_credential(client_id),
+            "client_secret_encrypted": self._encrypt_kajabi_credential(client_secret),
+            "site_id_encrypted": self._encrypt_kajabi_credential(site_id),
+            "last_validated_at": datetime.now(timezone.utc),
+        }
+        if connection is None:
+            connection = KajabiConnection(shared_slot=1, **credentials)
+            db.add(connection)
+        else:
+            for key, value in credentials.items():
+                setattr(connection, key, value)
+        db.commit()
+        self._clear_kajabi_token_cache()
+        return self.kajabi_connection_status(db)
+
+    def disconnect_kajabi(self, db: Session) -> dict[str, Any]:
+        """Remove the shared database-managed Kajabi credentials."""
+        connection = (
+            db.query(KajabiConnection)
+            .filter(KajabiConnection.shared_slot == 1)
+            .first()
+        )
+        if connection is not None:
+            db.delete(connection)
+            db.commit()
+        self._clear_kajabi_token_cache()
+        return self.kajabi_connection_status(db)
+
+    def _clear_kajabi_token_cache(self) -> None:
+        self._kajabi_access_token = None
+        self._kajabi_token_expires_at = 0.0
+        self._kajabi_token_key = None
 
     @staticmethod
     def _amount_minor(value: Any) -> int | None:
@@ -188,28 +332,21 @@ class StudentPaymentsService:
             "verification_status": "verified" if provider_status.lower() == "success" and currency == "NGN" else "not_confirmed",
         }
 
-    async def _kajabi_token(self) -> str:
-        now = datetime.now(timezone.utc).timestamp()
-        if self._kajabi_access_token and now < self._kajabi_token_expires_at:
-            return self._kajabi_access_token
-        if not settings.KAJABI_CLIENT_ID or not settings.KAJABI_CLIENT_SECRET:
-            raise HTTPException(
-                status_code=503,
-                detail={"code": "provider_not_configured", "provider": "kajabi"},
-            )
-
+    async def _exchange_kajabi_token(self, client_id: str, client_secret: str) -> tuple[str, int]:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
                     f"{settings.KAJABI_API_BASE_URL.rstrip('/')}/v1/oauth/token",
                     data={
                         "grant_type": "client_credentials",
-                        "client_id": settings.KAJABI_CLIENT_ID,
-                        "client_secret": settings.KAJABI_CLIENT_SECRET,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
                     },
                 )
                 response.raise_for_status()
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Kajabi OAuth response must be an object")
             token = payload.get("access_token")
             if not token:
                 raise HTTPException(
@@ -217,13 +354,10 @@ class StudentPaymentsService:
                     detail={
                         "code": "provider_response_invalid",
                         "provider": "kajabi",
-                        "message": "Kajabi did not return an access token. Verify the OAuth client configuration.",
+                        "message": "Kajabi did not return an access token. Verify the Public API client configuration.",
                     },
                 )
-            expires_in = int(payload.get("expires_in") or 3600)
-            self._kajabi_access_token = str(token)
-            self._kajabi_token_expires_at = now + max(expires_in - 60, 30)
-            return self._kajabi_access_token
+            return str(token), int(payload.get("expires_in") or 3600)
         except HTTPException:
             raise
         except httpx.HTTPStatusError as exc:
@@ -246,7 +380,7 @@ class StudentPaymentsService:
                     "provider": "kajabi",
                     "message": (
                         f"Kajabi rejected the OAuth client credentials (HTTP {status_code}). "
-                        "Check KAJABI_CLIENT_ID and KAJABI_CLIENT_SECRET in the backend service environment."
+                        "Verify the client ID and secret from Kajabi Public API settings."
                     ),
                 },
             ) from exc
@@ -269,8 +403,38 @@ class StudentPaymentsService:
                 },
             ) from exc
 
-    async def _kajabi_get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        token = await self._kajabi_token()
+    async def _kajabi_token(self, db: Session | None = None) -> str:
+        client_id, client_secret, _, _, _ = self._kajabi_configuration(db)
+        if not client_id or not client_secret:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "provider_not_configured", "provider": "kajabi"},
+            )
+
+        token_key = hashlib.sha256(
+            f"{settings.KAJABI_API_BASE_URL}\0{client_id}\0{client_secret}".encode("utf-8")
+        ).hexdigest()
+        now = datetime.now(timezone.utc).timestamp()
+        if (
+            self._kajabi_access_token
+            and self._kajabi_token_key == token_key
+            and now < self._kajabi_token_expires_at
+        ):
+            return self._kajabi_access_token
+        token, expires_in = await self._exchange_kajabi_token(client_id, client_secret)
+        self._kajabi_access_token = token
+        self._kajabi_token_key = token_key
+        self._kajabi_token_expires_at = now + max(expires_in - 60, 30)
+        return self._kajabi_access_token
+
+    async def _kajabi_get(
+        self,
+        path: str,
+        params: dict[str, Any],
+        db: Session | None = None,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        token = token or await self._kajabi_token(db)
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(
@@ -279,7 +443,10 @@ class StudentPaymentsService:
                     headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.api+json"},
                 )
                 response.raise_for_status()
-            return response.json()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Kajabi API response must be an object")
+            return payload
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
             if status_code == 429:
@@ -361,9 +528,15 @@ class StudentPaymentsService:
                 },
             ) from exc
 
-    async def list_kajabi_offers(self, page: int, per_page: int) -> dict[str, Any]:
+    async def list_kajabi_offers(
+        self,
+        page: int,
+        per_page: int,
+        db: Session | None = None,
+    ) -> dict[str, Any]:
         """Read non-archived offers from the configured Kajabi site."""
-        if not settings.KAJABI_SITE_ID:
+        site_id = self._kajabi_configuration(db)[2]
+        if not site_id:
             raise HTTPException(
                 status_code=503,
                 detail={"code": "provider_not_configured", "provider": "kajabi"},
@@ -371,9 +544,9 @@ class StudentPaymentsService:
         payload = await self._kajabi_get("/v1/offers", {
             "page[number]": page,
             "page[size]": per_page,
-            "filter[site_id]": settings.KAJABI_SITE_ID,
+            "filter[site_id]": site_id,
             "fields[offers]": "title,currency,status",
-        })
+        }, db=db)
         records = []
         for offer in payload.get("data", []):
             attributes = offer.get("attributes") or {}
@@ -400,9 +573,11 @@ class StudentPaymentsService:
         page: int,
         per_page: int,
         search: str | None = None,
+        db: Session | None = None,
     ) -> dict[str, Any]:
         """Read Kajabi customers with a currently granted offer; Kajabi owns access status."""
-        if not settings.KAJABI_SITE_ID:
+        site_id = self._kajabi_configuration(db)[2]
+        if not site_id:
             raise HTTPException(
                 status_code=503,
                 detail={"code": "provider_not_configured", "provider": "kajabi"},
@@ -410,14 +585,14 @@ class StudentPaymentsService:
         params: dict[str, Any] = {
             "page[number]": page,
             "page[size]": per_page,
-            "filter[site_id]": settings.KAJABI_SITE_ID,
+            "filter[site_id]": site_id,
             "filter[has_offer_id]": offer_id,
             "fields[customers]": "name,email,external_user_id",
             "sort": "name",
         }
         if search and search.strip():
             params["filter[search]"] = search.strip()
-        payload = await self._kajabi_get("/v1/customers", params)
+        payload = await self._kajabi_get("/v1/customers", params, db=db)
         records = []
         for customer in payload.get("data", []):
             attributes = customer.get("attributes") or {}
@@ -447,9 +622,11 @@ class StudentPaymentsService:
         per_page: int,
         from_date: date | None = None,
         to_date: date | None = None,
+        db: Session | None = None,
     ) -> dict[str, Any]:
         """Read site-scoped financial transaction facts from Kajabi without local copies."""
-        if not settings.KAJABI_SITE_ID:
+        site_id = self._kajabi_configuration(db)[2]
+        if not site_id:
             raise HTTPException(
                 status_code=503,
                 detail={"code": "provider_not_configured", "provider": "kajabi"},
@@ -457,14 +634,14 @@ class StudentPaymentsService:
         params: dict[str, Any] = {
             "page[number]": page,
             "page[size]": per_page,
-            "filter[site_id]": settings.KAJABI_SITE_ID,
+            "filter[site_id]": site_id,
             "fields[transactions]": "action,state,payment_type,amount_in_cents,currency,created_at,customer",
         }
         if from_date:
             params["filter[start_date]"] = from_date.isoformat()
         if to_date:
             params["filter[end_date]"] = to_date.isoformat()
-        payload = await self._kajabi_get("/v1/transactions", params)
+        payload = await self._kajabi_get("/v1/transactions", params, db=db)
 
         records = self._normalize_kajabi_response(payload)
         meta = payload.get("meta") or {}

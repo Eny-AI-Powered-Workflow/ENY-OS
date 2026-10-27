@@ -38,18 +38,30 @@ AI coding tool instructions (also mirrored at `.github/copilot-instructions.md`)
    Migration `supabase/migrations/0033_customer_success_least_privilege.sql`
    replaces Customer Success' unused broad `students:write` grant with
    operation-specific scopes and adds provider-specific payment-read scopes.
-   Apply it after 0032. Kajabi and Paystack credentials belong only in the
-   backend environment; configure them from `backend/.env.example`. Kajabi
-   reads are site-filtered by `KAJABI_SITE_ID` and Paystack results are limited
-   to provider-reported NGN transactions. For the Student Success roster, set
-   `KAJABI_CLIENT_ID`, `KAJABI_CLIENT_SECRET`, and `KAJABI_SITE_ID`; configure
-   `PAYSTACK_SECRET_KEY`; and set
+   Apply it after 0032. Kajabi reads are site-filtered and Paystack results are
+   limited to provider-reported NGN transactions. Configure
+   `PAYSTACK_SECRET_KEY` in the backend environment and set
    `CUSTOMER_SUCCESS_SHEETS_SERVICE_ACCOUNT_JSON`,
    `CUSTOMER_SUCCESS_PROGRAM_SHEET_ID`, and
    `CUSTOMER_SUCCESS_PROGRAM_SHEET_RANGE`. Grant that service account viewer
    access to the Program Sheet. Its spreadsheet ID and service-account JSON
    must remain in backend-managed environment secrets, never in the frontend
    or source control.
+
+   For UI-managed Kajabi access, apply
+   `supabase/migrations/0057_shared_kajabi_connection.sql` after the existing
+   migrations. Set `KAJABI_CREDENTIAL_ENCRYPTION_KEY` in the backend
+   environment, then use **Student Success → Kajabi connection** while signed
+   in as a CEO. Generate the key with
+   `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+   and keep the same key across deployments; changing it makes stored Kajabi
+   credentials unreadable. The UI tests the client credentials and Site ID
+   against Kajabi before saving, and stores the credentials encrypted in the
+   database. Existing `KAJABI_CLIENT_ID`, `KAJABI_CLIENT_SECRET`, and
+   `KAJABI_SITE_ID` backend variables remain an environment-managed fallback;
+   remove them from Render if the UI should be the sole connection manager.
+   This is an administrative setup UI for Kajabi's `client_credentials` flow,
+   not a user-consent OAuth redirect.
 
    For Marketing phases 9–12, apply the next unapplied migrations in order:
    `supabase/migrations/0022_marketing_video_analytics.sql` and

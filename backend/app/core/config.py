@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     KAJABI_CLIENT_ID: str = Field("", env="KAJABI_CLIENT_ID")
     KAJABI_CLIENT_SECRET: str = Field("", env="KAJABI_CLIENT_SECRET")
     KAJABI_SITE_ID: str = Field("", env="KAJABI_SITE_ID")
+    KAJABI_CREDENTIAL_ENCRYPTION_KEY: str = Field("", env="KAJABI_CREDENTIAL_ENCRYPTION_KEY")
     KAJABI_MAX_STUDENT_PAGES: int = Field(50, env="KAJABI_MAX_STUDENT_PAGES")
     PAYSTACK_BASE_URL: str = Field("https://api.paystack.co", env="PAYSTACK_BASE_URL")
     PAYSTACK_SECRET_KEY: str = Field("", env="PAYSTACK_SECRET_KEY")

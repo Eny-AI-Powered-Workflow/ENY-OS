@@ -6,6 +6,7 @@ import StudentList from '@/components/StudentList'
 import StudentProgress from '@/components/StudentProgress'
 import StudentPayments from '@/components/StudentPayments'
 import StudentLifecycleQueue from '@/components/StudentLifecycleQueue'
+import KajabiConnectionSettings from '@/components/KajabiConnectionSettings'
 import { getProviderErrorMessage } from '@/lib/api'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -59,6 +60,8 @@ export default function StudentSuccessDashboard() {
           Student lifecycle sources and provider-reported payment records
         </p>
       </div>
+
+      <KajabiConnectionSettings />
 
       <section className="flex flex-col gap-2 border-y border-slate-300 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

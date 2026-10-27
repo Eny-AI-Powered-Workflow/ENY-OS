@@ -70,6 +70,8 @@ def test_payment_routes_require_provider_specific_read_scopes():
 
     assert "payments:kajabi:read" in _required_scopes(routes["/payments/kajabi"])
     assert "payments:paystack:read" in _required_scopes(routes["/payments/paystack"])
+    for path in ("/kajabi/connection", "/kajabi/connect"):
+        assert "integrations:kajabi:manage" in _required_scopes(routes[path])
 
 
 def test_student_lifecycle_routes_require_read_scope():
@@ -342,3 +344,94 @@ async def test_provider_reads_fail_closed_when_unconfigured(monkeypatch):
         await StudentPaymentsService().list_kajabi_offers(1, 25)
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "provider_not_configured"
+
+
+class FakeKajabiQuery:
+    def __init__(self, database):
+        self.database = database
+
+    def filter(self, *_conditions):
+        return self
+
+    def first(self):
+        return self.database.connection
+
+
+class FakeKajabiDatabase:
+    def __init__(self):
+        self.connection = None
+        self.commits = 0
+
+    def query(self, _model):
+        return FakeKajabiQuery(self)
+
+    def add(self, connection):
+        self.connection = connection
+
+    def delete(self, _connection):
+        self.connection = None
+
+    def commit(self):
+        self.commits += 1
+
+
+@pytest.mark.asyncio
+async def test_kajabi_connect_validates_site_and_persists_only_encrypted_credentials(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    FakeAsyncClient.responses = [
+        FakeResponse({"access_token": "temporary-token", "expires_in": 3600}),
+        FakeResponse({"data": [], "meta": {"total_pages": 0}}),
+    ]
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "KAJABI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    database = FakeKajabiDatabase()
+
+    status = await StudentPaymentsService().connect_kajabi(
+        database,
+        client_id="public-client-id",
+        client_secret="private-client-secret",
+        site_id="site-123",
+    )
+
+    assert status["connected"] is True
+    assert status["source"] == "database"
+    assert status["site_id"] == "site-123"
+    assert "client_secret" not in status
+    assert database.commits == 1
+    assert database.connection.client_id_encrypted != "public-client-id"
+    assert database.connection.client_secret_encrypted != "private-client-secret"
+    assert database.connection.site_id_encrypted != "site-123"
+    assert FakeAsyncClient.calls[1][2]["params"]["filter[site_id]"] == "site-123"
+
+
+@pytest.mark.asyncio
+async def test_kajabi_connect_does_not_save_rejected_client_credentials(monkeypatch):
+    class RejectedResponse:
+        status_code = 401
+
+        def raise_for_status(self):
+            request = httpx.Request("POST", "https://api.kajabi.com/v1/oauth/token")
+            response = httpx.Response(401, request=request)
+            raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+
+    from cryptography.fernet import Fernet
+
+    FakeAsyncClient.responses = [RejectedResponse()]
+    monkeypatch.setattr(payments_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(settings, "KAJABI_CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    database = FakeKajabiDatabase()
+
+    with pytest.raises(HTTPException) as error:
+        await StudentPaymentsService().connect_kajabi(
+            database,
+            client_id="invalid-client-id",
+            client_secret="invalid-client-secret",
+            site_id="site-123",
+        )
+
+    assert error.value.status_code == 502
+    assert database.connection is None
+    assert database.commits == 0
+    assert "invalid-client-secret" not in str(error.value.detail)

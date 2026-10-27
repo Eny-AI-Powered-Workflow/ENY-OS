@@ -42,6 +42,7 @@ from app.models.operational_alert import OperationalAlert
 from app.models.ghl_lead_intake import GHLLeadIntake
 from app.models.ai_assistant import AIActionProposal, AIUserMemory
 from app.models.design_system import DesignSystemDocument
+from app.services.student_payments_service import student_payments_service
 from app.services.ea_coordination_service import ea_coordination_service
 from app.services.claude_service import ClaudeService
 from app.services.ghl_service import ghl_service
@@ -445,6 +446,11 @@ async def get_assistant_capabilities(
 
 def get_assistant_integrations(scopes: set[str], db: Session | None = None) -> list[dict[str, str]]:
     """Describe configured integrations and access without exposing secrets or claiming live health."""
+    kajabi_configured = (
+        student_payments_service.kajabi_connection_status(db)["configured"]
+        if db is not None
+        else bool(settings.KAJABI_CLIENT_ID and settings.KAJABI_CLIENT_SECRET and settings.KAJABI_SITE_ID)
+    )
     can_read_contacts = "leads:read" in scopes
     can_read_pipeline = "pipeline:read" in scopes
     can_read_design = "design:canva" in scopes
@@ -574,9 +580,7 @@ def get_assistant_integrations(scopes: set[str], db: Session | None = None) -> l
         {
             "id": "kajabi",
             "name": "Kajabi student and payment records",
-            "status": "configured" if (
-                settings.KAJABI_CLIENT_ID and settings.KAJABI_CLIENT_SECRET and settings.KAJABI_SITE_ID
-            ) else "not_configured",
+            "status": "configured" if kajabi_configured else "not_configured",
             "access": "read" if can_read_student_data and "payments:kajabi:read" in scopes else "no_access",
             "permission": "students:read and payments:kajabi:read",
         },
