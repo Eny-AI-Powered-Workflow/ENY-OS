@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { GraduationCap, Search } from 'lucide-react';
-import { getProviderErrorMessage } from '@/lib/api';
+import { API_TIMEOUTS, describeHttpError, fetchWithTimeout, getProviderErrorMessage } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 type Student = {
@@ -42,10 +42,11 @@ export default function StudentList({ offerId }: { offerId: string }) {
 
       const params = new URLSearchParams({ offer_id: offerId, limit: '25', page: String(requestedPage) });
       if (searchTerm) params.set('search', searchTerm);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/students?${params}`, {
-        headers,
-        credentials: 'include',
-      });
+      const res = await fetchWithTimeout(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/students?${params}`,
+        { headers, credentials: 'include' },
+        API_TIMEOUTS.standard,
+      );
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -58,7 +59,7 @@ export default function StudentList({ offerId }: { offerId: string }) {
         } else if (res.status === 403) {
           setError('You do not have permission to view student records.');
         } else {
-          throw new Error(`Failed to fetch students: ${res.status}`);
+          throw new Error(await describeHttpError(res, 'Student records are unavailable.'));
         }
         return;
       }

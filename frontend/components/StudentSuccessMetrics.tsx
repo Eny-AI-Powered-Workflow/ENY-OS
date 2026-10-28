@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { MetricCard } from '@/components/MetricCard';
-import { getProviderErrorMessage } from '@/lib/api';
+import { API_TIMEOUTS, describeHttpError, fetchWithTimeout, getProviderErrorMessage } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 const formatLiveTimestamp = (date = new Date()) =>
@@ -33,10 +33,11 @@ export default function StudentSuccessMetrics({ offerId }: { offerId: string }) 
       }
 
       const params = new URLSearchParams({ offer_id: offerId });
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/metrics?${params}`, {
-        headers,
-        credentials: 'include',
-      });
+      const res = await fetchWithTimeout(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/metrics?${params}`,
+        { headers, credentials: 'include' },
+        API_TIMEOUTS.standard,
+      );
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -44,7 +45,7 @@ export default function StudentSuccessMetrics({ offerId }: { offerId: string }) 
         if (res.status === 403) throw new Error('You do not have permission to view student metrics.');
         const providerError = getProviderErrorMessage(payload, 'kajabi');
         if (providerError) throw new Error(providerError);
-        throw new Error(`Failed to fetch metrics: ${res.status}`);
+        throw new Error(await describeHttpError(res, 'Student metrics are unavailable.'));
       }
 
       const data = await res.json();

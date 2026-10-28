@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { GraduationCap } from 'lucide-react';
-import { getProviderErrorMessage } from '@/lib/api';
+import { API_TIMEOUTS, describeHttpError, fetchWithTimeout, getProviderErrorMessage } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 type StudentProgressData = {
@@ -38,10 +38,11 @@ export default function StudentProgress({ offerId }: { offerId: string }) {
       }
 
       const params = new URLSearchParams({ offer_id: offerId });
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/progress?${params}`, {
-        headers,
-        credentials: 'include',
-      });
+      const res = await fetchWithTimeout(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/progress?${params}`,
+        { headers, credentials: 'include' },
+        API_TIMEOUTS.standard,
+      );
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -52,7 +53,7 @@ export default function StudentProgress({ offerId }: { offerId: string }) {
         } else if (res.status === 403) {
           setError('You do not have permission to view student progress.');
         } else {
-          throw new Error(`Failed to fetch progress: ${res.status}`);
+          throw new Error(await describeHttpError(res, 'Student progress is unavailable.'));
         }
         return;
       }

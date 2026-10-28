@@ -112,12 +112,13 @@ export default function StudentPayments({ enableVerification = false }: StudentP
         const params = new URLSearchParams({ page: String(page), per_page: '25' })
         if (appliedRange.from) params.set('from_date', appliedRange.from)
         if (appliedRange.to) params.set('to_date', appliedRange.to)
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `${process.env.NEXT_PUBLIC_API_URL}/api/v1/student-success/payments/${provider}?${params}`,
           {
             headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
             credentials: 'include',
           },
+          API_TIMEOUTS.standard,
         )
         const payload = await response.json()
         if (!response.ok) {
