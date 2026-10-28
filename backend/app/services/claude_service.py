@@ -243,6 +243,7 @@ When providing advice or analysis, frame it within the context of {role_context}
 
     async def score_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """Score a lead from supplied evidence; callers must handle model/API failures."""
+        tool_name = "submit_lead_score"
         prompt = f"""Evaluate this prospective lead using only the supplied data. Do not infer missing facts.
 Use component scores from 0 to 100:
 - intent_score (40%): explicit interest, inquiry, or purchase-intent evidence
@@ -251,8 +252,7 @@ Use component scores from 0 to 100:
 If a component has no evidence, score that component 0 and say it is unknown; do not reward contact completeness.
 Calculate the final score as round(intent_score * 0.4 + fit_score * 0.3 + engagement_score * 0.3).
 The server will derive the category: hot >= 85, warm >= 70, follow-up >= 50, otherwise cold.
-Return only JSON with integer component scores, a concise evidence-based reasoning string,
-an evidence array, an unknowns array, and a human next_best_action. Do not return a category.
+Submit the result using the required structured tool. Do not return a category.
 
 Lead data:
 {json.dumps(lead_data, ensure_ascii=True, default=str)}
@@ -262,20 +262,73 @@ Lead data:
             max_tokens=700,
             temperature=0,
             system=self._system_prompt("sales and enrollment"),
+            tools=[{
+                "name": tool_name,
+                "description": "Return an evidence-based ENY lead score using the required scoring components.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "intent_score": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Score explicit interest, inquiry, or purchase intent.",
+                        },
+                        "fit_score": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Score explicit fit with ENY's offers.",
+                        },
+                        "engagement_score": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Score explicit recent engagement.",
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Concise evidence-based explanation for the component scores.",
+                        },
+                        "evidence": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "unknowns": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "next_best_action": {
+                            "type": "string",
+                            "description": "A suggested human next action; do not contact the lead.",
+                        },
+                    },
+                    "required": [
+                        "intent_score",
+                        "fit_score",
+                        "engagement_score",
+                        "reasoning",
+                        "evidence",
+                        "unknowns",
+                        "next_best_action",
+                    ],
+                    "additionalProperties": False,
+                },
+            }],
+            tool_choice={"type": "tool", "name": tool_name},
             messages=[{"role": "user", "content": prompt}],
         )
-        text = next(
-            (block.text for block in response.content if getattr(block, "type", None) == "text"),
+        result = next(
+            (
+                block.input
+                for block in response.content
+                if getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", None) == tool_name
+            ),
             None,
         )
-        if not text:
-            raise ValueError("Claude returned an empty lead-scoring response")
-        try:
-            result = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError("Claude returned invalid JSON for lead scoring") from exc
         if not isinstance(result, dict):
-            raise ValueError("Claude lead-scoring response must be a JSON object")
+            raise ValueError("Claude did not return a structured lead-scoring result")
 
         component_names = ("intent_score", "fit_score", "engagement_score")
         components: dict[str, int] = {}

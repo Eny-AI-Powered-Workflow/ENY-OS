@@ -1,5 +1,4 @@
 # /home/obed/Documents/Eny_consulting/Eny_consulting/backend/tests/test_claude_lead_scoring.py
-import json
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -28,7 +27,9 @@ async def test_claude_score_contract_weights_components_and_derives_hot_category
         "unknowns": ["Budget"],
         "next_best_action": "Confirm budget and book a consultation.",
     }
-    response = SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps(payload))])
+    response = SimpleNamespace(content=[
+        SimpleNamespace(type="tool_use", name="submit_lead_score", input=payload),
+    ])
     service = ClaudeService.__new__(ClaudeService)
     service.async_client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
     service.model = "test-model"
@@ -45,6 +46,14 @@ async def test_claude_score_contract_weights_components_and_derives_hot_category
         "engagement_score": 100,
     }
     assert result["next_best_action"] == payload["next_best_action"]
+    create = service.async_client.messages.create
+    assert create.await_args.kwargs["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_lead_score",
+    }
+    tool = create.await_args.kwargs["tools"][0]
+    assert set(tool["input_schema"]["required"]) == set(payload)
+    assert tool["input_schema"]["additionalProperties"] is False
 
 
 @pytest.mark.asyncio
@@ -57,13 +66,29 @@ async def test_claude_score_contract_rejects_missing_component_scores():
         "unknowns": [],
         "next_best_action": "Request more information.",
     }
-    response = SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps(payload))])
+    response = SimpleNamespace(content=[
+        SimpleNamespace(type="tool_use", name="submit_lead_score", input=payload),
+    ])
     service = ClaudeService.__new__(ClaudeService)
     service.async_client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
     service.model = "test-model"
     service._system_prompt = lambda role_context: "Sales scoring test"
 
     with pytest.raises(ValueError, match="engagement_score"):
+        await service.score_lead({"id": "contact-1"})
+
+
+@pytest.mark.asyncio
+async def test_claude_score_contract_rejects_unstructured_text_response():
+    response = SimpleNamespace(content=[
+        SimpleNamespace(type="text", text='{"intent_score": 90}'),
+    ])
+    service = ClaudeService.__new__(ClaudeService)
+    service.async_client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
+    service.model = "test-model"
+    service._system_prompt = lambda role_context: "Sales scoring test"
+
+    with pytest.raises(ValueError, match="structured lead-scoring result"):
         await service.score_lead({"id": "contact-1"})
 
 
