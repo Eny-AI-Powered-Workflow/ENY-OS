@@ -141,6 +141,21 @@ class SocialAccount(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class SocialAnalyticsSyncState(Base):
+    __tablename__ = "social_analytics_sync_state"
+
+    ghl_location_id = Column(String, primary_key=True)
+    last_attempted_at = Column(DateTime(timezone=True), nullable=False)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_period_days = Column(Integer, nullable=True)
+    accounts_synced = Column(Integer, nullable=False, default=0)
+    posts_processed = Column(Integer, nullable=False, default=0)
+    metrics_recorded = Column(Integer, nullable=False, default=0)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class SocialMetricObservation(Base):
     __tablename__ = "social_metric_observations"
     __table_args__ = (

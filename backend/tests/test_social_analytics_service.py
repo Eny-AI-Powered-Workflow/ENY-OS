@@ -10,7 +10,12 @@ from pydantic import ValidationError
 
 from app.api.v1.endpoints.marketing import SocialPostObservationRequest
 from app.core.config import settings
-from app.models.marketing_intelligence import SocialAccount, SocialMetricObservation, SocialPost
+from app.models.marketing_intelligence import (
+    SocialAccount,
+    SocialAnalyticsSyncState,
+    SocialMetricObservation,
+    SocialPost,
+)
 from app.services.ghl_service import GHLService
 from app.services.social_analytics_service import SOCIAL_PLATFORMS, SocialAnalyticsService
 
@@ -46,10 +51,11 @@ class FakeQuery:
 
 
 class FakeDatabase:
-    def __init__(self, posts, observations, accounts=None):
+    def __init__(self, posts, observations, accounts=None, sync_states=None):
         self.posts = posts
         self.observations = observations
         self.accounts = accounts or []
+        self.sync_states = sync_states or []
 
     def query(self, model):
         if model is SocialPost:
@@ -58,6 +64,8 @@ class FakeDatabase:
             return FakeQuery(self.observations)
         if model is SocialAccount:
             return FakeQuery(self.accounts)
+        if model is SocialAnalyticsSyncState:
+            return FakeQuery(self.sync_states)
         raise AssertionError(f"Unexpected model queried: {model}")
 
     def add(self, row):
@@ -67,6 +75,8 @@ class FakeDatabase:
             self.observations.append(row)
         elif isinstance(row, SocialAccount):
             self.accounts.append(row)
+        elif isinstance(row, SocialAnalyticsSyncState):
+            self.sync_states.append(row)
         else:
             raise AssertionError(f"Unexpected row added: {type(row)}")
 
@@ -115,6 +125,20 @@ def test_analytics_keeps_platform_stats_independent_and_collects_available_total
     assert report["collective"]["metrics"]["views"]["value"] == 450
 
 
+def test_sync_failure_is_persisted_and_returned_in_report(monkeypatch):
+    monkeypatch.setattr(settings, "GHL_LOCATION_ID", "location-1")
+    db = FakeDatabase(posts=[], observations=[])
+
+    SocialAnalyticsService.record_sync_failure(
+        db, uuid4(), 30, "GHL Social Planner returned HTTP 403."
+    )
+    report = SocialAnalyticsService().analytics(db, days=30)
+
+    assert report["sync"]["status"] == "error"
+    assert report["sync"]["last_error"] == "GHL Social Planner returned HTTP 403."
+    assert report["sync"]["last_success_at"] is None
+
+
 @pytest.mark.asyncio
 async def test_sync_from_ghl_records_posts_accounts_and_supported_insights(monkeypatch):
     now = datetime.now(timezone.utc)
@@ -159,6 +183,9 @@ async def test_sync_from_ghl_records_posts_accounts_and_supported_insights(monke
     assert result["posts_processed"] == 2
     assert result["metrics_recorded"] == 3
     assert result["skipped_posts"] == 0
+    assert len(db.sync_states) == 1
+    assert db.sync_states[0].last_success_at is not None
+    assert db.sync_states[0].last_error is None
     facebook_post = next(post for post in db.posts if post.platform == "facebook")
     assert facebook_post.external_post_id == "facebook-post-1"
     pinterest_post = next(post for post in db.posts if post.platform == "pinterest")
@@ -171,6 +198,8 @@ async def test_sync_from_ghl_records_posts_accounts_and_supported_insights(monke
     assert report["platforms"]["facebook"]["recent_posts"][0]["metrics"]["likes"] == 14
     assert report["platforms"]["facebook"]["connected_account_count"] == 1
     assert report["platforms"]["pinterest"]["stats_status"] == "posts_only"
+    assert report["sync"]["status"] == "connected"
+    assert report["sync"]["posts_processed"] == 2
 
 
 @pytest.mark.asyncio

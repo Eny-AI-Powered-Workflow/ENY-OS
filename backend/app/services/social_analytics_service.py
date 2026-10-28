@@ -7,7 +7,12 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.marketing_intelligence import SocialAccount, SocialMetricObservation, SocialPost
+from app.models.marketing_intelligence import (
+    SocialAccount,
+    SocialAnalyticsSyncState,
+    SocialMetricObservation,
+    SocialPost,
+)
 from app.services.ghl_service import ghl_service
 
 SOCIAL_PLATFORMS = ("facebook", "linkedin", "instagram", "tiktok", "pinterest", "youtube", "x")
@@ -268,6 +273,26 @@ class SocialAnalyticsService:
                     observation.metadata_json = {}
                     metrics_recorded += 1
 
+        sync_state = (
+            db.query(SocialAnalyticsSyncState)
+            .filter(SocialAnalyticsSyncState.ghl_location_id == location_id)
+            .first()
+        )
+        if sync_state is None:
+            sync_state = SocialAnalyticsSyncState(
+                ghl_location_id=location_id,
+                updated_by=actor_id,
+            )
+            db.add(sync_state)
+        sync_state.last_attempted_at = observed_at
+        sync_state.last_success_at = observed_at
+        sync_state.last_error = None
+        sync_state.last_period_days = days
+        sync_state.accounts_synced = supported_accounts
+        sync_state.posts_processed = posts_processed
+        sync_state.metrics_recorded = metrics_recorded
+        sync_state.updated_by = actor_id
+
         return {
             "status": "synced",
             "source": "ghl",
@@ -280,6 +305,33 @@ class SocialAnalyticsService:
             "skipped_posts": skipped_posts,
             "max_posts_reached": max_posts_reached,
         }
+
+    @staticmethod
+    def record_sync_failure(
+        db: Session,
+        actor_id: Any,
+        days: int,
+        error: str,
+    ) -> None:
+        location_id = settings.GHL_LOCATION_ID
+        if not location_id:
+            return
+        now = datetime.now(timezone.utc)
+        state = (
+            db.query(SocialAnalyticsSyncState)
+            .filter(SocialAnalyticsSyncState.ghl_location_id == location_id)
+            .first()
+        )
+        if state is None:
+            state = SocialAnalyticsSyncState(
+                ghl_location_id=location_id,
+                updated_by=actor_id,
+            )
+            db.add(state)
+        state.last_attempted_at = now
+        state.last_error = error[:500]
+        state.last_period_days = days
+        state.updated_by = actor_id
 
     @staticmethod
     def _normalize_platform(platform: Any) -> str:
@@ -346,6 +398,15 @@ class SocialAnalyticsService:
                 )
 
         platforms = self.platform_status()
+        sync_state = (
+            db.query(SocialAnalyticsSyncState)
+            .filter(
+                SocialAnalyticsSyncState.ghl_location_id == settings.GHL_LOCATION_ID
+            )
+            .first()
+            if settings.GHL_LOCATION_ID
+            else None
+        )
         accounts = (
             db.query(SocialAccount)
             .filter(SocialAccount.ghl_location_id == settings.GHL_LOCATION_ID)
@@ -438,6 +499,28 @@ class SocialAnalyticsService:
             "period_days": days,
             "period_start": since.isoformat(),
             "period_end": period_end.isoformat(),
+            "sync": {
+                "status": (
+                    "error"
+                    if sync_state and sync_state.last_error
+                    else "connected"
+                    if sync_state and sync_state.last_success_at
+                    else "not_synced"
+                ),
+                "last_attempted_at": (
+                    sync_state.last_attempted_at.isoformat()
+                    if sync_state else None
+                ),
+                "last_success_at": (
+                    sync_state.last_success_at.isoformat()
+                    if sync_state and sync_state.last_success_at else None
+                ),
+                "last_error": sync_state.last_error if sync_state else None,
+                "last_period_days": sync_state.last_period_days if sync_state else None,
+                "accounts_synced": sync_state.accounts_synced if sync_state else 0,
+                "posts_processed": sync_state.posts_processed if sync_state else 0,
+                "metrics_recorded": sync_state.metrics_recorded if sync_state else 0,
+            },
             "platforms": platforms,
             "collective": {
                 "platform_count": len(SOCIAL_PLATFORMS),
@@ -461,8 +544,7 @@ class SocialAnalyticsService:
                 "Collective totals include only platforms reporting each metric; metric definitions can vary by platform.",
                 "GHL Social Planner returns only likes, comments and shares for Facebook, Instagram, LinkedIn and YouTube; impressions, reach, saves, clicks, views and watch time are not included.",
                 "GHL does not return post insights for TikTok or Pinterest.",
-                "A configured GHL token is not an API health check. Use Sync from GHL to verify access and refresh stored data.",
-                "Syncs are user-triggered; background refresh scheduling is not configured.",
+                "A configured GHL token is not an API health check. Sync status reflects the most recent API result.",
             ],
         }
 

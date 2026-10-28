@@ -88,7 +88,10 @@ class GHLService:
                 timeout=30.0,
             )
             response.raise_for_status()
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RuntimeError("GHL returned an invalid social accounts response") from exc
 
         if not isinstance(payload, dict):
             raise RuntimeError("GHL returned an invalid social accounts response")
@@ -136,7 +139,10 @@ class GHLService:
                     timeout=30.0,
                 )
                 response.raise_for_status()
-                payload = response.json()
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise RuntimeError("GHL returned an invalid social posts response") from exc
                 if not isinstance(payload, dict):
                     raise RuntimeError("GHL returned an invalid social posts response")
                 if payload.get("success") is False:

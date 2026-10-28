@@ -398,7 +398,7 @@ async def get_social_analytics(
     return social_analytics_service.analytics(db, days)
 
 
-@router.post("/social/analytics/sync", dependencies=[Depends(require_permission("marketing:integrations"))])
+@router.post("/social/analytics/sync", dependencies=[Depends(require_permission("marketing:social:sync"))])
 async def sync_social_analytics_from_ghl(
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -411,10 +411,21 @@ async def sync_social_analytics_from_ghl(
     except RuntimeError as exc:
         db.rollback()
         logger.warning("GHL social analytics is not ready: %s", exc)
+        social_analytics_service.record_sync_failure(
+            db, current_user.id, days, "GHL returned an invalid response or is not configured."
+        )
+        db.commit()
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         db.rollback()
         logger.warning("GHL social analytics request failed with HTTP %s", exc.response.status_code)
+        social_analytics_service.record_sync_failure(
+            db,
+            current_user.id,
+            days,
+            f"GHL Social Planner returned HTTP {exc.response.status_code}.",
+        )
+        db.commit()
         raise HTTPException(
             status_code=502,
             detail=(
@@ -425,6 +436,10 @@ async def sync_social_analytics_from_ghl(
     except httpx.RequestError as exc:
         db.rollback()
         logger.exception("Could not reach GHL Social Planner")
+        social_analytics_service.record_sync_failure(
+            db, current_user.id, days, "Could not connect to GHL Social Planner."
+        )
+        db.commit()
         raise HTTPException(
             status_code=502,
             detail="Could not connect to GHL Social Planner. Try again later.",

@@ -88,6 +88,8 @@ supabase/migrations/*
 !supabase/migrations/0044_social_platform_analytics.sql
 !supabase/migrations/0055_ghl_contact_sync_state.sql
 !supabase/migrations/0058_ghl_social_analytics.sql
+!supabase/migrations/0059_social_analytics_sync_state.sql
+!supabase/migrations/0060_marketing_social_sync_permission.sql
 Continuation.md
 Production-Safe Dashboard UI/UX Redesign.md
 ONBOARDING_GUIDE.md
