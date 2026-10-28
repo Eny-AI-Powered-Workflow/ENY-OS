@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -110,6 +110,32 @@ class SocialPost(Base):
     media_type = Column(String, nullable=True)
     published_at = Column(DateTime(timezone=True), nullable=False, index=True)
     metadata_json = Column(JSONB, nullable=False, default=dict)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SocialAccount(Base):
+    __tablename__ = "social_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "ghl_location_id",
+            "platform",
+            "external_account_id",
+            name="social_accounts_external_identity_key",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ghl_location_id = Column(String, nullable=False)
+    platform = Column(String, nullable=False, index=True)
+    external_account_id = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    account_type = Column(String, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    is_expired = Column(Boolean, nullable=False, default=False)
+    metadata_json = Column(JSONB, nullable=False, default=dict)
+    synced_at = Column(DateTime(timezone=True), nullable=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="restrict"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

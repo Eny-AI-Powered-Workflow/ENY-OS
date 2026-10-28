@@ -4,6 +4,7 @@ import json
 import re
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, model_validator
 from typing import Dict, Any, List, Literal, Optional
@@ -145,7 +146,7 @@ class SocialMetricInput(BaseModel):
 
 
 class SocialPostObservationRequest(BaseModel):
-    platform: Literal["linkedin", "instagram", "facebook", "x", "tiktok", "youtube"]
+    platform: Literal["linkedin", "instagram", "facebook", "x", "tiktok", "youtube", "pinterest"]
     account_id: str = Field(..., min_length=1, max_length=240)
     external_post_id: str = Field(..., min_length=1, max_length=500)
     published_at: datetime
@@ -395,6 +396,39 @@ async def get_social_analytics(
     current_user: Any = Depends(get_current_user),
 ):
     return social_analytics_service.analytics(db, days)
+
+
+@router.post("/social/analytics/sync", dependencies=[Depends(require_permission("marketing:integrations"))])
+async def sync_social_analytics_from_ghl(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    try:
+        result = await social_analytics_service.sync_from_ghl(db, current_user.id, days)
+        db.commit()
+        return result
+    except RuntimeError as exc:
+        db.rollback()
+        logger.warning("GHL social analytics is not ready: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        db.rollback()
+        logger.warning("GHL social analytics request failed with HTTP %s", exc.response.status_code)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"GHL social sync failed with HTTP {exc.response.status_code}. "
+                "Check the configured location and Social Planner read scopes."
+            ),
+        ) from exc
+    except httpx.RequestError as exc:
+        db.rollback()
+        logger.exception("Could not reach GHL Social Planner")
+        raise HTTPException(
+            status_code=502,
+            detail="Could not connect to GHL Social Planner. Try again later.",
+        ) from exc
 
 
 @router.post("/social/analytics/observations", dependencies=[Depends(require_permission("marketing:integrations"))])

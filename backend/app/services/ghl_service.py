@@ -74,6 +74,90 @@ class GHLService:
             **({"start_after": str(next_after)} if next_after else {}),
         }
 
+    async def get_social_accounts(self) -> List[Dict[str, Any]]:
+        """Read connected Social Planner accounts from the configured GHL location."""
+        if not self.private_token or not self.location_id:
+            raise RuntimeError(
+                "GHL_PRIVATE_TOKEN and GHL_LOCATION_ID must be configured to fetch social accounts"
+            )
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url.rstrip('/')}/social-media-posting/{quote(self.location_id, safe='')}/accounts",
+                headers={**self.headers, "Version": "v3"},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("GHL returned an invalid social accounts response")
+        if payload.get("success") is False:
+            raise RuntimeError("GHL could not fetch social accounts")
+        results = payload.get("results")
+        accounts = results.get("accounts") if isinstance(results, dict) else None
+        if not isinstance(accounts, list):
+            raise RuntimeError("GHL returned an invalid social accounts response")
+        if any(not isinstance(account, dict) for account in accounts):
+            raise RuntimeError("GHL returned an invalid social account record")
+        return accounts
+
+    async def get_social_posts(
+        self,
+        from_date: str,
+        to_date: str,
+        max_posts: int = 5000,
+        page_size: int = 100,
+    ) -> tuple[List[Dict[str, Any]], bool]:
+        """Read published Social Planner posts and report whether the page cap was reached."""
+        if not self.private_token or not self.location_id:
+            raise RuntimeError(
+                "GHL_PRIVATE_TOKEN and GHL_LOCATION_ID must be configured to fetch social posts"
+            )
+        if max_posts < 1 or page_size < 1:
+            raise ValueError("Social post pagination limits must be positive")
+
+        posts: List[Dict[str, Any]] = []
+        skip = 0
+        total: Optional[int] = None
+        async with httpx.AsyncClient() as client:
+            while len(posts) < max_posts:
+                limit = min(page_size, max_posts - len(posts))
+                response = await client.post(
+                    f"{self.base_url.rstrip('/')}/social-media-posting/{quote(self.location_id, safe='')}/posts/list",
+                    headers={**self.headers, "Version": "v3"},
+                    json={
+                        "type": "published",
+                        "fromDate": from_date,
+                        "toDate": to_date,
+                        "skip": str(skip),
+                        "limit": str(limit),
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise RuntimeError("GHL returned an invalid social posts response")
+                if payload.get("success") is False:
+                    raise RuntimeError("GHL could not fetch social posts")
+                results = payload.get("results")
+                page = results.get("posts") if isinstance(results, dict) else None
+                if not isinstance(page, list):
+                    raise RuntimeError("GHL returned an invalid social posts response")
+                if any(not isinstance(post, dict) for post in page):
+                    raise RuntimeError("GHL returned an invalid social post record")
+
+                count = results.get("count")
+                if isinstance(count, int) and count >= 0:
+                    total = count
+                posts.extend(page)
+                skip += len(page)
+                if not page or len(page) < limit or (total is not None and skip >= total):
+                    break
+
+        return posts, len(posts) >= max_posts and (total is None or total > len(posts))
+
     async def get_contacts(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Get contacts from GHL.
