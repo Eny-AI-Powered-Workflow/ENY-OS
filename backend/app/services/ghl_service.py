@@ -5,11 +5,13 @@ GoHighLevel service client.
 This service handles all interactions with GoHighLevel (GHL) CRM.
 It never stores lead/contact data locally - all reads/writes go directly to GHL.
 """
+import asyncio
 import httpx
 import logging
 import re
 from datetime import date
 from typing import Dict, Any, List, Optional
+from urllib.parse import quote
 
 from app.core.config import settings
 
@@ -394,6 +396,50 @@ class GHLService:
         except Exception as e:
             logger.error(f"Error fetching contact {contact_id} from GHL: {e}")
             return None
+
+    async def get_contacts_by_ids(
+        self,
+        contact_ids: list[str],
+        *,
+        concurrency: int = 5,
+    ) -> dict[str, Optional[Dict[str, Any]]]:
+        """Fetch exact approved GHL contacts without scanning the whole location."""
+        if not self.private_token or not self.location_id:
+            raise RuntimeError("GHL_PRIVATE_TOKEN and GHL_LOCATION_ID must be configured to fetch leads")
+        if concurrency < 1:
+            raise ValueError("concurrency must be at least 1")
+
+        semaphore = asyncio.Semaphore(concurrency)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            async def fetch(contact_id: str) -> tuple[str, Optional[Dict[str, Any]]]:
+                async with semaphore:
+                    response = await client.get(
+                        f"{self.base_url}/contacts/{quote(contact_id, safe='')}",
+                        params={"locationId": self.location_id},
+                        headers=self.headers,
+                    )
+                if response.status_code == 404:
+                    return contact_id, None
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise ValueError("GHL returned an invalid contact response")
+                contact = payload.get("contact", payload)
+                if not isinstance(contact, dict) or str(contact.get("id")) != contact_id:
+                    raise ValueError("GHL returned a contact that did not match the requested ID")
+                return contact_id, contact
+
+            outcomes = await asyncio.gather(
+                *(fetch(contact_id) for contact_id in dict.fromkeys(contact_ids)),
+                return_exceptions=True,
+            )
+        contacts: dict[str, Optional[Dict[str, Any]]] = {}
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                raise outcome
+            contact_id, contact = outcome
+            contacts[contact_id] = contact
+        return contacts
 
     async def validate_marketing_email_consent(self, contact_id: str, email: str) -> Dict[str, Any]:
         """Verify the recipient address, explicit GHL consent field, and email DND state before a Marketing send."""

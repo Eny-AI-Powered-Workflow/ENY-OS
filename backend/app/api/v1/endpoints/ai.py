@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import base64
 import binascii
+import httpx
 import json
 import logging
 import re
@@ -1897,8 +1898,14 @@ async def execute_approved_batch(
         row.status = "scoring"
     approval.status = "executing"
 
-    contacts, _ = await ghl_service.get_all_contacts()
-    contact_map = {str(contact.get("id")): contact for contact in contacts if contact.get("id")}
+    try:
+        contact_map = await ghl_service.get_contacts_by_ids(approved_ids)
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        logger.exception("Could not retrieve approved contacts from GHL; batch scoring was not started")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not retrieve approved contacts from GHL; batch scoring was not started.",
+        ) from exc
 
     results: list[dict[str, Any]] = []
     processed_count = 0

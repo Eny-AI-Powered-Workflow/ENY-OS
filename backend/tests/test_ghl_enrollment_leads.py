@@ -2,7 +2,64 @@ import pytest
 from datetime import date
 from unittest.mock import AsyncMock
 
+import httpx
+
 from app.services.ghl_service import GHLService
+
+
+@pytest.mark.asyncio
+async def test_get_contacts_by_ids_fetches_only_requested_contacts_and_accepts_not_found(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def __init__(self, status_code, payload, url):
+            self.status_code = status_code
+            self.payload = payload
+            self.request = httpx.Request("GET", url)
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "request failed",
+                    request=self.request,
+                    response=httpx.Response(self.status_code, request=self.request),
+                )
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        def __init__(self, timeout):
+            assert timeout == 30.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs))
+            if url.endswith("/missing"):
+                return Response(404, {}, url)
+            return Response(200, {"contact": {"id": "contact/a", "name": "Ada"}}, url)
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    contacts = await service.get_contacts_by_ids(["contact/a", "missing", "contact/a"])
+
+    assert contacts == {
+        "contact/a": {"id": "contact/a", "name": "Ada"},
+        "missing": None,
+    }
+    assert [request[0] for request in requests] == [
+        "https://services.leadconnectorhq.com/contacts/contact%2Fa",
+        "https://services.leadconnectorhq.com/contacts/missing",
+    ]
+    assert all(request[1]["params"] == {"locationId": "location-1"} for request in requests)
 
 
 @pytest.mark.asyncio

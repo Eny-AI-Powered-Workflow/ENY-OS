@@ -191,6 +191,7 @@ export default function PlatformAlertInbox() {
           {inbox.alerts.map((alert) => {
             const chatStatus = (alert.details.google_chat as { status?: string } | undefined)?.status
             const contactId = typeof alert.details.contact_id === 'string' ? alert.details.contact_id : null
+            const failureDetail = typeof alert.details.error === 'string' ? alert.details.error : null
             return (
               <article
                 key={alert.id}
@@ -207,6 +208,12 @@ export default function PlatformAlertInbox() {
                       {!alert.is_read && <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-800">Unread</span>}
                     </div>
                     <p className="mt-2 text-sm leading-6 text-slate-900">{alert.message}</p>
+                    {failureDetail && ['sales_scoring_failure', 'scoring_writeback_failure'].includes(alert.type) && (
+                      <details className="mt-2 rounded-lg border border-rose-200 bg-white/80 px-3 py-2 text-xs text-rose-900">
+                        <summary className="cursor-pointer font-semibold">Technical failure detail</summary>
+                        <p className="mt-2 whitespace-pre-wrap break-words">{failureDetail}</p>
+                      </details>
+                    )}
                     <p className="mt-2 text-[11px] text-slate-500">
                       {alert.source} · {alert.created_at ? new Date(alert.created_at).toLocaleString() : 'Time unavailable'}
                       {chatStatus ? ` · Google Chat: ${chatStatus}` : ''}
