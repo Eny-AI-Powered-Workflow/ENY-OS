@@ -66,12 +66,17 @@ def _required_scopes(route):
 
 
 def test_payment_routes_require_provider_specific_read_scopes():
-    routes = {route.path: route for route in router.routes if hasattr(route, "dependant")}
+    route_entries = [route for route in router.routes if hasattr(route, "dependant")]
+    routes = {route.path: route for route in route_entries}
 
     assert "payments:kajabi:read" in _required_scopes(routes["/payments/kajabi"])
     assert "payments:paystack:read" in _required_scopes(routes["/payments/paystack"])
-    for path in ("/kajabi/connection", "/kajabi/connect"):
-        assert "integrations:kajabi:manage" in _required_scopes(routes[path])
+    managed_routes = [
+        route for route in route_entries
+        if route.path in ("/kajabi/connection", "/kajabi/connect")
+    ]
+    assert len(managed_routes) == 3
+    assert all("integrations:kajabi:manage" in _required_scopes(route) for route in managed_routes)
 
 
 def test_student_lifecycle_routes_require_read_scope():
