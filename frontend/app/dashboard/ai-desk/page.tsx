@@ -321,6 +321,7 @@ export default function AIDeskPage() {
   const [designAssessmentLoading, setDesignAssessmentLoading] = useState(false)
   const [creativeImage, setCreativeImage] = useState<{ data: string; mediaType: CreativeImageType; name: string } | null>(null)
   const [localTime, setLocalTime] = useState('')
+  const activeConversation = conversations.find((conversation) => conversation.id === conversationId)
 
   const authFetch = async (path: string, options: RequestInit = {}) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -359,6 +360,7 @@ export default function AIDeskPage() {
     const history: ApiMessage[] = await response.json()
     setConversationId(id)
     setMessages(history.map(({ role, content }) => ({ role, content })))
+    setContextStatus(null)
   }
 
   const loadConversations = async () => {
@@ -443,17 +445,24 @@ export default function AIDeskPage() {
 
   const createConversation = async () => {
     const response = await authFetch('/conversations', { method: 'POST' })
-    if (!response.ok) return
+    if (!response.ok) {
+      setError(await describeHttpError(response, 'A new conversation could not be created.'))
+      return
+    }
     const conversation: Conversation = await response.json()
     setConversations((current) => [conversation, ...current])
     setConversationId(conversation.id)
     setMessages([])
     setContextStatus(null)
+    setError(null)
   }
 
   const deleteConversation = async (id: string) => {
     const response = await authFetch(`/conversations/${id}`, { method: 'DELETE' })
-    if (!response.ok) return
+    if (!response.ok) {
+      setError(await describeHttpError(response, 'The conversation could not be deleted.'))
+      return
+    }
     const remaining = conversations.filter((conversation) => conversation.id !== id)
     setConversations(remaining)
     if (conversationId === id) {
@@ -745,7 +754,20 @@ export default function AIDeskPage() {
           } else if (payload.type === 'done') {
             setContextStatus(payload.business_context || null)
             setConversationId(payload.conversation_id || null)
-            setConversations((current) => current.map((conversation) => conversation.id === payload.conversation_id ? { ...conversation, title: trimmedPrompt.slice(0, 42) } : conversation))
+            setConversations((current) => {
+              const updatedAt = new Date().toISOString()
+              const existing = current.some((conversation) => conversation.id === payload.conversation_id)
+              const next = existing
+                ? current.map((conversation) => conversation.id === payload.conversation_id
+                  ? { ...conversation, title: payload.title || conversation.title, updated_at: updatedAt }
+                  : conversation)
+                : [...current, {
+                  id: payload.conversation_id,
+                  title: payload.title || trimmedPrompt.slice(0, 60),
+                  updated_at: updatedAt,
+                }]
+              return next.sort((left, right) => Date.parse(right.updated_at || '') - Date.parse(left.updated_at || ''))
+            })
           } else if (payload.type === 'error') {
             throw new Error(payload.message)
           }
@@ -760,7 +782,7 @@ export default function AIDeskPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-9rem)] w-full min-w-0 max-w-[1600px] items-start gap-4">
+    <div className="mx-auto flex min-h-[calc(100vh-9rem)] w-full min-w-0 max-w-[1600px] flex-col items-stretch gap-4 lg:flex-row lg:items-start">
       <aside className="sticky top-4 hidden h-[calc(100vh-10rem)] w-60 shrink-0 flex-col overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/80 shadow-2xl shadow-slate-950/30 lg:flex xl:w-64">
         <div className="border-b border-white/10 bg-white/[0.03] p-5">
           <div className="flex items-center justify-between">
@@ -772,9 +794,27 @@ export default function AIDeskPage() {
         <div className="flex-1 space-y-1 overflow-y-auto p-3">
           {loadingConversations && <p className="px-3 py-4 text-xs text-slate-500">Loading history...</p>}
           {!loadingConversations && conversations.length === 0 && <p className="px-3 py-4 text-xs leading-5 text-slate-500">No conversations yet. Start a new brief.</p>}
-          {conversations.map((conversation) => <div key={conversation.id} className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 text-left transition ${conversation.id === conversationId ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100' : 'border-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white'}`}><button type="button" onClick={() => void loadConversation(conversation.id)} className="min-w-0 flex-1 truncate text-left text-xs">{conversation.title}</button><button type="button" onClick={() => void deleteConversation(conversation.id)} aria-label={`Delete ${conversation.title}`} title="Delete conversation" className="hidden shrink-0 text-slate-500 hover:text-rose-300 group-hover:block"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
+          {conversations.map((conversation) => <div key={conversation.id} className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 text-left transition ${conversation.id === conversationId ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100' : 'border-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white'}`}><button type="button" onClick={() => void loadConversation(conversation.id)} aria-pressed={conversation.id === conversationId} title={conversation.title} className="min-w-0 flex-1 truncate text-left text-xs">{conversation.title}</button><button type="button" onClick={() => void deleteConversation(conversation.id)} aria-label={`Delete ${conversation.title}`} title="Delete conversation" className="hidden shrink-0 text-slate-500 hover:text-rose-300 group-hover:block"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
         </div>
       </aside>
+
+      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-3 lg:hidden">
+        <label htmlFor="mobile-conversation-history" className="sr-only">Conversation history</label>
+        <select
+          id="mobile-conversation-history"
+          value={conversationId || ''}
+          onChange={(event) => {
+            if (event.target.value) void loadConversation(event.target.value)
+          }}
+          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-sm text-white"
+        >
+          <option value="" disabled>{loadingConversations ? 'Loading conversations…' : 'Select a conversation'}</option>
+          {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}
+        </select>
+        <button type="button" onClick={() => void createConversation()} aria-label="New conversation" title="New conversation" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-300 text-slate-950 transition hover:bg-cyan-200">
+          <MessageSquarePlus className="h-4 w-4" />
+        </button>
+      </div>
 
       <main className="min-w-0 flex-1 space-y-4">
       <section className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_35%),linear-gradient(135deg,_rgba(8,47,73,0.95),_rgba(15,23,42,0.98))] p-6 shadow-[0_24px_70px_rgba(8,47,73,0.35)] sm:p-8">
@@ -808,8 +848,8 @@ export default function AIDeskPage() {
         </div>
       </section>
 
-      <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
-        <div className="space-y-4">
+      <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]">
+        <div className="order-2 space-y-4 lg:order-2">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Start with a brief</p>
             <h2 className="mt-2 text-xl font-semibold text-white">What needs your attention?</h2>
@@ -953,10 +993,10 @@ export default function AIDeskPage() {
           </button>
         </div>
 
-          <div className="flex h-[calc(100vh-18rem)] min-h-[420px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30">
+          <div className="order-1 flex h-[min(68vh,780px)] min-h-[460px] min-w-0 flex-col rounded-[24px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-slate-950/30 lg:order-1">
           <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><Bot className="h-4 w-4" /></div>
-            <div><p className="font-semibold text-white">Department copilot</p><p className="text-xs text-slate-400">Context follows your ENY role</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate font-semibold text-white" title={activeConversation?.title || 'New conversation'}>{activeConversation?.title || 'New conversation'}</p><p className="text-xs text-slate-400">Department copilot · Context follows your ENY role</p></div>
           </div>
 
           {contextStatus && <div className="border-b border-white/10 bg-cyan-300/[0.04] px-5 py-3 text-xs text-slate-400">

@@ -1403,6 +1403,13 @@ def get_or_create_conversation(user_id: str, conversation_id: UUID | None, db: S
     return conversation
 
 
+def build_conversation_title(prompt: str) -> str:
+    title = " ".join(prompt.split())
+    if len(title) > 60:
+        return f"{title[:57].rstrip()}..."
+    return title or "New conversation"
+
+
 def get_recent_messages(
     conversation_id: UUID,
     db: Session,
@@ -1446,6 +1453,8 @@ async def stream_chat_response(
         db,
         allowed_context_scopes=context_scopes,
     )
+    if not previous_messages and conversation.title in {"New conversation", "ENY AI Desk"}:
+        conversation.title = build_conversation_title(request.prompt)
     history = "\n".join(f"{message.role}: {message.content}" for message in previous_messages)
     conversation_prompt = f"Recent conversation:\n{history}\n\nCurrent user request:\n{request.prompt}" if history else request.prompt
 
@@ -1479,7 +1488,7 @@ async def stream_chat_response(
         ))
         conversation.updated_at = datetime.now(timezone.utc)
         db.commit()
-        yield f"data: {json.dumps({'type': 'done', 'conversation_id': str(conversation.id), 'business_context': {'source': business_context.get('source'), 'crm_status': business_context.get('crm_status'), 'contacts_accessible': 'contacts_returned' in business_context, 'contacts_returned': business_context.get('contacts_returned', 0), 'scored_contacts': business_context.get('scored_contacts', 0), 'unscored_contacts': business_context.get('unscored_contacts', 0), 'leads_available': business_context.get('leads_available', False), 'scored_leads_count': len(business_context.get('scored_leads', [])), 'score_distribution': business_context.get('score_distribution', {}), 'contacts_source_breakdown': business_context.get('contacts_source_breakdown', {}), 'scored_leads_source_breakdown': business_context.get('scored_leads_source_breakdown', {}), 'pipeline_available': 'pipeline' in business_context and 'error' not in business_context.get('pipeline', {}), 'knowledge_entries_used': len(knowledge_context), 'active_knowledge_document_count': platform_context.get('active_knowledge_document_count')}})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'conversation_id': str(conversation.id), 'title': conversation.title, 'business_context': {'source': business_context.get('source'), 'crm_status': business_context.get('crm_status'), 'contacts_accessible': 'contacts_returned' in business_context, 'contacts_returned': business_context.get('contacts_returned', 0), 'scored_contacts': business_context.get('scored_contacts', 0), 'unscored_contacts': business_context.get('unscored_contacts', 0), 'leads_available': business_context.get('leads_available', False), 'scored_leads_count': len(business_context.get('scored_leads', [])), 'score_distribution': business_context.get('score_distribution', {}), 'contacts_source_breakdown': business_context.get('contacts_source_breakdown', {}), 'scored_leads_source_breakdown': business_context.get('scored_leads_source_breakdown', {}), 'pipeline_available': 'pipeline' in business_context and 'error' not in business_context.get('pipeline', {}), 'knowledge_entries_used': len(knowledge_context), 'active_knowledge_document_count': platform_context.get('active_knowledge_document_count')}})}\n\n"
     except Exception as exc:
         db.rollback()
         yield f"data: {json.dumps({'type': 'error', 'message': f'AI service is unavailable: {exc}'})}\n\n"

@@ -20,11 +20,18 @@ from app.api.v1.endpoints.ai import (
     DesignAssessmentRequest,
     _ai_proposable_workflows,
     assess_creative,
+    build_conversation_title,
     build_context_prompt,
     get_assistant_integrations,
     get_recent_messages,
     prepare_ai_chat_context,
 )
+
+
+def test_build_conversation_title_normalizes_and_limits_prompt():
+    assert build_conversation_title("  Review\n this   campaign  ") == "Review this campaign"
+    assert build_conversation_title("x" * 80) == f'{"x" * 57}...'
+    assert build_conversation_title("   ") == "New conversation"
 
 
 @pytest.mark.asyncio
