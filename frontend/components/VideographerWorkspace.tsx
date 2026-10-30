@@ -1,7 +1,7 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
-import { Check, Clapperboard, FileVideo2, Loader2, RefreshCw, Sparkles, Upload, Video, X } from 'lucide-react'
+import { ChangeEvent, DragEvent as ReactDragEvent, FormEvent, useEffect, useRef, useState } from 'react'
+import { Activity, Check, CheckCircle2, Clapperboard, CloudUpload, FileVideo2, HardDrive, Loader2, RefreshCw, Search, SlidersHorizontal, Sparkles, Upload, Video, X } from 'lucide-react'
 import { usePermissions } from '@/lib/permissions'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -58,7 +58,10 @@ export default function VideographerWorkspace() {
   const [teamFilter, setTeamFilter] = useState('')
   const [audienceFilter, setAudienceFilter] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [assetFilter, setAssetFilter] = useState<'all' | 'marketing' | 'raw' | 'pending' | 'approved'>('all')
   const [file, setFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
   const [team, setTeam] = useState('videographer')
   const [audience, setAudience] = useState('marketing')
@@ -128,6 +131,14 @@ export default function VideographerWorkspace() {
     if (selected && !title) setTitle(selected.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '))
   }
 
+  const onFileDrop = (event: ReactDragEvent<HTMLLabelElement>) => {
+    event.preventDefault()
+    const selected = event.dataTransfer.files[0]
+    if (!selected) return
+    setFile(selected)
+    if (!title) setTitle(selected.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '))
+  }
+
   const upload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!file || !title.trim()) return
@@ -141,6 +152,7 @@ export default function VideographerWorkspace() {
       form.append('audience', audience)
       await request('/videographer/assets', { method: 'POST', headers: await headers(), body: form })
       setFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
       setTitle('')
       setMessage('Source recording stored privately.')
       await load()
@@ -338,83 +350,217 @@ export default function VideographerWorkspace() {
   }
 
   const fileSize = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  const totalStorage = assets.reduce((total, asset) => total + asset.size_bytes, 0)
+  const transcribedCount = assets.filter((asset) => Boolean(asset.transcript)).length
+  const visibleAssets = assets.filter((asset) => {
+    const query = searchTerm.trim().toLowerCase()
+    const matchesSearch = !query || [
+      asset.title,
+      asset.original_filename,
+      asset.team,
+      asset.audience,
+      asset.status,
+    ].some((value) => value.toLowerCase().includes(query))
+    const status = asset.status.toLowerCase().replaceAll(' ', '_')
+    const isPending = !asset.transcript && (
+      status.includes('pending') || status.includes('queue') || status.includes('processing')
+    )
+    const matchesFilter = assetFilter === 'all'
+      || (assetFilter === 'marketing' && asset.audience.toLowerCase() === 'marketing')
+      || (assetFilter === 'raw' && !asset.transcript && !isPending)
+      || (assetFilter === 'pending' && isPending)
+      || (assetFilter === 'approved' && asset.generated_outputs?.some((output) => output.status === 'approved' || output.status === 'published'))
+    return matchesSearch && matchesFilter
+  })
 
   if (!canRead) {
-    return <section className="border-l-4 border-rose-500 bg-slate-900 px-5 py-4 text-sm text-slate-200">Your account does not have access to Videographer assets.</section>
+    return <section className="rounded-2xl border border-rose-900/70 bg-[#171b26] px-5 py-4 text-sm text-rose-100">Your account does not have access to Videographer assets.</section>
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-teal-300">Production · Review · Distribution</p>
-          <h1 className="mt-1 text-3xl font-semibold text-white">Videographer</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-300">Manage source recordings, transcript-based clips, approvals, and channel handoff.</p>
-        </div>
-        <button type="button" onClick={() => void load()} title="Refresh video assets" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
-
-      {message && <p role="status" className="border-l-4 border-teal-400 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</p>}
-
-      {canUpload && <form onSubmit={upload} className="grid gap-3 border-b border-slate-800 pb-5 lg:grid-cols-[1fr_1fr_150px_150px_auto] lg:items-end">
-        <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-300">Asset title</span><input value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={240} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-teal-400" /></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-300">Video or audio file</span><input type="file" accept="video/mp4,video/webm,video/quicktime,audio/*" onChange={onFileChange} required className="block w-full text-xs text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" /></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-300">Team</span><input value={team} onChange={(event) => setTeam(event.target.value)} required maxLength={80} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-300">Audience</span><select value={audience} onChange={(event) => setAudience(event.target.value)} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">{['marketing', 'programs', 'shared', 'student_success'].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
-        <button type="submit" disabled={!file || workingId === 'upload'} className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-600 disabled:opacity-50">{workingId === 'upload' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}Upload</button>
-      </form>}
-
-      <div className="flex flex-wrap items-end gap-3 border-b border-slate-800 pb-4">
-        <label className="block"><span className="mb-1 block text-[11px] text-slate-400">Team filter</span><select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)} className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"><option value="">All teams</option><option value="videographer">Videographer</option><option value="marketing">Marketing</option></select></label>
-        <label className="block"><span className="mb-1 block text-[11px] text-slate-400">Audience filter</span><select value={audienceFilter} onChange={(event) => setAudienceFilter(event.target.value)} className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"><option value="">All audiences</option>{['marketing', 'programs', 'shared', 'student_success'].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
-        <label className="block min-w-56"><span className="mb-1 block text-[11px] text-slate-400">Owner ID</span><input value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)} placeholder="Optional user UUID" className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder:text-slate-500" /></label>
-        {canUseCanva && <div className="ml-auto flex items-center gap-2 text-xs text-slate-300"><span>Canva {canvaConnected ? 'connected' : canvaConfigured ? 'ready to connect' : 'not configured'}</span>{!canvaConnected && canvaConfigured && <button type="button" onClick={() => void connectCanva()} className="rounded-md border border-slate-600 px-2.5 py-1.5 hover:bg-slate-800">Connect</button>}</div>}
-      </div>
-
-      {canUseCanva && <details className="border-b border-slate-800 pb-4">
-        <summary className="cursor-pointer text-xs font-semibold text-slate-300">Canva template mapping</summary>
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_2fr]">
-          <label><span className="mb-1 block text-[11px] text-slate-400">Brand Template ID</span><input value={canvaTemplateId} onChange={(event) => setCanvaTemplateId(event.target.value)} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
-          <label><span className="mb-1 block text-[11px] text-slate-400">Autofill data JSON (supports {'{{title}}'}, {'{{caption}}'}, {'{{hook}}'})</span><textarea rows={3} value={canvaData} onChange={(event) => setCanvaData(event.target.value)} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-white" /></label>
-        </div>
-      </details>}
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-white">Video assets <span className="ml-1 text-slate-400">{assets.length}</span></h2>{loading && <span className="text-xs text-slate-400">Loading...</span>}</div>
-        {assets.map((asset) => <article key={asset.id} className="border-t border-slate-800 pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex min-w-0 items-start gap-3"><FileVideo2 className="mt-1 h-4 w-4 shrink-0 text-teal-300" /><div className="min-w-0"><h3 className="truncate text-sm font-semibold text-white">{asset.title}</h3><p className="mt-1 text-xs text-slate-400">{asset.original_filename} · {fileSize(asset.size_bytes)} · {asset.team} · {asset.audience} · {asset.status.replaceAll('_', ' ')}</p></div></div>
-            <div className="flex flex-wrap gap-2">
-              {canEdit && !asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'transcribe')} className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 disabled:opacity-50"><Clapperboard className="h-3.5 w-3.5" />Transcribe</button>}
-              {canEdit && asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'generate-clips')} className="inline-flex items-center gap-1.5 rounded-md bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />Generate clips</button>}
+    <div className="relative -mx-4 -my-6 min-h-full overflow-hidden bg-[#0f131d] px-4 pb-10 pt-5 text-[#dfe2f1] sm:-mx-6 sm:px-6 sm:pt-6 lg:-mx-8 lg:px-8">
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-cyan-400/[0.07] blur-3xl" />
+      <div className="relative mx-auto max-w-[1440px] space-y-5">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-[#262a35] text-cyan-300">
+              <Video className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">CineOps <span className="text-slate-600">/</span> Assets</p>
+              <p className="text-sm font-semibold tracking-tight text-[#dfe2f1]">Videographer Hub</p>
             </div>
           </div>
-          {asset.transcript && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Transcript · {asset.transcript_provider || 'provider unknown'}</summary><p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap border-l border-slate-700 pl-3 text-xs leading-5 text-slate-400">{asset.transcript}</p></details>}
-          {asset.generated_outputs?.length > 0 && <div className="mt-4 space-y-3">{asset.generated_outputs.map((output, outputIndex) => {
-            const isWorking = workingId === `${asset.id}-${outputIndex}`
-            return <div key={`${output.title}-${outputIndex}`} className="border-l-2 border-slate-700 pl-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-slate-100">{output.title}</h4><span className="rounded-sm bg-slate-800 px-2 py-0.5 text-[10px] uppercase text-slate-300">{output.status}</span></div><p className="mt-1 text-xs text-slate-400">{output.start_seconds.toFixed(1)}s–{output.end_seconds.toFixed(1)}s{output.rationale ? ` · ${output.rationale}` : ''}</p></div>
-                <div className="flex flex-wrap gap-2">
-                  {canApprove && output.status === 'draft' && <><button type="button" disabled={Boolean(workingId)} onClick={() => void reviewOutput(asset, outputIndex, 'approved')} title="Approve clip" className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-700 text-emerald-300 hover:bg-emerald-950 disabled:opacity-50"><Check className="h-4 w-4" /></button><button type="button" disabled={Boolean(workingId)} onClick={() => void reviewOutput(asset, outputIndex, 'rejected')} title="Reject clip" className="flex h-8 w-8 items-center justify-center rounded-md border border-rose-800 text-rose-300 hover:bg-rose-950 disabled:opacity-50"><X className="h-4 w-4" /></button></>}
-                  {canUseCanva && canEdit && output.status === 'approved' && <button type="button" disabled={Boolean(workingId) || !canvaConnected} onClick={() => void (output.canva ? pollCanvaDesign(asset, outputIndex) : createCanvaDesign(asset, output, outputIndex))} className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 disabled:opacity-50">{isWorking ? 'Working...' : output.canva ? `Check Canva · ${output.canva.status}` : 'Create Canva design'}</button>}
-                  {canPublish && output.status === 'approved' && <><select aria-label={`Publish ${output.title} to`} value={channel} onChange={(event) => setChannel(event.target.value)} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white">{['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube'].map((value) => <option key={value} value={value}>{value}</option>)}</select><button type="button" disabled={Boolean(workingId)} onClick={() => void publish(asset, outputIndex)} className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-900 disabled:opacity-50">{isWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Video className="h-3.5 w-3.5" />}Publish</button></>}
+          <div className="flex items-center gap-2">
+            {canUseCanva && <div className="flex items-center gap-2 rounded-full border border-white/5 bg-[#171b26] px-3 py-1.5 text-[11px] text-slate-300">
+              <span className={`h-1.5 w-1.5 rounded-full ${canvaConnected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+              Canva {canvaConnected ? 'Connected' : canvaConfigured ? 'Ready to connect' : 'Not configured'}
+              {!canvaConnected && canvaConfigured && <button type="button" onClick={() => void connectCanva()} className="ml-1 font-semibold text-cyan-300 hover:text-cyan-200">Connect</button>}
+            </div>}
+            <button type="button" onClick={() => void load()} title="Refresh video assets" aria-label="Refresh video assets" className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1c1f2a] text-slate-300 transition hover:bg-[#262a35] hover:text-cyan-300">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </header>
+
+        <section className="space-y-3">
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-cyan-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+              Production · Review · Distribution
+            </p>
+            <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-[#dfe2f1] sm:text-[28px]">Videographer Hub</h1>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-[#9ba7b6] sm:text-sm">Manage source telemetry, automated speech-to-cut tracks, and multi-channel sign-offs.</p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="flex min-h-[72px] flex-col justify-between rounded-xl bg-[#171b26] p-3">
+              <span className="text-[11px] text-slate-400">Active Queue</span>
+              <span className="text-lg font-semibold text-cyan-300">{assets.length} {assets.length === 1 ? 'Clip' : 'Clips'}</span>
+            </div>
+            <div className="flex min-h-[72px] flex-col justify-between rounded-xl bg-[#171b26] p-3">
+              <span className="flex items-center gap-1.5 text-[11px] text-slate-400"><HardDrive className="h-3 w-3" />Storage sync</span>
+              <span className="text-lg font-semibold text-emerald-300">{fileSize(totalStorage)}</span>
+            </div>
+            <div className="flex min-h-[72px] flex-col justify-between rounded-xl bg-[#171b26] p-3">
+              <span className="flex items-center gap-1.5 text-[11px] text-slate-400"><Activity className="h-3 w-3" />AI Pipeline</span>
+              <span className="text-lg font-semibold text-indigo-200">{loading ? 'Syncing' : `${transcribedCount} Ready`}</span>
+            </div>
+          </div>
+        </section>
+
+        {message && <p role="status" className="rounded-xl border border-cyan-900/70 bg-[#111b25] px-4 py-3 text-sm text-cyan-100">{message}</p>}
+
+        {canUpload && <form onSubmit={upload} className="space-y-3 rounded-2xl border border-white/[0.04] bg-[#1c1f2a] p-4 shadow-[0_12px_36px_rgba(2,6,23,0.28)] sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-[#dfe2f1]"><CloudUpload className="h-5 w-5 text-cyan-300" />Ingest Footage</h2>
+            <span className="text-[10px] text-slate-400 sm:text-xs">ProRes / MP4 / MOV</span>
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Asset title</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. GIS_Raw_Demo_v02.mp4" required minLength={3} maxLength={240} className="h-11 w-full rounded-lg border border-white/[0.04] bg-[#0a0e18] px-3 text-sm text-[#dfe2f1] outline-none placeholder:text-slate-500 focus:border-cyan-400/60" />
+          </label>
+          <label onDragOver={(event) => event.preventDefault()} onDrop={onFileDrop} className="relative flex min-h-32 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-700 bg-[#0a0e18] px-4 py-5 text-center transition hover:border-cyan-400/70 hover:bg-cyan-400/[0.03]">
+            <input ref={fileInputRef} type="file" accept="video/mp4,video/webm,video/quicktime,audio/*" onChange={onFileChange} required aria-label="Choose source footage" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+            <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-cyan-400/10 text-cyan-300"><FileVideo2 className="h-6 w-6" /></span>
+            <span className="text-sm font-semibold text-[#dfe2f1]">{file ? file.name : 'Tap or drag source footage'}</span>
+            <span className="mt-1 text-xs text-slate-400">{file ? `${fileSize(file.size)} · ${file.type || 'Media file'}` : 'High-bitrate files auto-encode to proxy'}</span>
+            <span className="mt-3 flex flex-wrap justify-center gap-1.5 text-[10px] text-slate-400"><span className="rounded-full bg-[#262a35] px-2 py-0.5">4K DCI</span><span className="rounded-full bg-[#262a35] px-2 py-0.5">.MP4</span><span className="rounded-full bg-[#262a35] px-2 py-0.5">.MOV</span><span className="rounded-full bg-[#262a35] px-2 py-0.5">H.265</span></span>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="flex min-h-14 items-center justify-between gap-3 rounded-lg bg-[#0a0e18] px-3 py-2">
+              <span className="min-w-0"><span className="block text-[10px] text-slate-400">Assigned Unit</span><span className="mt-1 flex items-center gap-1.5 text-xs text-[#dfe2f1]"><span className="h-1.5 w-1.5 rounded-full bg-cyan-300" /><input value={team} onChange={(event) => setTeam(event.target.value)} required maxLength={80} aria-label="Assigned unit" className="w-full min-w-0 bg-transparent outline-none" /></span></span>
+            </label>
+            <label className="flex min-h-14 items-center justify-between gap-3 rounded-lg bg-[#0a0e18] px-3 py-2">
+              <span className="block w-full"><span className="block text-[10px] text-slate-400">Target Audience</span><select value={audience} onChange={(event) => setAudience(event.target.value)} aria-label="Target audience" className="mt-1 w-full bg-transparent text-xs text-indigo-200 outline-none">{['marketing', 'programs', 'shared', 'student_success'].map((value) => <option key={value} value={value} className="bg-[#171b26] text-white">{value.replaceAll('_', ' ')}</option>)}</select></span>
+            </label>
+          </div>
+          <button type="submit" disabled={!file || workingId === 'upload'} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-300 to-cyan-500 px-4 text-sm font-semibold text-[#003640] shadow-lg shadow-cyan-500/10 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50">
+            {workingId === 'upload' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {workingId === 'upload' ? 'Uploading asset...' : 'Upload Asset'}
+          </button>
+        </form>}
+
+        <section className="space-y-3">
+          <label className="flex h-11 items-center gap-3 rounded-xl bg-[#1c1f2a] px-3.5 text-slate-400">
+            <Search className="h-4 w-4 shrink-0" />
+            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Filter by clip name, team, audience..." aria-label="Search video assets" className="min-w-0 flex-1 bg-transparent text-sm text-[#dfe2f1] outline-none placeholder:text-slate-500" />
+            <SlidersHorizontal className="h-4 w-4 shrink-0" />
+          </label>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {([
+              ['all', `All Clips (${assets.length})`],
+              ['marketing', 'Marketing'],
+              ['raw', 'Raw Takes'],
+              ['pending', 'Pending Transcription'],
+              ['approved', 'Approved'],
+            ] as const).map(([filter, label]) => <button key={filter} type="button" onClick={() => setAssetFilter(filter)} aria-pressed={assetFilter === filter} className={`shrink-0 rounded-full px-3.5 py-2 text-[11px] font-medium transition ${assetFilter === filter ? 'bg-cyan-300 text-[#003640]' : 'bg-[#1c1f2a] text-slate-300 hover:bg-[#262a35] hover:text-white'}`}>{label}</button>)}
+          </div>
+          <details className="group rounded-xl border border-white/[0.04] bg-[#171b26]">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-3 text-xs font-semibold text-slate-300">
+              <SlidersHorizontal className="h-4 w-4 text-slate-400" />Advanced filters and integrations
+              <span className="ml-auto text-[10px] font-normal text-slate-500 group-open:hidden">Team · audience · owner · Canva</span>
+            </summary>
+            <div className="grid gap-3 border-t border-white/[0.05] p-3.5 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block"><span className="mb-1 block text-[10px] text-slate-400">Team filter</span><select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 text-xs text-white"><option value="">All teams</option><option value="videographer">Videographer</option><option value="marketing">Marketing</option></select></label>
+              <label className="block"><span className="mb-1 block text-[10px] text-slate-400">Audience filter</span><select value={audienceFilter} onChange={(event) => setAudienceFilter(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 text-xs text-white"><option value="">All audiences</option>{['marketing', 'programs', 'shared', 'student_success'].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
+              <label className="block"><span className="mb-1 block text-[10px] text-slate-400">Owner ID</span><input value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)} placeholder="Optional user UUID" className="h-10 w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 text-xs text-white placeholder:text-slate-500" /></label>
+              {canUseCanva && <div className="flex items-end text-xs text-slate-300">Canva: {canvaConnected ? 'connected' : canvaConfigured ? 'ready to connect' : 'not configured'}</div>}
+            </div>
+            {canUseCanva && <details className="border-t border-white/[0.05] px-3.5 py-3">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-300">Canva template mapping</summary>
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_2fr]">
+                <label><span className="mb-1 block text-[10px] text-slate-400">Brand Template ID</span><input value={canvaTemplateId} onChange={(event) => setCanvaTemplateId(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 text-xs text-white" /></label>
+                <label><span className="mb-1 block text-[10px] text-slate-400">Autofill data JSON (supports {'{{title}}'}, {'{{caption}}'}, {'{{hook}}'})</span><textarea rows={3} value={canvaData} onChange={(event) => setCanvaData(event.target.value)} className="w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 py-2 font-mono text-xs text-white" /></label>
+              </div>
+            </details>}
+          </details>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-[#dfe2f1]">Active Ingests</h2>
+              <span className="rounded-full bg-[#262a35] px-2 py-1 text-[10px] text-cyan-300">{visibleAssets.length} shown</span>
+            </div>
+            {loading && <span className="text-xs text-slate-400">Syncing assets...</span>}
+          </div>
+          {visibleAssets.map((asset) => <article key={asset.id} className="space-y-3 rounded-2xl border border-white/[0.04] bg-[#1c1f2a] p-3.5 shadow-[0_8px_24px_rgba(2,6,23,0.2)] sm:p-4">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="relative flex h-[76px] w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-[radial-gradient(circle_at_30%_25%,rgba(76,215,246,0.22),transparent_45%),linear-gradient(145deg,#0a0e18,#171b26)] text-cyan-300">
+                <FileVideo2 className="h-8 w-8 opacity-80" />
+                <span className="absolute bottom-1.5 right-1.5 rounded bg-[#0a0e18]/90 px-1.5 py-0.5 text-[9px] text-slate-300">{asset.mime_type.split('/').pop()?.toUpperCase() || 'MEDIA'}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-[#dfe2f1]">{asset.title}</h3>
+                    <p className="mt-1 truncate font-mono text-[10px] text-slate-400">{asset.original_filename}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] capitalize ${asset.transcript ? 'bg-emerald-400/10 text-emerald-300' : 'bg-indigo-300/10 text-indigo-200'}`}>{asset.status.replaceAll('_', ' ')}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-400">
+                  <span>{fileSize(asset.size_bytes)}</span><span>·</span><span className="text-cyan-300">{asset.team}</span><span>·</span><span className="text-indigo-200">{asset.audience}</span>
+                  {asset.created_at && <><span>·</span><span>{new Date(asset.created_at).toLocaleDateString()}</span></>}
                 </div>
               </div>
-              {output.hook && <p className="mt-2 text-xs text-teal-200">{output.hook}</p>}
-              {output.caption && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{output.caption}</p>}
-              {output.review_note && <p className="mt-2 text-[11px] text-slate-500">Review: {output.review_note}</p>}
-              {output.canva?.edit_url && <a href={output.canva.edit_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-teal-300 underline">Open Canva design</a>}
-              {output.published_url && <a href={output.published_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-teal-300 underline">View published asset</a>}
+              <div className="flex shrink-0 gap-2">
+                {canEdit && !asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'transcribe')} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-200 transition hover:border-cyan-400/50 hover:text-cyan-200 disabled:opacity-50"><Clapperboard className="h-3.5 w-3.5" />Transcribe</button>}
+                {canEdit && asset.transcript && <button type="button" disabled={Boolean(workingId)} onClick={() => void runAction(asset, 'generate-clips')} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-cyan-400/10 px-3 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />Generate clips</button>}
+              </div>
             </div>
-          })}</div>}
-        </article>)}
-        {!assets.length && !loading && <div className="flex items-center gap-3 border-t border-slate-800 py-8 text-sm text-slate-400"><Video className="h-5 w-5" />No video assets match these filters.</div>}
-      </section>
+            {asset.transcript && <details className="rounded-xl bg-[#0a0e18] px-3 py-2.5"><summary className="cursor-pointer text-xs font-semibold text-slate-300">Transcript · {asset.transcript_provider || 'provider unknown'}</summary><p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap border-l border-slate-700 pl-3 text-xs leading-5 text-slate-400">{asset.transcript}</p></details>}
+            {asset.generated_outputs?.length > 0 && <div className="space-y-3 border-t border-white/[0.05] pt-3">{asset.generated_outputs.map((output, outputIndex) => {
+              const isWorking = workingId === `${asset.id}-${outputIndex}`
+              return <div key={`${output.title}-${outputIndex}`} className="rounded-xl bg-[#0a0e18] p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-slate-100">{output.title}</h4><span className="rounded-full bg-[#262a35] px-2 py-1 text-[10px] uppercase text-slate-300">{output.status}</span></div><p className="mt-1 text-xs text-slate-400">{output.start_seconds.toFixed(1)}s–{output.end_seconds.toFixed(1)}s{output.rationale ? ` · ${output.rationale}` : ''}</p></div>
+                  <div className="flex flex-wrap gap-2">
+                    {canApprove && output.status === 'draft' && <><button type="button" disabled={Boolean(workingId)} onClick={() => void reviewOutput(asset, outputIndex, 'approved')} title="Approve clip" aria-label="Approve clip" className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-800 text-emerald-300 transition hover:bg-emerald-950 disabled:opacity-50"><Check className="h-4 w-4" /></button><button type="button" disabled={Boolean(workingId)} onClick={() => void reviewOutput(asset, outputIndex, 'rejected')} title="Reject clip" aria-label="Reject clip" className="flex h-10 w-10 items-center justify-center rounded-lg border border-rose-900 text-rose-300 transition hover:bg-rose-950 disabled:opacity-50"><X className="h-4 w-4" /></button></>}
+                    {canUseCanva && canEdit && output.status === 'approved' && <button type="button" disabled={Boolean(workingId) || !canvaConnected} onClick={() => void (output.canva ? pollCanvaDesign(asset, outputIndex) : createCanvaDesign(asset, output, outputIndex))} className="min-h-10 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-200 disabled:opacity-50">{isWorking ? 'Working...' : output.canva ? `Check Canva · ${output.canva.status}` : 'Create Canva design'}</button>}
+                    {canPublish && output.status === 'approved' && <><select aria-label={`Publish ${output.title} to`} value={channel} onChange={(event) => setChannel(event.target.value)} className="min-h-10 rounded-lg border border-slate-700 bg-[#171b26] px-2 text-xs text-white">{['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube'].map((value) => <option key={value} value={value}>{value}</option>)}</select><button type="button" disabled={Boolean(workingId)} onClick={() => void publish(asset, outputIndex)} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-xs font-semibold text-slate-900 disabled:opacity-50">{isWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Video className="h-3.5 w-3.5" />}Publish</button></>}
+                  </div>
+                </div>
+                {output.hook && <p className="mt-2 text-xs font-medium text-cyan-200">{output.hook}</p>}
+                {output.caption && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{output.caption}</p>}
+                {output.review_note && <p className="mt-2 text-[11px] text-slate-500">Review: {output.review_note}</p>}
+                {output.canva?.edit_url && <a href={output.canva.edit_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-cyan-300 underline">Open Canva design</a>}
+                {output.published_url && <a href={output.published_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-cyan-300 underline">View published asset</a>}
+              </div>
+            })}</div>}
+          </article>)}
+          {!visibleAssets.length && !loading && <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-[#171b26] px-4 text-center text-sm text-slate-400"><Video className="h-6 w-6 text-slate-500" />No video assets match these filters.</div>}
+        </section>
 
-      {canApprove && <div className="border-t border-slate-800 pt-4"><label className="block max-w-2xl"><span className="mb-1 block text-xs text-slate-400">Approval or rejection note</span><input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} minLength={3} maxLength={1000} className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white" /></label></div>}
+        {canApprove && <section className="rounded-2xl border border-white/[0.04] bg-[#1c1f2a] p-4 sm:p-5">
+          <div className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-300" /><h2 className="text-sm font-semibold text-[#dfe2f1]">Review & handoff</h2></div>
+          <p className="mt-1 text-xs text-slate-400">This note is attached when you approve or reject a clip.</p>
+          <label className="mt-3 block"><span className="sr-only">Approval or rejection note</span><input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} minLength={3} maxLength={1000} className="h-11 w-full rounded-lg border border-white/[0.05] bg-[#0a0e18] px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/60" /></label>
+        </section>}
+      </div>
     </div>
   )
 }
