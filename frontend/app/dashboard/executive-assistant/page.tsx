@@ -2,7 +2,7 @@ import ExecutiveAssistantBriefing from '@/components/ExecutiveAssistantBriefing'
 
 export default function ExecutiveAssistantPage() {
   return (
-    <div className="mx-auto max-w-[1500px]">
+    <div className="relative mx-auto max-w-[1720px]">
       <ExecutiveAssistantBriefing />
     </div>
   )
