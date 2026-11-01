@@ -1,4 +1,0 @@
-uvicorn.log
-server.log
-server.pid
-.env.new

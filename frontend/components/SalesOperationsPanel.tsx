@@ -223,126 +223,132 @@ export default function SalesOperationsPanel() {
   const intake = monitoring.lead_intake || {}
   const aging = monitoring.no_contact_aging || {}
   const cards = [
-    ['New hot leads', summary.new_hot || 0, 'text-amber-700'],
-    ['My assigned leads', summary.my_assigned || 0, 'text-cyan-700'],
-    ['Uncontacted assigned', summary.uncontacted_assigned || 0, 'text-orange-700'],
-    ['Contacted today', summary.contacted_today || 0, 'text-emerald-700'],
-    ['Workflow failures', summary.workflow_failures || 0, 'text-rose-700'],
-    ['Avg response time', summary.average_response_minutes ? `${summary.average_response_minutes}m` : '—', 'text-slate-700'],
+    ['New hot leads', summary.new_hot || 0, 'text-amber-400'],
+    ['My assigned leads', summary.my_assigned || 0, 'text-cyan-400'],
+    ['Uncontacted assigned', summary.uncontacted_assigned || 0, 'text-orange-400'],
+    ['Contacted today', summary.contacted_today || 0, 'text-emerald-400'],
+    ['Workflow failures', summary.workflow_failures || 0, 'text-rose-400'],
+    ['Avg response time', summary.average_response_minutes ? `${summary.average_response_minutes}m` : '—', 'text-slate-100'],
   ]
 
   return (
-    <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="space-y-5 rounded-2xl border border-slate-800/90 bg-[#0b0f17]/90 p-4 shadow-2xl sm:space-y-6 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Sales control surface</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-900">Lead operations</h2>
-          <p className="mt-1 text-sm text-slate-500">One view for ownership, follow-up, notification, and next action.</p>
+          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-400">Operations overview</p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight text-white">Queue health &amp; performance</h2>
+          <p className="mt-1 text-xs text-slate-400">Ownership, follow-up, notification, and next-action monitoring.</p>
         </div>
-        <button type="button" onClick={() => void load()} title="Refresh Sales operations" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <button type="button" onClick={() => void load()} title="Refresh Sales operations" aria-label="Refresh Sales operations" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/80 text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {cards.map(([label, value, color]) => <div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-xl font-bold ${color}`}>{value}</p></div>)}
+        {cards.map(([label, value, color]) => <div key={label} className={`rounded-xl border p-3 transition hover:border-slate-700 ${label === 'Workflow failures' && Number(value) > 0 ? 'border-rose-900/50 bg-rose-950/20' : 'border-slate-800 bg-[#0f1523]'}`}><p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-2xl font-bold tracking-tight ${color}`}>{value}</p></div>)}
       </div>
 
-      <div className="grid gap-3 border-y border-slate-100 py-4 md:grid-cols-4">
+      <div className="grid gap-3 border-y border-slate-800 py-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['SLA compliance', `${reporting.response_compliance_percent ?? 0}%`, 'text-cyan-700'],
-          ['Workflow success', `${reporting.workflow_success_percent ?? 0}%`, 'text-emerald-700'],
-          ['Closed leads', reporting.closed_leads ?? 0, 'text-slate-700'],
-          ['Rollout status', data.rollout?.status === 'ready' ? 'Ready' : 'Needs attention', data.rollout?.status === 'ready' ? 'text-emerald-700' : 'text-amber-700'],
-        ].map(([label, value, color]) => <div key={label} className="rounded-xl border border-slate-100 bg-white p-3"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-lg font-bold ${color}`}>{value}</p></div>)}
+          ['SLA compliance', `${reporting.response_compliance_percent ?? 0}%`, 'text-cyan-300'],
+          ['Workflow success', `${reporting.workflow_success_percent ?? 0}%`, 'text-emerald-300'],
+          ['Closed leads', reporting.closed_leads ?? 0, 'text-slate-100'],
+          ['Rollout status', data.rollout?.status === 'ready' ? 'Ready' : 'Needs attention', data.rollout?.status === 'ready' ? 'text-emerald-300' : 'text-amber-300'],
+        ].map(([label, value, color]) => <div key={label} className="rounded-xl border border-slate-800 bg-[#0f1523]/75 p-3"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className={`mt-2 text-lg font-bold ${color}`}>{value}</p></div>)}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">SLA alerting</p><h3 className="mt-1 text-sm font-semibold text-slate-900">Action queue</h3></div>
-            <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${data.health?.queue_health === 'healthy' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{data.health?.queue_health || 'unknown'}</span>
+            <div><p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">SLA alerting</p><h3 className="mt-1 text-sm font-semibold text-slate-100">Action queue</h3></div>
+            <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${data.health?.queue_health === 'healthy' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{data.health?.queue_health || 'unknown'}</span>
           </div>
           <div className="mt-3 space-y-2">
-            {alerts.length ? alerts.map((item) => <div key={item.code} className="flex items-start gap-3 rounded-lg border border-white bg-white p-3"><AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${item.severity === 'critical' ? 'text-rose-600' : 'text-amber-600'}`} /><div className="min-w-0"><p className="text-xs font-semibold text-slate-800">{item.message} <span className="text-slate-400">({item.count})</span></p><p className="mt-1 text-xs text-slate-500">{item.action}</p></div></div>) : <p className="text-xs text-slate-500">No active SLA alerts in the current queue.</p>}
+            {alerts.length ? alerts.map((item) => <div key={item.code} className={`flex items-start gap-3 rounded-lg border p-3 ${item.severity === 'critical' ? 'border-rose-900/50 bg-rose-950/20' : 'border-amber-900/50 bg-amber-950/20'}`}><AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${item.severity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`} /><div className="min-w-0"><p className="text-xs font-semibold text-slate-100">{item.message} <span className="font-mono text-slate-400">({item.count})</span></p><p className="mt-1 text-xs text-slate-400">{item.action}</p></div></div>) : <p className="text-xs text-slate-400">No active SLA alerts in the current queue.</p>}
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Team adoption</p>
-          <h3 className="mt-1 text-sm font-semibold text-slate-900">Rollout focus</h3>
-          <p className="mt-3 text-sm leading-6 text-slate-600">{data.rollout?.training_focus || 'Use the queue controls to manage the next action.'}</p>
-          <p className="mt-3 text-xs text-slate-400">CRM: {data.health?.crm_status || 'unknown'} · Open alerts: {data.rollout?.open_alerts ?? alerts.length}</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Team adoption</p>
+          <h3 className="mt-1 text-sm font-semibold text-slate-100">Rollout focus</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{data.rollout?.training_focus || 'Use the queue controls to manage the next action.'}</p>
+          <p className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400">CRM: <span className="text-slate-300">{data.health?.crm_status || 'unknown'}</span> · Open alerts: <span className="font-mono text-amber-300">{data.rollout?.open_alerts ?? alerts.length}</span></p>
         </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Daily intake</p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{intake.today ?? 0}</p>
-          <p className="mt-1 text-xs text-slate-500">New leads today · yesterday {intake.yesterday ?? 0}{intake.change_percent !== null && intake.change_percent !== undefined ? ` · ${intake.change_percent}% change` : ''}</p>
-          <p className="mt-4 text-xs font-semibold text-rose-700">Stale leads: {monitoring.stale_leads ?? 0}</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Daily intake</p>
+          <p className="mt-2 text-2xl font-bold text-white">{intake.today ?? 0}</p>
+          <p className="mt-1 text-xs text-slate-400">New leads today · yesterday {intake.yesterday ?? 0}{intake.change_percent !== null && intake.change_percent !== undefined ? ` · ${intake.change_percent}% change` : ''}</p>
+          <p className="mt-4 border-t border-slate-800 pt-3 text-xs font-semibold text-rose-300">Stale leads: {monitoring.stale_leads ?? 0}</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">No-contact aging</p>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-            <span>&lt; 1h <strong className="float-right text-slate-900">{aging.under_1_hour ?? 0}</strong></span>
-            <span>1-4h <strong className="float-right text-slate-900">{aging.one_to_four_hours ?? 0}</strong></span>
-            <span>4-24h <strong className="float-right text-amber-700">{aging.four_to_twenty_four_hours ?? 0}</strong></span>
-            <span>&gt; 24h <strong className="float-right text-rose-700">{aging.over_24_hours ?? 0}</strong></span>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">No-contact aging</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-400">
+            <span className="rounded border border-slate-800 bg-slate-900/60 p-2">&lt; 1h <strong className="float-right text-slate-100">{aging.under_1_hour ?? 0}</strong></span>
+            <span className="rounded border border-slate-800 bg-slate-900/60 p-2">1-4h <strong className="float-right text-slate-100">{aging.one_to_four_hours ?? 0}</strong></span>
+            <span className="rounded border border-slate-800 bg-slate-900/60 p-2">4-24h <strong className="float-right text-amber-300">{aging.four_to_twenty_four_hours ?? 0}</strong></span>
+            <span className="rounded border border-rose-900/40 bg-rose-950/20 p-2">&gt; 24h <strong className="float-right text-rose-300">{aging.over_24_hours ?? 0}</strong></span>
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Owner workload</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Owner workload</p>
           <div className="mt-3 space-y-2 text-xs">
-            {(monitoring.owner_workload || []).slice(0, 4).map((owner) => <div key={owner.owner_id} className="flex items-center justify-between gap-3 text-slate-600"><span className="truncate">{owner.owner_id === 'unassigned' ? 'Unassigned' : teamMembers.find((member) => member.id === owner.owner_id)?.name || `Owner ${owner.owner_id.slice(0, 8)}`}</span><span className="font-semibold text-slate-900">{owner.active} active <span className={owner.stale ? 'text-rose-700' : 'text-slate-400'}>({owner.stale} stale)</span></span></div>)}
-            {!monitoring.owner_workload?.length && <span className="text-slate-500">No assigned workload.</span>}
+            {(monitoring.owner_workload || []).slice(0, 4).map((owner) => <div key={owner.owner_id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-2 text-slate-300"><span className="truncate">{owner.owner_id === 'unassigned' ? 'Unassigned' : teamMembers.find((member) => member.id === owner.owner_id)?.name || `Owner ${owner.owner_id.slice(0, 8)}`}</span><span className="shrink-0 font-semibold text-slate-100">{owner.active} active <span className={owner.stale ? 'text-rose-300' : 'text-slate-400'}>({owner.stale} stale)</span></span></div>)}
+            {!monitoring.owner_workload?.length && <span className="text-slate-400">No assigned workload.</span>}
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Conversion by source</p>
+      <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Conversion by source</p>
+            <p className="mt-1 text-xs text-slate-500">Live breakdown of lead capture and conversion milestones</p>
+          </div>
+          <span className="rounded border border-slate-800 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-400">{Object.keys(monitoring.conversion_by_source || {}).length} channels</span>
+        </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {Object.entries(monitoring.conversion_by_source || {}).map(([sourceName, sourceData]) => <div key={sourceName} className="rounded-lg bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold text-slate-800">{sourceName}</span><span className="text-xs font-bold text-emerald-700">{sourceData.conversion_percent}%</span></div><p className="mt-1 text-[11px] text-slate-500">{sourceData.total} total · {sourceData.contacted} contacted · {sourceData.closed} closed</p></div>)}
+          {Object.entries(monitoring.conversion_by_source || {}).map(([sourceName, sourceData]) => <div key={sourceName} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold text-slate-200">{sourceName}</span><span className="text-xs font-bold text-emerald-300">{sourceData.conversion_percent}%</span></div><p className="mt-1 text-[11px] text-slate-400">{sourceData.total} total · {sourceData.contacted} contacted · {sourceData.closed} closed</p></div>)}
           {!Object.keys(monitoring.conversion_by_source || {}).length && <p className="text-xs text-slate-500">No source data available.</p>}
         </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">CRM quality</p>
-          <div className="mt-2 flex flex-wrap items-center gap-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${data.quality?.quality_status === 'healthy' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{data.quality?.quality_status || 'not checked'}</span><span className="text-xs text-slate-500">{data.quality?.contacts_checked ?? 0} contacts checked</span><span className="text-xs text-slate-500">{data.quality?.duplicate_groups?.length ?? 0} duplicate groups</span></div>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">CRM quality</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3"><span className={`rounded border px-2 py-1 text-xs font-semibold ${data.quality?.quality_status === 'healthy' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{data.quality?.quality_status || 'not checked'}</span><span className="text-xs text-slate-400">{data.quality?.contacts_checked ?? 0} contacts checked</span><span className="text-xs text-slate-400">{data.quality?.duplicate_groups?.length ?? 0} duplicate groups</span></div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Weekly review</p>
-          <p className="mt-2 text-xs leading-5 text-slate-600">{data.adoption?.policy?.weekly_review?.[0] || 'Review the queue and open alerts every week.'}</p>
-          <p className="mt-2 text-xs text-slate-500">{data.adoption?.weekly_review?.audit_events ?? 0} audit events · {data.adoption?.weekly_review?.open_escalations ?? 0} escalations · {data.adoption?.weekly_review?.stale_active_work ?? 0} stale active</p>
+        <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+          <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Weekly review</p>
+          <p className="mt-2 text-xs leading-5 text-slate-300">{data.adoption?.policy?.weekly_review?.[0] || 'Review the queue and open alerts every week.'}</p>
+          <p className="mt-2 text-xs text-slate-400">{data.adoption?.weekly_review?.audit_events ?? 0} audit events · {data.adoption?.weekly_review?.open_escalations ?? 0} escalations · {data.adoption?.weekly_review?.stale_active_work ?? 0} stale active</p>
         </div>
       </div>
 
-      {data.persistentAlerts?.length ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-amber-700">Sales & Enrollment alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-amber-950">{alert.message}</span><div className="flex items-center gap-2"><span className="shrink-0 font-semibold uppercase text-amber-700">{alert.source}</span>{['n8n_webhook_failure', 'follow_up_tag_failure', 'sales_team_notification', 'hot_lead_ready'].includes(alert.type) && <button type="button" onClick={() => void acknowledgeAlert(alert.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-800 hover:bg-amber-100">{alert.type === 'follow_up_tag_failure' ? 'Acknowledge to allow retry' : 'Mark reviewed'}</button>}</div></div>)}</div></div> : null}
+      {data.persistentAlerts?.length ? <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 p-4"><p className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-amber-300">Sales &amp; Enrollment alerts</p><div className="mt-2 space-y-2">{data.persistentAlerts.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-900/40 bg-slate-950/30 p-3 text-xs"><span className="min-w-0 flex-1 text-amber-100">{alert.message}</span><div className="flex items-center gap-2"><span className="shrink-0 font-semibold uppercase text-amber-300">{alert.source}</span>{['n8n_webhook_failure', 'follow_up_tag_failure', 'sales_team_notification', 'hot_lead_ready'].includes(alert.type) && <button type="button" onClick={() => void acknowledgeAlert(alert.id)} className="rounded-md border border-amber-700/60 bg-amber-950/50 px-2 py-1 font-semibold text-amber-200 transition hover:bg-amber-900/60">{alert.type === 'follow_up_tag_failure' ? 'Acknowledge to allow retry' : 'Mark reviewed'}</button>}</div></div>)}</div></div> : null}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Performance review</p>
+      <div className="rounded-xl border border-slate-800 bg-[#0f1523] p-4">
+        <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-400">Performance review</p>
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-          <div><span className="text-slate-500">Funnel closed</span><strong className="float-right text-slate-900">{data.performance?.conversion_funnel?.closed ?? 0}</strong></div>
-          <div><span className="text-slate-500">Hot &gt; 3 days</span><strong className="float-right text-rose-700">{data.performance?.hot_lead_aging?.over_3_days ?? 0}</strong></div>
-          <div><span className="text-slate-500">Blocked</span><strong className="float-right text-amber-700">{(data.performance?.blocked_queue?.held ?? 0) + (data.performance?.blocked_queue?.escalated ?? 0)}</strong></div>
-          <div><span className="text-slate-500">Exceptions</span><strong className="float-right text-slate-900">{(data.performance?.exceptions?.reassignments ?? 0) + (data.performance?.exceptions?.failed_events ?? 0)}</strong></div>
+          <div><span className="text-slate-400">Funnel closed</span><strong className="float-right text-slate-100">{data.performance?.conversion_funnel?.closed ?? 0}</strong></div>
+          <div><span className="text-slate-400">Hot &gt; 3 days</span><strong className="float-right text-rose-300">{data.performance?.hot_lead_aging?.over_3_days ?? 0}</strong></div>
+          <div><span className="text-slate-400">Blocked</span><strong className="float-right text-amber-300">{(data.performance?.blocked_queue?.held ?? 0) + (data.performance?.blocked_queue?.escalated ?? 0)}</strong></div>
+          <div><span className="text-slate-400">Exceptions</span><strong className="float-right text-slate-100">{(data.performance?.exceptions?.reassignments ?? 0) + (data.performance?.exceptions?.failed_events ?? 0)}</strong></div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-y border-slate-100 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-y border-slate-800 py-3">
         <Filter className="h-4 w-4 text-slate-400" />
-        <select aria-label="Queue status" value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700"><option value="all">All statuses</option>{statuses.slice(1).map((item) => <option key={item} value={item}>{item}</option>)}</select>
-        <select aria-label="Ownership scope" value={scope} onChange={(event) => setScope(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700"><option value="all">All ownership</option><option value="mine">My leads</option><option value="unassigned">Unassigned</option></select>
-        <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700"><option value="all">All sources</option>{sources.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-        <select aria-label="Score range" value={score} onChange={(event) => setScore(event.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700"><option value="all">All scores</option><option value="hot">Hot (85+)</option><option value="qualified">Qualified (70+)</option></select>
+        <select aria-label="Queue status" value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-9 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"><option value="all">All statuses</option>{statuses.slice(1).map((item) => <option key={item} value={item}>{item}</option>)}</select>
+        <select aria-label="Ownership scope" value={scope} onChange={(event) => setScope(event.target.value)} className="min-h-9 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"><option value="all">All ownership</option><option value="mine">My leads</option><option value="unassigned">Unassigned</option></select>
+        <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)} className="min-h-9 max-w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"><option value="all">All sources</option>{sources.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+        <select aria-label="Score range" value={score} onChange={(event) => setScore(event.target.value)} className="min-h-9 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"><option value="all">All scores</option><option value="hot">Hot (85+)</option><option value="qualified">Qualified (70+)</option></select>
       </div>
 
-      {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-      {assignmentError && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{assignmentError}</div>}
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Sales lead views">
+      {error && <div role="alert" className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-3 py-2 text-sm text-rose-200">{error}</div>}
+      {assignmentError && <div role="alert" className="rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">{assignmentError}</div>}
+      <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3" role="tablist" aria-label="Sales lead views">
         {([
           ['queue', 'All leads'],
           ['mine', 'My leads'],
@@ -358,7 +364,7 @@ export default function SalesOperationsPanel() {
               setActiveTab(tab)
               if (tab === 'mine' || tab === 'assigned' || tab === 'unassigned') setScope('all')
             }}
-            className={`rounded-lg px-3 py-2 text-xs font-semibold ${activeTab === tab ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            className={`min-h-9 rounded-lg px-3 py-2 text-xs font-semibold transition ${activeTab === tab ? 'border border-cyan-500/30 bg-cyan-500/10 text-cyan-200' : 'border border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700 hover:bg-slate-800 hover:text-slate-200'}`}
           >
             {label}
           </button>
@@ -367,29 +373,29 @@ export default function SalesOperationsPanel() {
       {activeTab === 'audit' ? (
         <div className="space-y-2">
           {(data.audit_events || []).map((event) => (
-            <article key={event.id} className="rounded-xl border border-slate-200 bg-white p-3">
+            <article key={event.id} className="rounded-xl border border-slate-800 bg-[#0f1523] p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-slate-900">{event.event_type.replaceAll('_', ' ')}</p>
-                <time className="text-[11px] text-slate-500">{event.created_at ? new Date(event.created_at).toLocaleString() : 'Time unavailable'}</time>
+                <p className="text-xs font-semibold text-slate-100">{event.event_type.replaceAll('_', ' ')}</p>
+                <time className="text-[11px] text-slate-400">{event.created_at ? new Date(event.created_at).toLocaleString() : 'Time unavailable'}</time>
               </div>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-slate-300">
                 {String(event.details.reason || event.details.comment || event.details.next_step || 'Enrollment activity recorded')}
                 {event.result_id ? ` · Lead ${event.result_id.slice(0, 8)}` : ''}
               </p>
-              <p className="mt-1 text-[10px] text-slate-400">By {teamMembers.find((member) => member.id === event.user_id)?.name || `team member ${event.user_id.slice(0, 8)}`}</p>
+              <p className="mt-1 text-[10px] text-slate-500">By {teamMembers.find((member) => member.id === event.user_id)?.name || `team member ${event.user_id.slice(0, 8)}`}</p>
             </article>
           ))}
-          {!data.audit_events?.length && <p className="rounded-xl border border-slate-200 p-6 text-center text-sm text-slate-500">No audit events found.</p>}
+          {!data.audit_events?.length && <p className="rounded-xl border border-slate-800 p-6 text-center text-sm text-slate-400">No audit events found.</p>}
         </div>
-      ) : <div className="overflow-x-auto">
+      ) : <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0f1523]" role="region" aria-label="Lead operations results" tabIndex={0}>
         <table className="w-full min-w-[1200px] text-left text-xs">
-          <thead className="bg-slate-50 uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-3">Lead</th><th className="px-3 py-3">Source / score</th><th className="px-3 py-3">Origin</th><th className="px-3 py-3">Queue</th><th className="px-3 py-3">Owner</th><th className="px-3 py-3">Follow-up</th><th className="px-3 py-3">Notification</th><th className="px-3 py-3">Last action</th><th className="px-3 py-3">Next action</th><th className="px-3 py-3">Result</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">
-            {data.results.map((row) => <tr key={row.id} className="hover:bg-slate-50">
-              <td className="px-3 py-3"><p className="font-semibold text-slate-900">{row.contact_name || row.contact_id}</p><p className="text-slate-500">{row.email || row.contact_id}</p></td>
-              <td className="px-3 py-3"><p className="text-slate-700">{row.source || 'Unknown'}</p><p className="font-semibold text-slate-900">{row.score ?? '—'}</p></td>
-              <td className="px-3 py-3 text-slate-600"><p>{row.score_origin.replaceAll('_', ' ')}</p>{row.score_factors && <p className="mt-1 text-[10px]">Intent {row.score_factors.intent_score ?? 0} · fit {row.score_factors.fit_score ?? 0} · engagement {row.score_factors.engagement_score ?? 0}</p>}{row.score_reasoning && <p className="mt-1 max-w-xs text-[10px] leading-4">{row.score_reasoning}</p>}{row.score_evidence?.length ? <p className="mt-1 max-w-xs text-[10px]">Evidence: {row.score_evidence.join('; ')}</p> : null}{row.score_unknowns?.length ? <p className="mt-1 max-w-xs text-[10px] text-amber-700">Unknown: {row.score_unknowns.join('; ')}</p> : null}{row.next_best_action && <p className="mt-1 max-w-xs text-[10px] font-medium text-cyan-800">Next: {row.next_best_action}</p>}</td>
-              <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">{row.queue_status}</span></td>
+          <thead className="border-b border-slate-800 bg-[#090d16] uppercase tracking-wide text-slate-400"><tr><th scope="col" className="px-3 py-3">Lead</th><th scope="col" className="px-3 py-3">Source / score</th><th scope="col" className="px-3 py-3">Origin</th><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Owner</th><th scope="col" className="px-3 py-3">Follow-up</th><th scope="col" className="px-3 py-3">Notification</th><th scope="col" className="px-3 py-3">Last action</th><th scope="col" className="px-3 py-3">Next action</th><th scope="col" className="px-3 py-3">Result</th></tr></thead>
+          <tbody className="divide-y divide-slate-800/80">
+            {data.results.map((row) => <tr key={row.id} className="text-slate-300 transition hover:bg-slate-900/60">
+              <td className="px-3 py-3"><p className="font-semibold text-slate-100">{row.contact_name || row.contact_id}</p><p className="text-slate-400">{row.email || row.contact_id}</p></td>
+              <td className="px-3 py-3"><p className="text-slate-300">{row.source || 'Unknown'}</p><p className="font-semibold text-slate-100">{row.score ?? '—'}</p></td>
+              <td className="px-3 py-3 text-slate-300"><p>{row.score_origin.replaceAll('_', ' ')}</p>{row.score_factors && <p className="mt-1 text-[10px] text-slate-400">Intent {row.score_factors.intent_score ?? 0} · fit {row.score_factors.fit_score ?? 0} · engagement {row.score_factors.engagement_score ?? 0}</p>}{row.score_reasoning && <p className="mt-1 max-w-xs text-[10px] leading-4 text-slate-400">{row.score_reasoning}</p>}{row.score_evidence?.length ? <p className="mt-1 max-w-xs text-[10px] text-slate-400">Evidence: {row.score_evidence.join('; ')}</p> : null}{row.score_unknowns?.length ? <p className="mt-1 max-w-xs text-[10px] text-amber-300">Unknown: {row.score_unknowns.join('; ')}</p> : null}{row.next_best_action && <p className="mt-1 max-w-xs text-[10px] font-medium text-cyan-300">Next: {row.next_best_action}</p>}</td>
+              <td className="px-3 py-3"><span className="rounded border border-slate-700 bg-slate-800 px-2 py-1 font-medium text-slate-200">{row.queue_status}</span></td>
               <td className="px-3 py-3">
                 <div className="flex items-center gap-1">
                   <UserRound className="h-3.5 w-3.5 text-slate-500" />
@@ -401,7 +407,7 @@ export default function SalesOperationsPanel() {
                         : ''}
                       disabled={row.category !== 'hot' || row.queue_status === 'closed' || assigningId === row.id || !teamMembers.length}
                       onChange={(event) => void assignLead(row, event.target.value)}
-                      className="max-w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 disabled:bg-slate-50"
+                      className="max-w-48 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 focus:border-cyan-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">{row.assigned_user_id ? 'Assignee unavailable' : 'Assign owner'}</option>
                       {teamMembers.map((member) => (
@@ -411,28 +417,28 @@ export default function SalesOperationsPanel() {
                       ))}
                     </select>
                   ) : (
-                    <span className="text-slate-600">
+                    <span className="text-slate-300">
                       {row.assigned_user_id
                         ? `Owner ${row.assigned_user_id.slice(0, 8)}`
                         : 'Unassigned'}
                     </span>
                   )}
                 </div>
-                {row.assigned_department && <span className="mt-1 inline-block rounded-full bg-violet-50 px-2 py-0.5 text-[10px] capitalize text-violet-700">{row.assigned_department}</span>}
+                {row.assigned_department && <span className="mt-1 inline-block rounded border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-[10px] capitalize text-violet-300">{row.assigned_department}</span>}
               </td>
               <td className="px-3 py-3">
-                <span className={row.follow_up_status === 'tagged' ? 'text-emerald-700' : 'text-slate-600'}>{row.follow_up_status}</span>
-                {row.lifecycle_stage && <span className="ml-1 rounded-full bg-cyan-50 px-2 py-0.5 capitalize text-cyan-700">{row.lifecycle_stage.replaceAll('_', ' ')}</span>}
-                {row.last_comment && <p className="mt-1 max-w-48 truncate text-[10px] text-slate-500" title={row.last_comment}>Comment: {row.last_comment}</p>}
+                <span className={row.follow_up_status === 'tagged' ? 'text-emerald-300' : 'text-slate-300'}>{row.follow_up_status}</span>
+                {row.lifecycle_stage && <span className="ml-1 rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 capitalize text-cyan-300">{row.lifecycle_stage.replaceAll('_', ' ')}</span>}
+                {row.last_comment && <p className="mt-1 max-w-48 truncate text-[10px] text-slate-400" title={row.last_comment}>Comment: {row.last_comment}</p>}
               </td>
-              <td className="px-3 py-3"><span className={row.notification_status === 'sent' ? 'text-emerald-700' : row.notification_status === 'failed' ? 'text-rose-700' : 'text-slate-600'}>{row.notification_status}</span>{row.notification_error && <p className="max-w-[150px] truncate text-rose-600" title={row.notification_error}>{row.notification_error}</p>}</td>
-              <td className="px-3 py-3 text-slate-500">{row.last_action_at ? new Date(row.last_action_at).toLocaleString() : '—'}</td>
-              <td className="px-3 py-3 font-medium text-slate-700">{row.next_action}</td>
-              <td className="px-3 py-3">{row.error ? <span className="inline-flex items-center gap-1 text-rose-700"><AlertTriangle className="h-3.5 w-3.5" /> Error</span> : row.retry_available ? <span className="text-amber-700">Retry available</span> : <span className="inline-flex items-center gap-1 text-slate-500"><CheckCircle2 className="h-3.5 w-3.5" /> {row.execution_status || 'ok'}</span>} <span className="ml-1 inline-flex items-center gap-1 text-slate-400" title="GHL contact reference"><ExternalLink className="h-3 w-3" />{row.ghl_contact_reference}</span></td>
+              <td className="px-3 py-3"><span className={row.notification_status === 'sent' ? 'text-emerald-300' : row.notification_status === 'failed' ? 'text-rose-300' : 'text-slate-300'}>{row.notification_status}</span>{row.notification_error && <p className="max-w-[150px] truncate text-rose-300" title={row.notification_error}>{row.notification_error}</p>}</td>
+              <td className="px-3 py-3 text-slate-400">{row.last_action_at ? new Date(row.last_action_at).toLocaleString() : '—'}</td>
+              <td className="px-3 py-3 font-medium text-slate-200">{row.next_action}</td>
+              <td className="px-3 py-3">{row.error ? <span className="inline-flex items-center gap-1 text-rose-300"><AlertTriangle className="h-3.5 w-3.5" /> Error</span> : row.retry_available ? <span className="text-amber-300">Retry available</span> : <span className="inline-flex items-center gap-1 text-slate-400"><CheckCircle2 className="h-3.5 w-3.5" /> {row.execution_status || 'ok'}</span>} <span className="ml-1 inline-flex items-center gap-1 text-slate-400" title="GHL contact reference"><ExternalLink className="h-3 w-3" />{row.ghl_contact_reference}</span></td>
             </tr>)}
           </tbody>
         </table>
-        {!data.results.length && !loading && <p className="p-6 text-center text-sm text-slate-500">No leads match the current filters.</p>}
+        {!data.results.length && !loading && <p className="p-6 text-center text-sm text-slate-400">No leads match the current filters.</p>}
       </div>}
     </section>
   )
