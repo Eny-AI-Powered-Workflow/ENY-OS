@@ -115,14 +115,14 @@ export default function PlatformAlertInbox() {
   }
 
   return (
-    <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="space-y-5 rounded-2xl border border-slate-800/90 bg-[#0e1222] p-4 shadow-2xl sm:space-y-6 sm:p-6">
+      <div className="flex flex-col justify-between gap-4 border-b border-slate-800/80 pb-5 sm:flex-row sm:items-center">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-violet-600">Platform messages</p>
-          <h2 className="mt-1 flex items-center gap-2 text-xl font-semibold text-slate-900">
-            <Bell className="h-5 w-5" /> Sales &amp; Enrollment alerts
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">Platform messages</p>
+          <h2 className="mt-1 flex items-center gap-2 text-lg font-semibold tracking-tight text-white">
+            <Bell className="h-4 w-4 text-indigo-400" /> Sales &amp; Enrollment alerts
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-xs text-slate-400">
             Shared operational alerts. Read state and dismissal are private to your account.
           </p>
         </div>
@@ -131,7 +131,7 @@ export default function PlatformAlertInbox() {
             type="button"
             onClick={() => void generateSummary()}
             disabled={working || inbox.alerts.length === 0}
-            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-violet-200 px-3 text-xs font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-violet-800/70 bg-violet-950/40 px-3 text-xs font-semibold text-violet-200 transition hover:border-violet-600/70 hover:bg-violet-900/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" /> Claude alert summary
           </button>
@@ -140,54 +140,63 @@ export default function PlatformAlertInbox() {
             onClick={() => void loadInbox()}
             disabled={loading}
             aria-label="Refresh alerts"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Alerts</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{inbox.total_count}</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-800 bg-[#121729] p-4 transition hover:border-slate-700">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Alerts</p>
+          <p className="mt-1 text-2xl font-extrabold tracking-tight text-white">{inbox.total_count}</p>
+          <p className="mt-1 text-[10px] text-slate-500">Total active in inbox</p>
         </div>
-        <div className="rounded-xl bg-cyan-50 p-3">
-          <p className="text-[10px] uppercase tracking-wide text-cyan-700">Unread for you</p>
-          <p className="mt-1 text-xl font-bold text-cyan-900">{inbox.unread_count}</p>
+        <div className="relative overflow-hidden rounded-xl border border-cyan-900/50 bg-[#0b1c2b]/70 p-4 transition hover:border-cyan-700/60">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Unread for you</p>
+          <p className="mt-1 text-2xl font-extrabold tracking-tight text-cyan-300">{inbox.unread_count}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[10px] text-cyan-400/80">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+            Action required by you
+          </p>
         </div>
-        <div className="rounded-xl bg-rose-50 p-3">
-          <p className="text-[10px] uppercase tracking-wide text-rose-700">Critical</p>
-          <p className="mt-1 text-xl font-bold text-rose-900">
+        <div className="relative overflow-hidden rounded-xl border border-rose-900/50 bg-[#24111d]/60 p-4 transition hover:border-rose-700/60">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Critical</p>
+          <p className="mt-1 text-2xl font-extrabold tracking-tight text-rose-300">
             {inbox.critical_count}
+          </p>
+          <p className="mt-1 flex items-center gap-1.5 text-[10px] text-rose-400/80">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+            Unresolved critical alerts
           </p>
         </div>
       </div>
 
       {summary && (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4" aria-live="polite">
-          <p className="flex items-center gap-2 text-xs font-semibold text-violet-900">
+        <div className="rounded-xl border border-violet-800/50 bg-violet-950/30 p-4" aria-live="polite">
+          <p className="flex items-center gap-2 text-xs font-semibold text-violet-200">
             <Sparkles className="h-4 w-4" /> Claude summary
           </p>
-          <p className="mt-2 text-sm leading-6 text-violet-950">{summary.summary}</p>
-          <p className="mt-2 text-[11px] text-violet-700">
+          <p className="mt-2 text-sm leading-6 text-violet-100">{summary.summary}</p>
+          <p className="mt-2 text-[11px] text-violet-300">
             Last 24 hours: {summary.counts.total_24h} alerts · {summary.counts.unread} unread · {summary.counts.critical_24h} critical
           </p>
         </div>
       )}
 
-      {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+      {error && <p role="alert" className="rounded-lg border border-rose-900/60 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
 
       {loading && inbox.alerts.length === 0 ? (
-        <p className="py-6 text-center text-sm text-slate-500">Loading platform alerts…</p>
+        <p role="status" className="py-6 text-center text-sm text-slate-400">Loading platform alerts…</p>
       ) : inbox.alerts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
-          <Bell className="mx-auto h-6 w-6 text-slate-400" />
-          <p className="mt-2 text-sm font-medium text-slate-700">No platform alerts</p>
-          <p className="mt-1 text-xs text-slate-500">New Sales &amp; Enrollment operational alerts will appear here.</p>
+        <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center">
+          <Bell className="mx-auto h-6 w-6 text-slate-500" />
+          <p className="mt-2 text-sm font-medium text-slate-200">No platform alerts</p>
+          <p className="mt-1 text-xs text-slate-400">New Sales &amp; Enrollment operational alerts will appear here.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 pt-1" aria-label="Platform alert feed">
           {inbox.alerts.map((alert) => {
             const chatStatus = (alert.details.google_chat as { status?: string } | undefined)?.status
             const contactId = typeof alert.details.contact_id === 'string' ? alert.details.contact_id : null
@@ -195,39 +204,62 @@ export default function PlatformAlertInbox() {
             return (
               <article
                 key={alert.id}
-                className={`rounded-xl border p-4 ${alert.severity === 'critical' ? 'border-rose-200 bg-rose-50/60' : 'border-slate-200 bg-white'} ${alert.is_read ? 'opacity-75' : ''}`}
+                className={`rounded-xl border p-4 transition sm:p-5 ${
+                  alert.severity === 'critical'
+                    ? 'border-rose-900/50 bg-[linear-gradient(180deg,rgba(244,63,94,0.045)_0%,rgba(17,21,40,0.65)_100%)] hover:border-rose-800/70'
+                    : 'border-slate-800 bg-[#111528]/80 hover:border-slate-700'
+                } ${alert.is_read ? 'opacity-75' : ''}`}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div className={`mt-0.5 shrink-0 rounded-md border p-1.5 ${
+                      alert.severity === 'critical'
+                        ? 'border-rose-500/20 bg-rose-500/10 text-rose-400'
+                        : 'border-slate-700 bg-slate-800/70 text-slate-400'
+                    }`}>
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      {alert.severity === 'critical' && <AlertTriangle className="h-4 w-4 text-rose-700" />}
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${alert.severity === 'critical' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>
+                      <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        alert.severity === 'critical'
+                          ? 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+                          : 'border-slate-700 bg-slate-800 text-slate-300'
+                      }`}>
                         {alert.severity}
                       </span>
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{alert.type.replaceAll('_', ' ')}</span>
-                      {!alert.is_read && <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-800">Unread</span>}
+                      <span className="rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                        {alert.type.replaceAll('_', ' ')}
+                      </span>
+                      {!alert.is_read && <span className="rounded-md border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">Unread</span>}
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-900">{alert.message}</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-white">{alert.message}</p>
                     {failureDetail && ['sales_scoring_failure', 'scoring_writeback_failure'].includes(alert.type) && (
-                      <details className="mt-2 rounded-lg border border-rose-200 bg-white/80 px-3 py-2 text-xs text-rose-900">
-                        <summary className="cursor-pointer font-semibold">Technical failure detail</summary>
-                        <p className="mt-2 whitespace-pre-wrap break-words">{failureDetail}</p>
+                      <details className="group/details mt-3 rounded-lg border border-rose-900/40 bg-rose-950/20 p-3 text-xs text-rose-300">
+                        <summary className="cursor-pointer select-none font-semibold hover:text-rose-200">Technical failure detail</summary>
+                        <p className="mt-2 whitespace-pre-wrap break-words rounded border border-rose-900/30 bg-rose-950/40 px-3 py-2 font-mono">{failureDetail}</p>
                       </details>
                     )}
-                    <p className="mt-2 text-[11px] text-slate-500">
-                      {alert.source} · {alert.created_at ? new Date(alert.created_at).toLocaleString() : 'Time unavailable'}
-                      {chatStatus ? ` · Google Chat: ${chatStatus}` : ''}
-                      {contactId ? ` · GHL contact ${contactId}` : ''}
-                      {alert.result_id ? ` · Result ${alert.result_id}` : ''}
-                    </p>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-800/80 pt-3 text-[11px] text-slate-400">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-purple-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
+                        {alert.source}
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>{alert.created_at ? new Date(alert.created_at).toLocaleString() : 'Time unavailable'}</span>
+                      {chatStatus && <><span className="text-slate-600">·</span><span>Google Chat: <span className="text-slate-300">{chatStatus}</span></span></>}
+                      {contactId && <><span className="text-slate-600">·</span><span>GHL contact <span className="font-mono text-slate-300">{contactId}</span></span></>}
+                      {alert.result_id && <><span className="text-slate-600">·</span><span>Result <span className="font-mono text-slate-300">{alert.result_id}</span></span></>}
+                    </div>
+                    </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 gap-2 sm:self-start">
                     {!alert.is_read && (
                       <button
                         type="button"
                         onClick={() => void updateAlert(alert.id, 'read')}
                         disabled={working}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-600/80 bg-slate-800 px-2.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Check className="h-3.5 w-3.5" /> Mark read
                       </button>
@@ -239,7 +271,7 @@ export default function PlatformAlertInbox() {
                         disabled={working}
                         aria-label="Dismiss this alert from your inbox"
                         title="Dismiss for me; the shared record is retained"
-                        className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-900/90 px-2.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Dismiss
                       </button>
