@@ -1,0 +1,1 @@
+# /home/obed/Documents/Eny_consulting/Eny_consulting/backend/app/core/__init__.py

@@ -1,0 +1,457 @@
+import pytest
+from datetime import date
+from unittest.mock import AsyncMock
+
+import httpx
+
+from app.services.ghl_service import GHLService
+
+
+@pytest.mark.asyncio
+async def test_get_contacts_by_ids_fetches_only_requested_contacts_and_accepts_not_found(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def __init__(self, status_code, payload, url):
+            self.status_code = status_code
+            self.payload = payload
+            self.request = httpx.Request("GET", url)
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "request failed",
+                    request=self.request,
+                    response=httpx.Response(self.status_code, request=self.request),
+                )
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        def __init__(self, timeout):
+            assert timeout == 30.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs))
+            if url.endswith("/missing"):
+                return Response(404, {}, url)
+            return Response(200, {"contact": {"id": "contact/a", "name": "Ada"}}, url)
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    contacts = await service.get_contacts_by_ids(["contact/a", "missing", "contact/a"])
+
+    assert contacts == {
+        "contact/a": {"id": "contact/a", "name": "Ada"},
+        "missing": None,
+    }
+    assert [request[0] for request in requests] == [
+        "https://services.leadconnectorhq.com/contacts/contact%2Fa",
+        "https://services.leadconnectorhq.com/contacts/missing",
+    ]
+    assert all(request[1]["params"] == {"locationId": "location-1"} for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_get_contacts_page_uses_both_ghl_cursor_fields(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "contacts": [{"id": "contact-2"}],
+                "meta": {"startAfterId": "contact-2", "startAfter": "2026-10-01T12:00:00.000Z"},
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs))
+            return Response()
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    contacts, cursor = await service.get_contacts_page(
+        limit=1,
+        cursor_id="contact-1",
+        cursor_after="2026-09-30T12:00:00.000Z",
+    )
+
+    assert [contact["id"] for contact in contacts] == ["contact-2"]
+    assert cursor == {
+        "start_after_id": "contact-2",
+        "start_after": "2026-10-01T12:00:00.000Z",
+    }
+    assert requests[0][1]["params"] == {
+        "locationId": "location-1",
+        "limit": 1,
+        "startAfterId": "contact-1",
+        "startAfter": "2026-09-30T12:00:00.000Z",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_lead_page_scans_using_cursors_and_filters(monkeypatch):
+    service = GHLService()
+    responses = iter([
+        ([{"id": "contact-old", "source": "old cohort", "dateAdded": "2026-09-01T00:00:00Z"}], {"start_after_id": "cursor-1"}),
+        ([{
+            "id": "contact-new",
+            "firstName": "Ari",
+            "email": "ari@example.com",
+            "source": "New Cohort",
+            "dateAdded": "2026-10-12T00:00:00Z",
+            "customFields": [{"id": "caiccVdZ41m5BMyWMH57", "value": "91"}],
+        }], {"start_after_id": "cursor-2"}),
+    ])
+    calls = []
+
+    async def fake_page(limit, cursor_id=None, cursor_after=None):
+        calls.append((limit, cursor_id, cursor_after))
+        return next(responses)
+
+    monkeypatch.setattr(service, "get_contacts_page", fake_page)
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_CONTACT_PAGE_SCAN_LIMIT", 5)
+
+    page = await service.get_enrollment_lead_page(
+        limit=1,
+        source="new cohort",
+        created_from=date(2026, 10, 1),
+    )
+
+    assert [lead["id"] for lead in page["leads"]] == ["contact-new"]
+    assert page["leads"][0]["score"] == 91
+    assert page["next_cursor"] == {"start_after_id": "cursor-2"}
+    assert page["has_more"] is True
+    assert calls == [(1, None, None), (1, "cursor-1", None)]
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_contact_page_returns_bounded_continuation(monkeypatch):
+    service = GHLService()
+    pages = iter([
+        ([{"id": f"contact-{index}", "source": "bootcamp"} for index in range(100)], {"start_after_id": "cursor-1"}),
+        ([{"id": f"other-{index}", "source": "other"} for index in range(100)], {"start_after_id": "cursor-2"}),
+    ])
+    calls = []
+
+    async def fake_page(limit, cursor_id=None, cursor_after=None):
+        calls.append(cursor_id)
+        return next(pages)
+
+    monkeypatch.setattr(service, "get_contacts_page", fake_page)
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_CONTACT_PAGE_SCAN_LIMIT", 5)
+
+    result = await service.get_cohort_contact_page(source="bootcamp", limit=100)
+
+    assert len(result["contacts"]) == 100
+    assert result["next_cursor"] == {"start_after_id": "cursor-1"}
+    assert result["has_more"] is True
+    assert calls == [None]
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_leads_filters_and_shapes_ghl_contacts(monkeypatch):
+    service = GHLService()
+
+    async def fake_get_contacts_page(limit, cursor_id=None, cursor_after=None):
+        return [
+            {
+                "id": "contact-1",
+                "firstName": "Alice",
+                "lastName": "Example",
+                "email": "alice@example.com",
+                "phone": "555-0001",
+                "source": "Bootcamp",
+                "tags": ["approved-batch"],
+                "customFields": [
+                    {"id": "caiccVdZ41m5BMyWMH57", "value": "92"},
+                    {"id": "CiowYO5hnAmwWKCp7vAO", "value": "hot"},
+                ],
+            },
+            {
+                "id": "contact-2",
+                "firstName": "Bob",
+                "lastName": "Other",
+                "email": "bob@example.com",
+                "source": "Free Training",
+                "customFields": [],
+            },
+        ], None
+
+    monkeypatch.setattr(service, "get_contacts_page", fake_get_contacts_page)
+
+    page = await service.get_enrollment_lead_page(limit=20, search="alice")
+    leads = page["leads"]
+
+    assert len(leads) == 1
+    assert leads[0]["id"] == "contact-1"
+    assert leads[0]["score"] == 92
+    assert leads[0]["category"] == "hot"
+    assert leads[0]["tags"] == ["approved-batch"]
+
+    assigned_page = await service.get_enrollment_lead_page(limit=20, contact_ids={"contact-2"})
+    assert [lead["id"] for lead in assigned_page["leads"]] == ["contact-2"]
+
+
+@pytest.mark.asyncio
+async def test_sync_enrollment_outcome_writes_tags_fields_and_note(monkeypatch):
+    service = GHLService()
+    service.get_contact = AsyncMock(return_value={"contact": {"id": "contact-1", "tags": ["existing", "customer"]}})
+    service.update_contact = AsyncMock(return_value=True)
+    service.add_contact_note = AsyncMock(return_value=True)
+
+    result = await service.sync_enrollment_outcome(
+        "contact-1",
+        queue_status="contacted",
+        score=92,
+        category="hot",
+        owner_id="owner-1",
+        note="Follow-up completed",
+    )
+
+    assert result["success"] is True
+    payload = service.update_contact.await_args.args[1]
+    assert "eny-score-hot" in payload["tags"]
+    assert "eny-status-contacted" in payload["tags"]
+    assert payload["tags"][:2] == ["existing", "customer"]
+    assert "assignedTo" not in payload
+    assert result["assigned_user_id"] == "owner-1"
+    assert {field["value"] for field in payload["customFields"]} >= {92, "hot", "contacted"}
+    service.add_contact_note.assert_awaited_once_with("contact-1", "Follow-up completed")
+
+
+@pytest.mark.asyncio
+async def test_opportunity_context_uses_supported_search_filters(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"], kwargs))
+            if url.endswith("/opportunities/search"):
+                return Response({"opportunities": []})
+            return Response({"pipelines": []})
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_contact_opportunity_context("contact-1")
+
+    assert result["status"] == "connected"
+    assert requests[0][1] == {"locationId": "location-1", "contactId": "contact-1", "limit": 100}
+    assert requests[0][2]["headers"]["Version"] == "2021-07-28"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_data_returns_catalog_and_paginated_opportunities(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_OPPORTUNITY_MAX_PAGES", 5)
+    requests = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"], kwargs))
+            if url.endswith("/opportunities/search"):
+                page = kwargs["params"]["page"]
+                if page == 0:
+                    return Response({
+                        "opportunities": [{
+                            "id": "opportunity-1",
+                            "contactName": "Alice Example",
+                            "pipelineId": "pipeline-1",
+                            "pipelineStageId": "stage-1",
+                            "monetaryValue": 250,
+                        }],
+                        "meta": {"totalPages": 2},
+                    })
+                return Response({
+                    "opportunities": [{
+                        "id": "opportunity-2",
+                        "pipelineId": "pipeline-1",
+                        "monetaryValue": 100,
+                    }],
+                    "meta": {"totalPages": 2},
+                })
+            return Response({
+                "pipelines": [{
+                    "id": "pipeline-1",
+                    "name": "Enrollment",
+                    "stages": [{"id": "stage-1", "name": "Qualified"}],
+                }],
+            })
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_pipeline_data(include_inventory=True)
+
+    assert result["status"] == "connected"
+    assert result["pipeline_catalog_status"] == "connected"
+    assert result["max_pages_reached"] is False
+    assert result["pipelines"][0]["name"] == "Enrollment"
+    assert len(result["opportunities"]) == 2
+    assert result["opportunities"][0]["pipelineName"] == "Enrollment"
+    assert result["opportunities"][0]["pipelineStageName"] == "Qualified"
+    assert result["revenue_forecast"] == 350
+    assert all(
+        params["locationId"] == "location-1"
+        and params["status"] == "all"
+        and kwargs["headers"]["Version"] == "v3"
+        for url, params, kwargs in requests
+        if url.endswith("/opportunities/search")
+    )
+    assert [params["page"] for url, params, kwargs in requests if url.endswith("/opportunities/search")] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_data_keeps_summary_fetch_single_page_by_default(monkeypatch):
+    service = GHLService()
+    service.private_token = "test-token"
+    service.location_id = "location-1"
+    requests = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"opportunities": []}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            requests.append((url, kwargs["params"], kwargs))
+            return Response()
+
+    monkeypatch.setattr("app.services.ghl_service.httpx.AsyncClient", Client)
+
+    result = await service.get_pipeline_data()
+
+    assert result["pipeline_catalog_status"] == "not_requested"
+    assert requests == [(
+        f"{service.base_url}/opportunities/search",
+        {"locationId": "location-1", "limit": 100, "status": "all"},
+        {
+            "params": {"locationId": "location-1", "limit": 100, "status": "all"},
+            "headers": {**service.headers, "Version": "v3"},
+            "timeout": 30.0,
+        },
+    )]
+
+
+def test_contact_quality_report_normalizes_and_detects_duplicate_identity():
+    report = GHLService.build_contact_quality_report([
+        {"id": "contact-1", "firstName": " Alice ", "lastName": "Example", "email": "ALICE@example.com", "phone": "(555) 000-1", "source": " Bootcamp "},
+        {"id": "contact-2", "firstName": "Alice", "lastName": "Example", "email": "alice@example.com", "phone": "5550001", "source": "bootcamp"},
+        {"id": "contact-3", "firstName": "Unknown", "lastName": "", "source": ""},
+    ])
+
+    assert report["contacts_checked"] == 3
+    assert report["duplicate_groups"][0]["count"] == 2
+    assert report["missing_contact_channel"] == 1
+    assert report["missing_source"] == 1
+    assert report["quality_status"] == "needs_review"
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_requires_configured_explicit_opt_in(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "marketing-consent")
+    service.get_contact = AsyncMock(return_value={"contact": {
+        "id": "contact-1",
+        "email": "person@example.com",
+        "dnd": False,
+        "customFields": [{"id": "marketing-consent", "value": "yes"}],
+    }})
+
+    result = await service.validate_marketing_email_consent("contact-1", "PERSON@example.com")
+
+    assert result["eligible"] is True
+    assert result["email_matches"] is True
+    assert result["opted_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_blocks_dnd_and_email_mismatch(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "marketing-consent")
+    service.get_contact = AsyncMock(return_value={"id": "contact-1", "email": "person@example.com", "dnd": True, "customFields": [{"id": "marketing-consent", "value": True}]})
+
+    result = await service.validate_marketing_email_consent("contact-1", "other@example.com")
+
+    assert result["eligible"] is False
+    assert result["email_matches"] is False
+    assert result["email_dnd"] is True
+
+
+@pytest.mark.asyncio
+async def test_marketing_email_consent_fails_closed_without_field_configuration(monkeypatch):
+    service = GHLService()
+    monkeypatch.setattr("app.services.ghl_service.settings.GHL_MARKETING_CONSENT_FIELD_ID", "")
+    service.get_contact = AsyncMock()
+
+    result = await service.validate_marketing_email_consent("contact-1", "person@example.com")
+
+    assert result == {"status": "not_configured", "eligible": False}
+    service.get_contact.assert_not_awaited()
