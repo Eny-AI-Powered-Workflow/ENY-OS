@@ -1,8 +1,6 @@
 # /home/obed/Documents/Eny_consulting/.gitignore
 __pycache__/
 *.pyc
-.env
-.env.local
 node_modules/
 .next/
 .venv/
@@ -113,3 +111,4 @@ GOOGLE_Calendar.md
 generate_fernet_key.py
 
 design/
+config.bat
